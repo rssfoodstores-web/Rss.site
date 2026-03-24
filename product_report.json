@@ -1,0 +1,60 @@
+[
+  {
+    "product": {
+      "id": "8aff2de2-972d-4f0f-b725-c882aff10835",
+      "merchant_id": "4fb91f97-fbb6-4aa2-9f3a-21a5c522001f",
+      "name": "Bag of rice",
+      "category": "grains",
+      "price": 800000,
+      "stock_level": 0,
+      "image_url": "https://res.cloudinary.com/dbyia2fwe/image/upload/v1769538668/rssa1/products/cwpgdeavnuqihf2aioge.png",
+      "is_available": true,
+      "status": "approved",
+      "images": [
+        "https://res.cloudinary.com/dbyia2fwe/image/upload/v1769538668/rssa1/products/cwpgdeavnuqihf2aioge.png"
+      ],
+      "created_at": "2026-01-27T18:32:17.609674+00:00",
+      "sales_type": "retail",
+      "tags": [
+        "rice"
+      ],
+      "seo_title": "",
+      "seo_description": "",
+      "state": "Oyo",
+      "weight": "80kg",
+      "is_perishable": false,
+      "discount_price": 0,
+      "add_tax": false,
+      "has_options": true,
+      "description": "local rice in storage",
+      "options": [
+        {
+          "type": "Size",
+          "values": [
+            "S",
+            "M"
+          ]
+        }
+      ]
+    },
+    "merchant": {
+      "id": "4fb91f97-fbb6-4aa2-9f3a-21a5c522001f",
+      "full_name": "Ogun David",
+      "phone": "08050489999",
+      "avatar_url": null,
+      "updated_at": "2026-01-26T08:15:31.352929+00:00",
+      "address": "1 kutsfgg, Ibadan, Oyo 234102",
+      "company_name": null,
+      "zip_code": "234102",
+      "state": "Oyo",
+      "street_address": "kutsfgg",
+      "house_number": "1",
+      "location": "0101000020E61000001F85EB51B81E0D40C3F5285C8FC21B40",
+      "referral_code": null,
+      "referred_by": null,
+      "points_balance": 0,
+      "location_locked": true,
+      "update_requested": false
+    }
+  }
+]

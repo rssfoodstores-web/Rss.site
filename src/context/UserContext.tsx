@@ -1,0 +1,301 @@
+"use client"
+
+import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { type Session, type User } from "@supabase/supabase-js"
+
+interface UserProfile {
+    id: string
+    full_name: string | null
+    state: string | null
+    phone: string | null
+    avatar_url: string | null
+    address?: string | null
+    location?: unknown | null
+}
+
+interface UserContextType {
+    user: User | null
+    profile: UserProfile | null
+    roleNames: string[]
+    workspaceStatuses: {
+        merchant: string | null
+        agent: string | null
+        rider: string | null
+    }
+    roles: {
+        isMerchant: boolean
+        isAgent: boolean
+        isRider: boolean
+        isAdmin: boolean
+    }
+    unreadCount: number
+    isLoading: boolean
+    refreshProfile: () => Promise<void>
+    refreshUnreadCount: (targetUserId?: string) => Promise<void>
+    setUnreadCountLocal: (count: number) => void
+}
+
+const UserContext = createContext<UserContextType | undefined>(undefined)
+
+interface UserRoleRow {
+    role: string
+}
+
+function isAbortLike(error: unknown) {
+    return error instanceof Error && (error.name === "AbortError" || error.message.includes("aborted"))
+}
+
+export function UserProvider({ children }: { children: ReactNode }) {
+    const [user, setUser] = useState<User | null>(null)
+    const [profile, setProfile] = useState<UserProfile | null>(null)
+    const [roleNames, setRoleNames] = useState<string[]>([])
+    const [workspaceStatuses, setWorkspaceStatuses] = useState({
+        merchant: null as string | null,
+        agent: null as string | null,
+        rider: null as string | null,
+    })
+    const [roles, setRoles] = useState({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
+    const [unreadCount, setUnreadCount] = useState(0)
+    const [isLoading, setIsLoading] = useState(true)
+
+    const [supabase] = useState(() => createClient())
+    const unreadRefreshTimeoutRef = useRef<number | null>(null)
+
+    // Load cached profile from localStorage on mount (Optimistic Load)
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const cached = localStorage.getItem("rssa_user_profile")
+            if (cached) {
+                try {
+                    setProfile(JSON.parse(cached))
+                } catch (e) {
+                    console.error("Failed to parse cached profile", e)
+                }
+            }
+        }
+    }, [])
+
+    const refreshUnreadCount = useCallback(async (targetUserId?: string) => {
+        const nextUserId = targetUserId ?? user?.id
+
+        if (!nextUserId) {
+            setUnreadCount(0)
+            return
+        }
+
+        const { count, error } = await supabase
+            .from("notifications")
+            .select("*", { count: "exact", head: true })
+            .eq("user_id", nextUserId)
+            .eq("read", false)
+
+        if (error) {
+            console.error("Error refreshing unread count:", error)
+            return
+        }
+
+        setUnreadCount(count || 0)
+    }, [supabase, user?.id])
+
+    const fetchUserData = useCallback(async (currentUser: User) => {
+        try {
+            // Parallelize fetching of dependent data
+            const [profileResult, rolesResult, notificationsResult, merchantResult, agentResult, riderResult] = await Promise.all([
+                // 1. Fetch Profile
+                supabase
+                    .from('profiles')
+                    .select('id, full_name, state, phone, avatar_url, address, location')
+                    .eq('id', currentUser.id)
+                    .single(),
+
+                // 2. Fetch Roles
+                supabase
+                    .from('user_roles')
+                    .select('role')
+                    .eq('user_id', currentUser.id),
+
+                // 3. Fetch Notifications Count
+                supabase
+                    .from('notifications')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('user_id', currentUser.id)
+                    .eq('read', false),
+
+                supabase
+                    .from('merchants')
+                    .select('status')
+                    .eq('id', currentUser.id)
+                    .maybeSingle(),
+
+                supabase
+                    .from('agent_profiles')
+                    .select('status')
+                    .eq('id', currentUser.id)
+                    .maybeSingle(),
+
+                supabase
+                    .from('rider_profiles')
+                    .select('status')
+                    .eq('id', currentUser.id)
+                    .maybeSingle(),
+            ])
+
+            // Process Profile
+            if (profileResult.data) {
+                setProfile(profileResult.data)
+                // Update cache
+                localStorage.setItem("rssa_user_profile", JSON.stringify(profileResult.data))
+            }
+
+            // Process Roles
+            const merchantStatus = merchantResult.data?.status ?? null
+            const agentStatus = agentResult.data?.status ?? null
+            const riderStatus = riderResult.data?.status ?? null
+            const rawRoleNames = (rolesResult.data ?? []).map((roleRow: UserRoleRow) => roleRow.role)
+            const derivedRoleNames = Array.from(
+                new Set([
+                    ...rawRoleNames,
+                    ...(merchantStatus ? ["merchant"] : []),
+                    ...(agentStatus ? ["agent"] : []),
+                    ...(riderStatus ? ["rider"] : []),
+                ])
+            )
+            const userRoles = {
+                isMerchant: derivedRoleNames.includes("merchant"),
+                isAgent: derivedRoleNames.includes("agent"),
+                isRider: derivedRoleNames.includes("rider"),
+                isAdmin: rawRoleNames.some((role: string) => ['admin', 'supa_admin', 'sub_admin'].includes(role)),
+            }
+
+            setRoles(userRoles)
+            setRoleNames(derivedRoleNames)
+            setWorkspaceStatuses({
+                merchant: merchantStatus,
+                agent: agentStatus,
+                rider: riderStatus,
+            })
+
+            // Process Notifications
+            setUnreadCount(notificationsResult.count || 0)
+
+        } catch (error: unknown) {
+            if (isAbortLike(error)) {
+                return
+            }
+            console.error("Error fetching user data:", error)
+        }
+    }, [supabase])
+
+    useEffect(() => {
+        let mounted = true
+
+        const initAuth = async () => {
+            try {
+                const { data: { user } } = await supabase.auth.getUser()
+
+                if (mounted) {
+                    setUser(user)
+                    if (user) {
+                        await fetchUserData(user)
+                    } else {
+                        setProfile(null)
+                        setRoleNames([])
+                        setWorkspaceStatuses({ merchant: null, agent: null, rider: null })
+                        setRoles({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
+                        setUnreadCount(0)
+                        localStorage.removeItem("rssa_user_profile")
+                    }
+                }
+            } catch (error: unknown) {
+                // Ignore AbortError / cancellation errors which are common in React Strict Mode
+                if (isAbortLike(error)) {
+                    return
+                }
+                console.error("Auth check failed:", error)
+            } finally {
+                if (mounted) setIsLoading(false)
+            }
+        }
+
+        initAuth()
+
+        // Auth State Listener
+        const { data: authListener } = supabase.auth.onAuthStateChange(async (event: string, session: Session | null) => {
+            if (session?.user) {
+                setUser(session.user)
+                if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+                    await fetchUserData(session.user)
+                }
+            } else if (event === 'SIGNED_OUT') {
+                setUser(null)
+                setProfile(null)
+                setRoleNames([])
+                setWorkspaceStatuses({ merchant: null, agent: null, rider: null })
+                setRoles({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
+                setUnreadCount(0)
+                localStorage.removeItem("rssa_user_profile")
+            }
+        })
+
+        return () => {
+            mounted = false
+            authListener.subscription.unsubscribe()
+        }
+    }, [fetchUserData, supabase])
+
+    useEffect(() => {
+        if (!user?.id) {
+            return
+        }
+
+        const scheduleUnreadRefresh = () => {
+            if (unreadRefreshTimeoutRef.current !== null) {
+                window.clearTimeout(unreadRefreshTimeoutRef.current)
+            }
+
+            unreadRefreshTimeoutRef.current = window.setTimeout(() => {
+                unreadRefreshTimeoutRef.current = null
+                void refreshUnreadCount(user.id)
+            }, 100)
+        }
+
+        const channel = supabase
+            .channel(`user-notifications-${user.id}`)
+            .on("postgres_changes", {
+                event: "*",
+                schema: "public",
+                table: "notifications",
+                filter: `user_id=eq.${user.id}`,
+            }, scheduleUnreadRefresh)
+            .subscribe()
+
+        return () => {
+            if (unreadRefreshTimeoutRef.current !== null) {
+                window.clearTimeout(unreadRefreshTimeoutRef.current)
+                unreadRefreshTimeoutRef.current = null
+            }
+            supabase.removeChannel(channel)
+        }
+    }, [refreshUnreadCount, supabase, user?.id])
+
+    const refreshProfile = useCallback(async () => {
+        if (user) {
+            await fetchUserData(user)
+        }
+    }, [fetchUserData, user])
+
+    return (
+        <UserContext.Provider value={{ user, profile, roleNames, workspaceStatuses, roles, unreadCount, isLoading, refreshProfile, refreshUnreadCount, setUnreadCountLocal: setUnreadCount }}>
+            {children}
+        </UserContext.Provider>
+    )
+}
+
+export function useUser() {
+    const context = useContext(UserContext)
+    if (context === undefined) {
+        throw new Error("useUser must be used within a UserProvider")
+    }
+    return context
+}
