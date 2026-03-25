@@ -64,21 +64,16 @@ export function ProductCard({ product }: { product: Product }) {
 
     return (
         <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            whileHover={{ y: -8 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
-            className="group relative bg-white dark:bg-zinc-900/50 backdrop-blur-sm border border-gray-100 dark:border-zinc-800 rounded-[2rem] overflow-hidden shadow-sm hover:shadow-xl hover:shadow-orange-500/10 transition-all duration-300"
+            className="group relative bg-white dark:bg-zinc-900/50 backdrop-blur-sm border border-gray-100 dark:border-zinc-800 rounded-xl md:rounded-2xl overflow-hidden shadow-sm hover:shadow-xl hover:shadow-orange-500/10 transition-all duration-300 flex flex-col"
         >
             <Dialog open={reviewsOpen} onOpenChange={setReviewsOpen}>
-                <Link href={`/products/${product.id}`} className="block h-full">
+                <Link href={`/products/${product.id}`} className="flex flex-col flex-1 h-full">
                     {/* Image Container */}
-                    <div className="relative aspect-[4/5] bg-gray-50 dark:bg-zinc-900 overflow-hidden">
-                        <motion.div
-                            className="w-full h-full"
-                            whileHover={{ scale: 1.1 }}
-                            transition={{ duration: 0.6 }}
-                        >
+                    <div className="relative aspect-[5/4] md:aspect-[4/5] bg-gray-50 dark:bg-zinc-900 overflow-hidden shrink-0">
+                        <div className="w-full h-full transition-transform duration-500 ease-out group-hover:scale-105">
                             {product.imageUrl ? (
                                 <Image
                                     src={product.imageUrl}
@@ -91,123 +86,82 @@ export function ProductCard({ product }: { product: Product }) {
                                     No Image
                                 </div>
                             )}
-                        </motion.div>
+                        </div>
 
                         {/* Sale Badge */}
                         {product.isSale && (
-                            <div className="absolute top-4 left-4 z-10">
-                                <Badge className="bg-red-500 hover:bg-red-600 text-white border-0 px-3 py-1 text-xs font-bold shadow-lg shadow-red-500/20 uppercase tracking-widest backdrop-blur-md">
+                            <div className="absolute top-2 left-2 md:top-4 md:left-4 z-10">
+                                <Badge className="bg-red-500 hover:bg-red-600 text-white border-0 px-2 py-0.5 md:px-3 md:py-1 text-[10px] md:text-xs font-bold shadow-lg shadow-red-500/20 uppercase tracking-widest backdrop-blur-md">
                                     Sale
                                 </Badge>
                             </div>
                         )}
 
                         {/* Quick Actions (Floating) */}
-                        <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
+                        <div className="absolute top-2 right-2 md:top-4 md:right-4 z-10 flex flex-col gap-2">
                             <motion.button
                                 whileHover={{ scale: 1.1 }}
                                 whileTap={{ scale: 0.9 }}
                                 onClick={handleToggleWishlist}
                                 className={cn(
-                                    "h-10 w-10 rounded-full flex items-center justify-center backdrop-blur-md border border-white/20 shadow-lg transition-colors",
+                                    "h-8 w-8 md:h-10 md:w-10 rounded-full flex items-center justify-center backdrop-blur-md border border-white/20 shadow-lg transition-colors",
                                     isWishlisted
                                         ? "bg-red-500 text-white border-red-500"
                                         : "bg-white/80 dark:bg-black/50 text-gray-700 dark:text-gray-200 hover:bg-white dark:hover:bg-zinc-800"
                                 )}
                             >
-                                <Heart className={cn("h-5 w-5", isWishlisted && "fill-current")} />
+                                <Heart className={cn("h-4 w-4 md:h-5 md:w-5", isWishlisted && "fill-current")} />
                             </motion.button>
                         </div>
 
-                        {/* Add to Cart Overlay (Slide Up) */}
-                        <div className="absolute inset-x-4 bottom-4 z-10 translate-y-[120%] group-hover:translate-y-0 transition-transform duration-300 ease-in-out">
-                            <Button
-                                className="w-full rounded-xl bg-white/90 dark:bg-black/90 backdrop-blur-md text-black dark:text-white hover:bg-primary hover:text-white dark:hover:text-white font-bold h-12 shadow-lg border border-white/20 transition-all"
-                                onClick={handleAddToCart}
-                            >
-                                <ShoppingCart className="mr-2 h-4 w-4" />
-                                Add to Cart
-                            </Button>
-                        </div>
                     </div>
 
                     {/* Content */}
-                    <div className="p-3 md:p-5 flex flex-col gap-2">
+                    <div className="p-2 md:p-5 flex flex-col gap-1 md:gap-2 flex-1">
                         <div className="flex items-center justify-between">
-                            <Badge variant="outline" className="text-[10px] md:text-xs font-medium text-gray-500 border-gray-200 dark:border-zinc-700 bg-transparent px-1.5 py-0.5">
+                            <Badge variant="secondary" className="text-[10px] md:text-xs font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-zinc-800 border-transparent hover:bg-gray-200 dark:hover:bg-zinc-700 px-2 py-0.5 rounded-full transition-colors">
                                 {product.category}
                             </Badge>
                         </div>
 
-                        <h3 className="font-bold text-sm md:text-lg text-gray-900 dark:text-white leading-tight line-clamp-2 min-h-[2.5rem] md:min-h-[3rem] group-hover:text-[#F58220] transition-colors">
+                        <h3 className="font-bold text-xs md:text-base lg:text-lg text-gray-900 dark:text-white leading-tight line-clamp-2 min-h-0 md:min-h-[2.5rem] group-hover:text-[#F58220] transition-colors">
                             {product.name}
                         </h3>
 
-                        <div className="rounded-2xl border border-orange-100 bg-orange-50/60 px-3 py-2 text-sm dark:border-orange-900/40 dark:bg-orange-950/20">
+                        {/* Mobile hide ratings for compactness */}
+                        <div className="hidden md:flex flex-col gap-1 mt-1">
                             {reviewSummary && reviewSummary.reviewCount > 0 ? (
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2">
-                                            <ReviewStars rating={reviewSummary.averageRating} />
-                                            <span className="font-semibold text-gray-900 dark:text-white">
-                                                {reviewSummary.averageRating.toFixed(1)}
-                                            </span>
-                                        </div>
-                                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                                            {reviewSummary.reviewCount} review{reviewSummary.reviewCount === 1 ? "" : "s"}
-                                        </span>
-                                    </div>
-                                    {previewReviews.length > 0 ? (
-                                        <p className="line-clamp-2 text-xs text-gray-600 dark:text-gray-300">
-                                            &ldquo;{previewReviews[0].comment}&rdquo;
-                                        </p>
-                                    ) : (
-                                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            Buyers have rated this item. Open reviews to read their notes.
-                                        </p>
-                                    )}
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-auto p-0 text-xs font-semibold text-[#F58220] hover:bg-transparent hover:text-[#E57210]"
-                                        onClick={handleOpenReviews}
-                                    >
-                                        <Eye className="mr-1.5 h-3.5 w-3.5" />
-                                        View all reviews
-                                    </Button>
-                                </div>
+                                <button type="button" onClick={handleOpenReviews} className="flex items-center gap-1.5 hover:opacity-80 transition-opacity focus:outline-none w-fit">
+                                    <ReviewStars rating={reviewSummary.averageRating} size="sm" />
+                                    <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">
+                                        {reviewSummary.averageRating.toFixed(1)}
+                                    </span>
+                                    <span className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400">
+                                        ({reviewSummary.reviewCount})
+                                    </span>
+                                </button>
                             ) : (
-                                <div className="space-y-1">
-                                    <div className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
-                                        <ReviewStars rating={0} />
-                                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">
-                                            No ratings yet
-                                        </span>
-                                    </div>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                                        This item has not received buyer feedback yet.
-                                    </p>
+                                <div className="flex items-center gap-1.5">
+                                    <ReviewStars rating={0} size="sm" />
+                                    <span className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400 font-medium">
+                                        No ratings
+                                    </span>
                                 </div>
                             )}
                         </div>
 
-                        <div className="flex items-end justify-between mt-1 md:mt-2">
-                            <div className="flex flex-col">
-                                <span className="text-[10px] md:text-xs text-gray-400 font-medium">Price</span>
-                                <span className="text-base md:text-xl font-bold text-[#F58220] tracking-tight">
-                                    {formatKobo(product.price)}
-                                </span>
-                            </div>
-                            <div className="md:hidden">
-                                <Button
-                                    size="icon"
-                                    className="rounded-full bg-[#F58220] h-8 w-8 shadow-md active:scale-95 transition-transform"
-                                    onClick={handleAddToCart}
-                                >
-                                    <ShoppingCart className="h-4 w-4 text-white" />
-                                </Button>
-                            </div>
+                        <div className="flex items-center justify-between mt-auto pt-2 md:pt-4">
+                            <span className="text-sm md:text-xl font-extrabold text-[#F58220] tracking-tight">
+                                {formatKobo(product.price)}
+                            </span>
+                            <Button
+                                size="sm"
+                                className="rounded-full bg-[#F58220] text-white hover:bg-[#E57210] h-8 w-8 md:h-9 md:w-9 p-0 md:w-auto md:px-4 flex items-center justify-center shadow-md active:scale-95 transition-all group-hover:shadow-lg"
+                                onClick={handleAddToCart}
+                            >
+                                <ShoppingCart className="h-4 w-4 md:mr-2 shrink-0" />
+                                <span className="hidden md:inline font-semibold">Add</span>
+                            </Button>
                         </div>
                     </div>
                 </Link>

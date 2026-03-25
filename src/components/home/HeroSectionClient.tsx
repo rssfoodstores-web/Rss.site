@@ -93,8 +93,8 @@ export function HeroSectionClient({ slides }: { slides: HeroSlide[] }) {
     const cta = getCallToAction(activeSlide)
 
     return (
-        <section className="container mx-auto px-4 py-6 md:px-8">
-            <div className="flex flex-col gap-6 transition-all duration-300 ease-in-out md:flex-row">
+        <section className="mx-auto w-full md:container py-0 md:px-4 md:py-6 lg:px-8">
+            <div className="flex flex-col gap-0 transition-all duration-300 ease-in-out md:flex-row md:gap-6">
                 <div className={`${isOpen ? "w-64 translate-x-0 opacity-100" : "hidden w-0 -translate-x-full opacity-0"} hidden flex-shrink-0 overflow-hidden transition-all duration-300 ease-in-out md:block`}>
                     <Card className="h-full rounded-none border-none bg-white shadow-sm dark:bg-card">
                         <div className="flex h-[500px] flex-col overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-gray-200 dark:scrollbar-thumb-zinc-700">
@@ -117,42 +117,44 @@ export function HeroSectionClient({ slides }: { slides: HeroSlide[] }) {
                     </Card>
                 </div>
 
-                <div className="relative flex min-h-[430px] flex-1 items-center overflow-hidden rounded-[2rem] bg-[#0F392B] shadow-lg">
+                <div className="relative flex min-h-[80vh] md:min-h-[430px] flex-1 items-end md:items-center overflow-hidden rounded-none md:rounded-[2rem] bg-[#0F392B] shadow-lg">
                     <div className="absolute inset-0 z-0 h-full w-full">
                         {renderBackgroundMedia(activeSlide)}
-                        <div className="absolute inset-0 z-10 bg-gradient-to-r from-[#0F392B] via-[#0F392B]/84 to-[#0F392B]/20" />
+                        <div className="absolute inset-0 z-10 bg-gradient-to-t md:bg-gradient-to-r from-[#0F392B] via-[#0F392B]/80 md:via-[#0F392B]/84 to-transparent md:to-[#0F392B]/20" />
                     </div>
 
-                    <div className="relative z-20 max-w-xl px-8 md:px-16">
+                    <div className="relative z-20 w-full max-w-xl px-6 pb-12 pt-32 md:pb-0 md:pt-0 md:px-12 lg:px-16 flex flex-col items-center text-center md:items-start md:text-left mx-auto md:mx-0">
                         <motion.div
                             key={activeSlide.id}
                             initial={{ opacity: 0, y: 16 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ duration: 0.45 }}
+                            className="w-full flex flex-col items-center md:items-start"
                         >
-                            <span className="mb-3 block text-sm font-bold uppercase tracking-[0.24em] text-primary">
+                            <span className="mb-2 md:mb-3 block text-xs md:text-sm font-bold uppercase tracking-[0.24em] text-primary drop-shadow-sm">
                                 {activeSlide.eyebrowText || "Fresh picks for today"}
                             </span>
 
-                            <h1 className="text-4xl font-bold leading-tight text-white md:text-5xl">
+                            <h1 className="text-4xl font-bold leading-tight text-white sm:text-5xl drop-shadow-md">
                                 {activeSlide.title}
                                 {activeSlide.highlightText ? (
                                     <>
-                                        <br />
+                                        <br className="hidden md:block" />
+                                        <span className="md:hidden"> </span>
                                         <span className="text-green-400">{activeSlide.highlightText}</span>
                                     </>
                                 ) : null}
                             </h1>
 
                             {activeSlide.bodyText ? (
-                                <p className="mt-5 max-w-lg text-base leading-7 text-white/85 md:text-lg">
+                                <p className="mt-4 md:mt-5 max-w-lg text-sm sm:text-base leading-relaxed text-white/90 md:text-lg drop-shadow-sm">
                                     {activeSlide.bodyText}
                                 </p>
                             ) : null}
 
                             <Button
                                 size="lg"
-                                className="mt-8 rounded-full bg-primary px-8 py-6 text-lg text-white group hover:bg-primary/90"
+                                className="mt-6 md:mt-8 rounded-full bg-primary px-8 py-6 text-base md:text-lg text-white group hover:bg-primary/90 w-full sm:w-auto shadow-lg"
                                 asChild
                             >
                                 <a href={cta.url}>
@@ -163,7 +165,7 @@ export function HeroSectionClient({ slides }: { slides: HeroSlide[] }) {
                         </motion.div>
 
                         {slides.length > 1 ? (
-                            <div className="mt-12 flex gap-2">
+                            <div className="mt-8 md:mt-12 flex justify-center md:justify-start gap-2">
                                 {slides.map((slide, index) => (
                                     <button
                                         key={slide.id}

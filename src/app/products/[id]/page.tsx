@@ -192,7 +192,7 @@ export default function ProductDetailsPage() {
         : 0
 
     return (
-        <div className="min-h-screen bg-white dark:bg-black pb-32 font-sans text-[#1A1A1A] dark:text-white">
+        <div className="min-h-screen bg-white dark:bg-black pb-24 font-sans text-[#1A1A1A] dark:text-white">
             {/* Header / Nav */}
             <div className="sticky top-0 z-40 bg-white/80 dark:bg-black/80 backdrop-blur-md border-b border-gray-100 dark:border-zinc-900">
                 <div className="container mx-auto px-4 lg:px-6 h-16 flex items-center gap-4">
@@ -208,11 +208,11 @@ export default function ProductDetailsPage() {
             </div>
 
             <div className="container mx-auto px-4 lg:px-6 py-8">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 xl:gap-24 items-start">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-12 xl:gap-24 items-start">
 
                     {/* Image Gallery Section */}
-                    <div className="relative sticky top-24">
-                        <div className="aspect-[4/5] md:aspect-square bg-gray-50 dark:bg-zinc-900 rounded-[2.5rem] overflow-hidden border border-gray-100 dark:border-zinc-800 relative group shadow-2xl shadow-gray-200/50 dark:shadow-black/50">
+                    <div className="relative md:sticky md:top-24">
+                        <div className="aspect-square bg-gray-50 dark:bg-zinc-900 rounded-2xl lg:rounded-[2.5rem] overflow-hidden border border-gray-100 dark:border-zinc-800 relative group shadow-lg lg:shadow-2xl shadow-gray-200/50 dark:shadow-black/50">
                             {product.image_url ? (
                                 <Image
                                     src={product.image_url}
@@ -236,11 +236,11 @@ export default function ProductDetailsPage() {
                                 </div>
                             )}
 
-                            <div className="absolute top-6 right-6 z-10">
+                            <div className="absolute top-3 right-3 lg:top-6 lg:right-6 z-10">
                                 <Button
                                     size="icon"
                                     variant="secondary"
-                                    className={cn("h-14 w-14 rounded-full shadow-xl hover:scale-110 transition-all border border-white/20 backdrop-blur-md bg-white/80 dark:bg-black/50", isWishlisted && "text-red-500 bg-red-50 dark:bg-red-900/20")}
+                                    className={cn("h-10 w-10 lg:h-14 lg:w-14 rounded-full shadow-xl hover:scale-110 transition-all border border-white/20 backdrop-blur-md bg-white/80 dark:bg-black/50", isWishlisted && "text-red-500 bg-red-50 dark:bg-red-900/20")}
                                     onClick={() => toggleWishlist({
                                         id: product.id,
                                         name: product.name,
@@ -250,14 +250,14 @@ export default function ProductDetailsPage() {
                                         stock_level: product.stock_level
                                     })}
                                 >
-                                    <Heart className={cn("h-7 w-7", isWishlisted && "fill-current")} />
+                                    <Heart className={cn("h-5 w-5 lg:h-7 lg:w-7", isWishlisted && "fill-current")} />
                                 </Button>
                             </div>
                         </div>
                     </div>
 
                     {/* Product Info Section */}
-                    <div className="flex flex-col h-full justify-center pt-4 space-y-8">
+                    <div className="flex flex-col h-full justify-center pt-2 lg:pt-4 space-y-5 lg:space-y-8">
 
                         {/* Categories & Stock Status */}
                         <div className="flex items-center flex-wrap gap-3">
@@ -280,12 +280,12 @@ export default function ProductDetailsPage() {
 
                         {/* Title & Price */}
                         <div>
-                            <h1 className="text-4xl md:text-5xl font-black mb-4 leading-[1.1] tracking-tight text-gray-900 dark:text-white">
+                            <h1 className="text-3xl md:text-5xl font-black mb-2 md:mb-4 leading-[1.1] tracking-tight text-gray-900 dark:text-white">
                                 {product.name}
                             </h1>
 
-                            <div className="flex items-baseline gap-4 mb-2">
-                                <span className="text-5xl font-bold text-[#F58220]">
+                            <div className="flex items-baseline gap-3 mb-2">
+                                <span className="text-3xl md:text-5xl font-bold text-[#F58220]">
                                     {formatKobo(product.price)}
                                 </span>
                                 {hasDiscount && (
@@ -306,17 +306,17 @@ export default function ProductDetailsPage() {
                                 {reviewSummary.reviewCount > 0 ? (
                                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                         <div className="flex items-center gap-3">
-                                            <ReviewStars rating={reviewSummary.averageRating} size="md" />
+                                            <ReviewStars rating={reviewSummary.averageRating} size="sm" />
                                             <div>
-                                                <p className="text-lg font-bold text-gray-900 dark:text-white">
-                                                    {reviewSummary.averageRating.toFixed(1)} out of 5
+                                                <p className="text-base md:text-lg font-bold text-gray-900 dark:text-white leading-none mb-1">
+                                                    {reviewSummary.averageRating.toFixed(1)} <span className="text-xs font-normal text-gray-400">/ 5</span>
                                                 </p>
-                                                <p className="text-sm text-gray-500 dark:text-gray-400">
-                                                    Based on {reviewSummary.reviewCount} customer review{reviewSummary.reviewCount === 1 ? "" : "s"}
+                                                <p className="text-[10px] md:text-sm text-gray-500 dark:text-gray-400 font-bold uppercase tracking-wider">
+                                                    {reviewSummary.reviewCount} review{reviewSummary.reviewCount === 1 ? "" : "s"}
                                                 </p>
                                             </div>
                                         </div>
-                                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                                        <p className="hidden md:block text-sm text-gray-500 dark:text-gray-400">
                                             Buyer feedback is shown before checkout.
                                         </p>
                                     </div>
@@ -414,10 +414,10 @@ export default function ProductDetailsPage() {
                         </div>
 
                         {/* Footer Action Bar (Mobile Sticky) */}
-                        <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/80 dark:bg-black/80 backdrop-blur-xl border-t border-gray-100 dark:border-zinc-800 lg:relative lg:p-0 lg:bg-transparent lg:border-0 lg:backdrop-blur-none z-50">
+                        <div className="fixed bottom-0 left-0 right-0 p-3 lg:p-4 bg-white/80 dark:bg-black/80 backdrop-blur-xl border-t border-gray-100 dark:border-zinc-800 lg:relative lg:p-0 lg:bg-transparent lg:border-0 lg:backdrop-blur-none z-50">
                             <Button
                                 size="lg"
-                                className="w-full rounded-full bg-[#F58220] hover:bg-[#F58220]/90 text-white font-bold h-16 text-xl shadow-xl shadow-orange-500/20 active:scale-[0.98] transition-all"
+                                className="w-full rounded-full bg-[#F58220] hover:bg-[#F58220]/90 text-white font-bold h-14 lg:h-16 text-lg lg:text-xl shadow-xl shadow-orange-500/20 active:scale-[0.98] transition-all"
                                 onClick={() => addToCart({
                                     id: product.id,
                                     name: product.name,

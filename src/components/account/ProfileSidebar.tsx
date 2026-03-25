@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -42,6 +42,7 @@ import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 import { useUser } from "@/context/UserContext"
 import { canUpdateAccountPassword } from "@/lib/authProviders"
+import { getNotificationCountForHrefs } from "@/lib/notifications"
 
 interface ProfileSidebarProps {
     className?: string
@@ -182,9 +183,10 @@ function LoadingSkeleton() {
 
 export function ProfileSidebar({ className }: ProfileSidebarProps) {
     const pathname = usePathname()
-    const { unreadCount, roleNames, workspaceStatuses, isLoading, user } = useUser()
+    const { unreadCount, notificationPathCounts, roleNames, workspaceStatuses, isLoading, user } = useUser()
     const [supabase] = useState(() => createClient())
     const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({})
+    const mobileNavRef = useRef<HTMLDivElement | null>(null)
     const showLoadingSkeleton =
         isLoading &&
         roleNames.length === 0 &&
@@ -201,6 +203,29 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
         [user]
     )
 
+    const withNotificationBadge = useCallback((item: NavItem): NavItem => {
+        if (item.href === "/account/notifications") {
+            return {
+                ...item,
+                badge: unreadCount > 0 ? unreadCount : undefined,
+            }
+        }
+
+        const routeNotificationCount = getNotificationCountForHrefs(
+            [item.href, ...(item.matchHrefs ?? [])],
+            notificationPathCounts
+        )
+
+        if (routeNotificationCount === 0) {
+            return item.badge ? { ...item, badge: undefined } : item
+        }
+
+        return {
+            ...item,
+            badge: routeNotificationCount,
+        }
+    }, [notificationPathCounts, unreadCount])
+
     const sharedItems = useMemo<NavItem[]>(() => {
         const messagesHref = getSharedMessagesHref(pathname, approvedRoles)
 
@@ -216,22 +241,21 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                 label: "Notifications",
                 href: "/account/notifications",
                 icon: Bell,
-                badge: unreadCount > 0 ? unreadCount : undefined,
             },
         ]
-    }, [approvedRoles, pathname, unreadCount])
+    }, [approvedRoles, pathname])
 
     const sections = useMemo<NavSection[]>(
         () => [
             {
                 key: "account",
                 title: "My Account",
-                items: visibleAccountItems,
+                items: visibleAccountItems.map(withNotificationBadge),
             },
             {
                 key: "shared",
                 title: "Shared",
-                items: sharedItems,
+                items: sharedItems.map(withNotificationBadge),
             },
             ...(["merchant", "agent", "rider"] as const)
                 .filter((role) => roleSet.has(role) || workspaceStatuses[role] !== null)
@@ -243,7 +267,7 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                         key: role,
                         title: `${role.charAt(0).toUpperCase()}${role.slice(1)} Pages`,
                         status,
-                        items: approved
+                        items: (approved
                             ? workspaceItems[role]
                             : [
                                 {
@@ -251,11 +275,11 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                                     href: `/${role}`,
                                     icon: Clock3,
                                 },
-                            ],
+                            ]).map(withNotificationBadge),
                     }
                 }),
         ],
-        [roleSet, sharedItems, visibleAccountItems, workspaceStatuses]
+        [roleSet, sharedItems, visibleAccountItems, withNotificationBadge, workspaceStatuses]
     )
 
     const activeSection = useMemo(
@@ -268,25 +292,26 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
         [activeSection, pathname]
     )
 
-    const quickAccessItems = useMemo(() => {
-        const candidateItems = [
-            activeItem,
-            visibleAccountItems.find((item) => item.href === "/account"),
-            visibleAccountItems.find((item) => item.href === "/account/orders"),
-            sharedItems.find((item) => item.label === "Messages"),
-            sharedItems.find((item) => item.href === "/account/wallet"),
-            sharedItems.find((item) => item.href === "/account/notifications"),
-        ]
-
+    const mobileSwipeItems = useMemo(() => {
         const uniqueItems = new Map<string, NavItem>()
-        for (const item of candidateItems) {
-            if (item) {
+
+        for (const section of sections) {
+            for (const item of section.items) {
                 uniqueItems.set(item.href, item)
             }
         }
 
-        return Array.from(uniqueItems.values()).slice(0, 5)
-    }, [activeItem, sharedItems, visibleAccountItems])
+        return Array.from(uniqueItems.values())
+    }, [sections])
+
+    useEffect(() => {
+        const activeChip = mobileNavRef.current?.querySelector<HTMLElement>('[data-active-nav="true"]')
+        activeChip?.scrollIntoView({
+            behavior: "smooth",
+            block: "nearest",
+            inline: "center",
+        })
+    }, [pathname])
 
     const handleLogout = async () => {
         await supabase.auth.signOut()
@@ -453,17 +478,22 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                     </Sheet>
                 </div>
 
-                {!showLoadingSkeleton && quickAccessItems.length > 0 ? (
-                    <div className="mt-4 flex gap-2 overflow-x-auto px-0.5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                        {quickAccessItems.map((item) => {
+                {!showLoadingSkeleton && mobileSwipeItems.length > 0 ? (
+                    <div
+                        ref={mobileNavRef}
+                        aria-label="Swipeable account navigation"
+                        className="mt-4 flex snap-x snap-mandatory gap-2 overflow-x-auto px-0.5 pb-1 scroll-smooth touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                    >
+                        {mobileSwipeItems.map((item) => {
                             const isActive = isItemActive(pathname, item)
 
                             return (
                                 <Link
                                     key={item.href}
                                     href={item.href}
+                                    data-active-nav={isActive ? "true" : "false"}
                                     className={cn(
-                                        "inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold transition",
+                                        "inline-flex shrink-0 snap-start items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold transition",
                                         isActive
                                             ? "border-[#F58220] bg-[#F58220]/10 text-[#F58220]"
                                             : "border-gray-200 bg-white text-gray-600 hover:border-[#F58220]/40 hover:text-[#F58220] dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"

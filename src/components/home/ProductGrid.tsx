@@ -234,21 +234,59 @@ export function ProductGrid({ salesType, title }: ProductGridProps) {
                 </div>
 
                 {loading ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
-                        {[...Array(8)].map((_, i) => (
-                            <div key={i} className="space-y-3">
-                                <Skeleton className="h-[180px] w-full rounded-xl" />
-                                <Skeleton className="h-4 w-3/4" />
-                                <Skeleton className="h-4 w-1/2" />
-                            </div>
-                        ))}
-                    </div>
+                    <>
+                        {/* Mobile: horizontal scroll skeleton */}
+                        <div className="flex overflow-x-auto snap-x gap-3 pb-4 no-scrollbar md:hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                            {[...Array(4)].map((_, i) => (
+                                <div key={i} className="min-w-[calc(50vw-1.5rem)] snap-start flex flex-col gap-3">
+                                    {[0, 1].map((j) => (
+                                        <div key={j} className="space-y-2">
+                                            <Skeleton className="h-[120px] w-full rounded-xl" />
+                                            <Skeleton className="h-3 w-3/4" />
+                                            <Skeleton className="h-3 w-1/2" />
+                                        </div>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                        {/* Desktop: grid skeleton */}
+                        <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+                            {[...Array(8)].map((_, i) => (
+                                <div key={i} className="space-y-3">
+                                    <Skeleton className="h-[180px] w-full rounded-xl" />
+                                    <Skeleton className="h-4 w-3/4" />
+                                    <Skeleton className="h-4 w-1/2" />
+                                </div>
+                            ))}
+                        </div>
+                    </>
                 ) : products.length > 0 ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 text-left">
-                        {products.map((product) => (
-                            <ProductCard key={product.id} product={product} />
-                        ))}
-                    </div>
+                    <>
+                        {/* Mobile: horizontal scroll, 2 rows per column */}
+                        <div className="md:hidden">
+                            <div className="flex overflow-x-auto snap-x gap-3 pb-2 no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                                {(() => {
+                                    const columns: Product[][] = []
+                                    for (let i = 0; i < products.length; i += 2) {
+                                        columns.push(products.slice(i, i + 2))
+                                    }
+                                    return columns.map((pair, colIdx) => (
+                                        <div key={colIdx} className="min-w-[calc(50vw-1.25rem)] max-w-[calc(50vw-1.25rem)] snap-start flex flex-col gap-3 shrink-0">
+                                            {pair.map((product) => (
+                                                <ProductCard key={product.id} product={product} />
+                                            ))}
+                                        </div>
+                                    ))
+                                })()}
+                            </div>
+                        </div>
+                        {/* Desktop: standard grid */}
+                        <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 text-left">
+                            {products.map((product) => (
+                                <ProductCard key={product.id} product={product} />
+                            ))}
+                        </div>
+                    </>
                 ) : (
                     <div className="text-center py-12 bg-gray-50 dark:bg-zinc-900 rounded-xl">
                         <p className="text-gray-500 dark:text-gray-400">

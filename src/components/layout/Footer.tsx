@@ -77,10 +77,10 @@ export function Footer() {
                             <div className="space-y-6">
                                 <h3 className="text-white font-bold text-base">Categories</h3>
                                 <ul className="space-y-4 text-sm text-gray-400">
-                                    <li><Link href="/category/african-food" className="hover:text-white transition-colors">African Food</Link></li>
-                                    <li><Link href="/category/vegetables" className="hover:text-white transition-colors">Vegetables</Link></li>
-                                    <li><Link href="/category/beverages" className="hover:text-white transition-colors">Beverages</Link></li>
-                                    <li><Link href="/category/frozen" className="hover:text-white transition-colors">Frozen Food</Link></li>
+                                    <li><Link href="/retail?category=african-food" className="hover:text-white transition-colors">African Food</Link></li>
+                                    <li><Link href="/retail?category=vegetables" className="hover:text-white transition-colors">Vegetables</Link></li>
+                                    <li><Link href="/retail?category=beverages" className="hover:text-white transition-colors">Beverages</Link></li>
+                                    <li><Link href="/retail?category=frozen" className="hover:text-white transition-colors">Frozen Food</Link></li>
                                 </ul>
                             </div>
 
@@ -89,7 +89,7 @@ export function Footer() {
                                 <h3 className="text-white font-bold text-base">Account</h3>
                                 <ul className="space-y-4 text-sm text-gray-400">
                                     <li><Link href="/account" className="hover:text-white transition-colors">My Account</Link></li>
-                                    <li><Link href="/orders" className="hover:text-white transition-colors">Order History</Link></li>
+                                    <li><Link href="/account/orders" className="hover:text-white transition-colors">Order History</Link></li>
                                     <li><Link href="/cart" className="hover:text-white transition-colors">Shopping Cart</Link></li>
                                     <li><Link href="/wishlist" className="hover:text-white transition-colors">Wishlist</Link></li>
                                 </ul>
@@ -110,9 +110,9 @@ export function Footer() {
                                 <h3 className="text-white font-bold text-base">Company</h3>
                                 <ul className="space-y-4 text-sm text-gray-400">
                                     <li><Link href="/about" className="hover:text-white transition-colors">About Us</Link></li>
-                                    <li><Link href="/shop" className="hover:text-white transition-colors">Shop</Link></li>
-                                    <li><Link href="/products" className="hover:text-white transition-colors">Products</Link></li>
-                                    <li><Link href="/track" className="hover:text-white transition-colors">Track Order</Link></li>
+                                    <li><Link href="/retail" className="hover:text-white transition-colors">Shop</Link></li>
+                                    <li><Link href="/wholesale" className="hover:text-white transition-colors">Products</Link></li>
+                                    <li><Link href="/account/track-order" className="hover:text-white transition-colors">Track Order</Link></li>
                                 </ul>
                             </div>
 

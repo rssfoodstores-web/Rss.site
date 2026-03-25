@@ -15,6 +15,8 @@ import type { Database } from "@/types/database.types"
 
 export type AppNotification = Database["public"]["Tables"]["notifications"]["Row"]
 
+const exactOnlyNotificationHrefs = new Set(["/account", "/merchant", "/agent", "/rider"])
+
 export interface NotificationPresentation {
     category: "order" | "wallet" | "system"
     label: string
@@ -153,6 +155,75 @@ export function getNotificationPresentation(type: string | null | undefined): No
 
 export function isNotificationRead(notification: Pick<AppNotification, "read"> | null | undefined) {
     return Boolean(notification?.read)
+}
+
+export function normalizeNotificationPath(path: string | null | undefined) {
+    if (!path) {
+        return null
+    }
+
+    const [normalizedPath] = path.split(/[?#]/)
+    const trimmedPath = normalizedPath?.trim()
+
+    if (!trimmedPath) {
+        return null
+    }
+
+    if (trimmedPath.length > 1) {
+        return trimmedPath.replace(/\/+$/, "")
+    }
+
+    return trimmedPath
+}
+
+export function matchesNotificationPath(pathname: string | null | undefined, href: string) {
+    const normalizedPath = normalizeNotificationPath(pathname)
+    const normalizedHref = normalizeNotificationPath(href)
+
+    if (!normalizedPath || !normalizedHref) {
+        return false
+    }
+
+    if (exactOnlyNotificationHrefs.has(normalizedHref)) {
+        return normalizedPath === normalizedHref
+    }
+
+    return normalizedPath === normalizedHref || normalizedPath.startsWith(`${normalizedHref}/`)
+}
+
+export function buildNotificationPathCounts(notifications: Array<{ action_url: string | null }>) {
+    return notifications.reduce<Record<string, number>>((counts, notification) => {
+        const normalizedPath = normalizeNotificationPath(notification.action_url)
+
+        if (!normalizedPath) {
+            return counts
+        }
+
+        counts[normalizedPath] = (counts[normalizedPath] ?? 0) + 1
+        return counts
+    }, {})
+}
+
+export function getNotificationCountForHrefs(hrefs: string[], pathCounts: Record<string, number>) {
+    const uniqueHrefs = Array.from(
+        new Set(
+            hrefs
+                .map((href) => normalizeNotificationPath(href))
+                .filter((href): href is string => Boolean(href))
+        )
+    )
+
+    if (uniqueHrefs.length === 0) {
+        return 0
+    }
+
+    return Object.entries(pathCounts).reduce((total, [path, count]) => {
+        if (uniqueHrefs.some((href) => matchesNotificationPath(path, href))) {
+            return total + count
+        }
+
+        return total
+    }, 0)
 }
 
 export function getNotificationFilters(notifications: AppNotification[]) {

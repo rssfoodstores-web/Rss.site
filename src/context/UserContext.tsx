@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { type Session, type User } from "@supabase/supabase-js"
+import { buildNotificationPathCounts } from "@/lib/notifications"
 
 interface UserProfile {
     id: string
@@ -30,6 +31,7 @@ interface UserContextType {
         isAdmin: boolean
     }
     unreadCount: number
+    notificationPathCounts: Record<string, number>
     isLoading: boolean
     refreshProfile: () => Promise<void>
     refreshUnreadCount: (targetUserId?: string) => Promise<void>
@@ -57,6 +59,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     })
     const [roles, setRoles] = useState({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
     const [unreadCount, setUnreadCount] = useState(0)
+    const [notificationPathCounts, setNotificationPathCounts] = useState<Record<string, number>>({})
     const [isLoading, setIsLoading] = useState(true)
 
     const [supabase] = useState(() => createClient())
@@ -81,12 +84,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
         if (!nextUserId) {
             setUnreadCount(0)
+            setNotificationPathCounts({})
             return
         }
 
-        const { count, error } = await supabase
+        const { data, error } = await supabase
             .from("notifications")
-            .select("*", { count: "exact", head: true })
+            .select("action_url")
             .eq("user_id", nextUserId)
             .eq("read", false)
 
@@ -95,7 +99,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
             return
         }
 
-        setUnreadCount(count || 0)
+        const unreadNotifications = data ?? []
+        setUnreadCount(unreadNotifications.length)
+        setNotificationPathCounts(buildNotificationPathCounts(unreadNotifications))
     }, [supabase, user?.id])
 
     const fetchUserData = useCallback(async (currentUser: User) => {
@@ -118,7 +124,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
                 // 3. Fetch Notifications Count
                 supabase
                     .from('notifications')
-                    .select('*', { count: 'exact', head: true })
+                    .select('action_url')
                     .eq('user_id', currentUser.id)
                     .eq('read', false),
 
@@ -177,7 +183,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
             })
 
             // Process Notifications
-            setUnreadCount(notificationsResult.count || 0)
+            const unreadNotifications = notificationsResult.data ?? []
+            setUnreadCount(unreadNotifications.length)
+            setNotificationPathCounts(buildNotificationPathCounts(unreadNotifications))
 
         } catch (error: unknown) {
             if (isAbortLike(error)) {
@@ -204,6 +212,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
                         setWorkspaceStatuses({ merchant: null, agent: null, rider: null })
                         setRoles({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
                         setUnreadCount(0)
+                        setNotificationPathCounts({})
                         localStorage.removeItem("rssa_user_profile")
                     }
                 }
@@ -234,6 +243,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
                 setWorkspaceStatuses({ merchant: null, agent: null, rider: null })
                 setRoles({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
                 setUnreadCount(0)
+                setNotificationPathCounts({})
                 localStorage.removeItem("rssa_user_profile")
             }
         })
@@ -286,7 +296,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }, [fetchUserData, user])
 
     return (
-        <UserContext.Provider value={{ user, profile, roleNames, workspaceStatuses, roles, unreadCount, isLoading, refreshProfile, refreshUnreadCount, setUnreadCountLocal: setUnreadCount }}>
+        <UserContext.Provider value={{ user, profile, roleNames, workspaceStatuses, roles, unreadCount, notificationPathCounts, isLoading, refreshProfile, refreshUnreadCount, setUnreadCountLocal: setUnreadCount }}>
             {children}
         </UserContext.Provider>
     )
