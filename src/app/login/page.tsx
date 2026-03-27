@@ -7,14 +7,8 @@ import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loader2, Eye, EyeOff, Home } from "lucide-react"
-
-function getSafeNextPath(nextPath: string | null) {
-    if (!nextPath || !nextPath.startsWith("/") || nextPath.startsWith("//")) {
-        return null
-    }
-
-    return nextPath
-}
+import { buildAbsoluteUrl, getClientSiteUrl } from "@/lib/site-url"
+import { getSafeNextPath, resolvePostAuthPath } from "@/lib/auth-redirects"
 
 export default function LoginPage() {
     const [email, setEmail] = useState("")
@@ -25,52 +19,6 @@ export default function LoginPage() {
     const searchParams = useSearchParams()
     const supabase = createClient()
 
-    const resolvePostLoginPath = async (userId: string) => {
-        const explicitNextPath = getSafeNextPath(searchParams.get("next"))
-
-        if (explicitNextPath) {
-            return explicitNextPath
-        }
-
-        const [{ data: roles }, { data: merchant }, { data: agent }, { data: rider }] = await Promise.all([
-            supabase
-                .from("user_roles")
-                .select("role")
-                .eq("user_id", userId),
-            supabase
-                .from("merchants")
-                .select("id")
-                .eq("id", userId)
-                .maybeSingle(),
-            supabase
-                .from("agent_profiles")
-                .select("id")
-                .eq("id", userId)
-                .maybeSingle(),
-            supabase
-                .from("rider_profiles")
-                .select("id")
-                .eq("id", userId)
-                .maybeSingle(),
-        ])
-
-        const roleNames = new Set((roles ?? []).map((roleRow: { role: string }) => roleRow.role))
-
-        if (roleNames.has("merchant") || merchant) {
-            return "/merchant"
-        }
-
-        if (roleNames.has("agent") || agent) {
-            return "/agent"
-        }
-
-        if (roleNames.has("rider") || rider) {
-            return "/rider"
-        }
-
-        return "/"
-    }
-
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault()
         setLoading(true)
@@ -78,7 +26,7 @@ export default function LoginPage() {
 
         try {
             const { data, error } = await supabase.auth.signInWithPassword({
-                email,
+                email: email.trim().toLowerCase(),
                 password,
             })
 
@@ -94,7 +42,7 @@ export default function LoginPage() {
                 return
             }
 
-            const destination = await resolvePostLoginPath(data.user.id)
+            const destination = await resolvePostAuthPath(supabase, data.user.id, searchParams.get("next"))
 
             // Force a full navigation so the server-side auth guards receive the new cookies immediately.
             window.location.assign(destination)
@@ -110,13 +58,14 @@ export default function LoginPage() {
         setError(null)
 
         try {
-            const callbackUrl = new URL("/auth/callback", location.origin)
-            callbackUrl.searchParams.set("next", getSafeNextPath(searchParams.get("next")) ?? "/")
+            const callbackUrl = buildAbsoluteUrl(getClientSiteUrl(), "/auth/callback", {
+                next: getSafeNextPath(searchParams.get("next")) ?? "/",
+            })
 
             const { error } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
                 options: {
-                    redirectTo: callbackUrl.toString()
+                    redirectTo: callbackUrl
                 }
             })
 

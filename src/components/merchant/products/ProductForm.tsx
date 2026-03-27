@@ -3,6 +3,7 @@
 "use client"
 
 import { useState } from "react"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useForm, useFieldArray } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -44,6 +45,14 @@ import { PRODUCT_CATEGORIES, getDbCategory } from "@/lib/constants/categories"
 import { NIGERIAN_STATES } from "@/lib/constants/nigerianStates"
 import { ProductHelpDialog } from "@/components/merchant/products/ProductHelpDialog"
 
+const arrayToNewlineSeparatedList = (values?: string[] | null) => (values ?? []).join("\n")
+
+const newlineSeparatedListToArray = (value?: string) =>
+    value
+        ?.split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter(Boolean) ?? []
+
 const productSchema = z.object({
     name: z.string().min(2, "Name must be at least 2 characters"),
     description: z.string().min(10, "Description must be at least 10 characters"),
@@ -56,7 +65,7 @@ const productSchema = z.object({
         values: z.array(z.string())
     })).optional(),
     weight: z.string().optional(),
-    state: z.string().optional(),
+    state: z.string().trim().min(1, "Select a state before submitting."),
     is_perishable: z.boolean().default(false),
     categories: z.array(z.string()).min(1, "Select at least one category"),
     tags: z.array(z.string()).default([]),
@@ -64,7 +73,25 @@ const productSchema = z.object({
     seo_description: z.string().optional(),
     sales_type: z.enum(["retail", "wholesale"]).default("retail"),
     stock_level: z.coerce.number().min(0).default(0),
-})
+    nutrition_content: z.string().optional(),
+    health_benefits: z.string().optional(),
+    manufacture_date: z.string().optional(),
+    expiry_date: z.string().optional(),
+    suggested_combos: z.string().optional(),
+    return_refund_policy: z.string().optional(),
+}).refine(
+    ({ manufacture_date, expiry_date }) => {
+        if (!manufacture_date || !expiry_date) {
+            return true
+        }
+
+        return manufacture_date <= expiry_date
+    },
+    {
+        message: "Expiry date must be on or after the manufacture date.",
+        path: ["expiry_date"],
+    }
+)
 
 interface ProductFormProps {
     initialData?: {
@@ -85,6 +112,13 @@ interface ProductFormProps {
         seo_description?: string
         state?: string
         weight?: string
+        nutrition_content?: string[] | null
+        health_benefits?: string[] | null
+        manufacture_date?: string | null
+        expiry_date?: string | null
+        suggested_combos?: string[] | null
+        return_refund_policy?: string | null
+        cooked_images?: string[] | null
         options?: Array<{
             type: string
             values: string[]
@@ -96,7 +130,9 @@ interface ProductFormProps {
 export function ProductForm({ initialData, isEditing = false }: ProductFormProps) {
     const router = useRouter()
     const [images, setImages] = useState<string[]>(initialData?.images || [])
+    const [cookedImages, setCookedImages] = useState<string[]>(initialData?.cooked_images || [])
     const [isUploading, setIsUploading] = useState(false)
+    const [isCookedImageUploading, setIsCookedImageUploading] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [submissionError, setSubmissionError] = useState<string | null>(null)
     const [tagInput, setTagInput] = useState("")
@@ -118,6 +154,12 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
         seo_description: initialData?.seo_description || "",
         state: initialData?.state || "",
         weight: initialData?.weight || "",
+        nutrition_content: arrayToNewlineSeparatedList(initialData?.nutrition_content),
+        health_benefits: arrayToNewlineSeparatedList(initialData?.health_benefits),
+        manufacture_date: initialData?.manufacture_date || "",
+        expiry_date: initialData?.expiry_date || "",
+        suggested_combos: arrayToNewlineSeparatedList(initialData?.suggested_combos),
+        return_refund_policy: initialData?.return_refund_policy || "",
         options: initialData?.options || [{ type: "Size", values: ["S", "M", "L", "XL"] }]
     }
 
@@ -136,7 +178,12 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
         name: "options"
     })
 
-    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleImageUpload = async (
+        e: React.ChangeEvent<HTMLInputElement>,
+        setImageState: React.Dispatch<React.SetStateAction<string[]>>,
+        setUploadingState: React.Dispatch<React.SetStateAction<boolean>>,
+        successMessage: string
+    ) => {
         const file = e.target.files?.[0]
         if (!file) return
 
@@ -145,17 +192,18 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
             return
         }
 
-        setIsUploading(true)
+        setUploadingState(true)
         try {
             const url = await uploadProductImage(file)
-            setImages(prev => [...prev, url])
-            toast.success("Image uploaded")
+            setImageState(prev => [...prev, url])
+            toast.success(successMessage)
         } catch (error) {
             console.error("Upload error:", error)
             const message = error instanceof Error ? error.message : "Upload failed"
             toast.error(message)
         } finally {
-            setIsUploading(false)
+            setUploadingState(false)
+            e.target.value = ""
         }
     }
 
@@ -186,12 +234,23 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
             return
         }
 
+        const nutritionContent = newlineSeparatedListToArray(values.nutrition_content)
+        const healthBenefits = newlineSeparatedListToArray(values.health_benefits)
+        const suggestedCombos = newlineSeparatedListToArray(values.suggested_combos)
+
         setSubmissionError(null)
         setIsSubmitting(true)
         try {
             const payload = {
                 ...values,
                 images,
+                cooked_images: cookedImages.length > 0 ? cookedImages : null,
+                nutrition_content: nutritionContent.length > 0 ? nutritionContent : null,
+                health_benefits: healthBenefits.length > 0 ? healthBenefits : null,
+                suggested_combos: suggestedCombos.length > 0 ? suggestedCombos : null,
+                return_refund_policy: values.return_refund_policy?.trim() || null,
+                manufacture_date: values.manufacture_date || null,
+                expiry_date: values.expiry_date || null,
                 image_url: images[0],
                 category: getDbCategory(values.categories[0])
             }
@@ -220,6 +279,7 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
     const watchedCategory = form.watch("categories")
     const watchedPrice = form.watch("price")
     const watchedStockLevel = form.watch("stock_level")
+    const watchedState = form.watch("state")
     const requiredChecklist = [
         {
             label: "Product name",
@@ -242,10 +302,15 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
             done: Number(watchedPrice) > 0,
         },
         {
+            label: "State selected",
+            done: watchedState.trim().length > 0,
+        },
+        {
             label: "Stock level",
             done: Number(watchedStockLevel) >= 0,
         },
     ]
+    const canSubmit = requiredChecklist.every((item) => item.done) && !isUploading && !isCookedImageUploading && !isSubmitting
 
     return (
         <div className="mx-auto max-w-[1400px] space-y-8 px-4 py-4 sm:px-6">
@@ -267,7 +332,7 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
                         </div>
                         <h2 className="text-xl font-black text-[#1A1A1A]">Fill the required product details clearly</h2>
                         <p className="text-sm leading-6 text-gray-600">
-                            Buyers need a correct name, clear description, price, stock, category, and image before your product can be reviewed.
+                            Buyers need a correct name, clear description, price, stock, category, state, and image before your product can be reviewed.
                             Use the help icons beside each section if you want to know what a field is used for.
                         </p>
                     </div>
@@ -419,7 +484,13 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
                             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 md:gap-4">
                                 {images.map((img, idx) => (
                                     <div key={idx} className="aspect-square rounded-2xl overflow-hidden relative group border border-gray-100">
-                                        <img src={img} alt="" className="w-full h-full object-cover" />
+                                        <Image
+                                            src={img}
+                                            alt={`Product image ${idx + 1}`}
+                                            fill
+                                            sizes="(max-width: 768px) 50vw, 25vw"
+                                            className="object-cover"
+                                        />
                                         <button
                                             type="button"
                                             onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
@@ -451,8 +522,192 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
                                             <input
                                                 type="file"
                                                 className="absolute inset-0 opacity-0 cursor-pointer"
-                                                onChange={handleImageUpload}
+                                                onChange={(event) => handleImageUpload(event, setImages, setIsUploading, "Image uploaded")}
                                                 disabled={isUploading}
+                                                accept="image/*"
+                                            />
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section className="space-y-6 rounded-[2rem] border border-gray-100/50 bg-white p-5 shadow-sm dark:bg-zinc-900 sm:p-8">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Customer Content</h2>
+                                <ProductHelpDialog
+                                    title="Customer-facing content"
+                                    description="These details are shown on the product page to help customers trust the listing and decide faster."
+                                    bullets={[
+                                        "Use one line per nutrition item, health benefit, or combo suggestion.",
+                                        "Add manufacture and expiry dates when the product packaging supports it.",
+                                        "Write a return and refund explanation that matches how your store actually handles issues.",
+                                    ]}
+                                />
+                            </div>
+                            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                                <FormField
+                                    control={form.control}
+                                    name="nutrition_content"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-sm font-medium text-gray-500">Nutritional Content</FormLabel>
+                                            <FormControl>
+                                                <Textarea
+                                                    {...field}
+                                                    placeholder={`Protein\nFiber\nIron`}
+                                                    className="min-h-[140px] bg-gray-50/50 border-gray-100 rounded-xl resize-none"
+                                                />
+                                            </FormControl>
+                                            <p className="text-xs text-gray-400">Add one nutrition item per line.</p>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="health_benefits"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-sm font-medium text-gray-500">Health Benefits</FormLabel>
+                                            <FormControl>
+                                                <Textarea
+                                                    {...field}
+                                                    placeholder={`Supports digestion\nGood source of energy\nFits balanced meal plans`}
+                                                    className="min-h-[140px] bg-gray-50/50 border-gray-100 rounded-xl resize-none"
+                                                />
+                                            </FormControl>
+                                            <p className="text-xs text-gray-400">Add one benefit per line.</p>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="manufacture_date"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-sm font-medium text-gray-500">Manufacture Date</FormLabel>
+                                            <FormControl>
+                                                <Input type="date" {...field} className="h-12 bg-gray-50/50 border-gray-100 rounded-xl" />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="expiry_date"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-sm font-medium text-gray-500">Expiry Date</FormLabel>
+                                            <FormControl>
+                                                <Input type="date" {...field} className="h-12 bg-gray-50/50 border-gray-100 rounded-xl" />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+                            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                                <FormField
+                                    control={form.control}
+                                    name="suggested_combos"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-sm font-medium text-gray-500">Suggested Combos</FormLabel>
+                                            <FormControl>
+                                                <Textarea
+                                                    {...field}
+                                                    placeholder={`Serve with stew\nPairs well with fried plantain\nBest with chilled juice`}
+                                                    className="min-h-[140px] bg-gray-50/50 border-gray-100 rounded-xl resize-none"
+                                                />
+                                            </FormControl>
+                                            <p className="text-xs text-gray-400">Add one combo or pairing idea per line.</p>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="return_refund_policy"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-sm font-medium text-gray-500">Return & Refund Policy</FormLabel>
+                                            <FormControl>
+                                                <Textarea
+                                                    {...field}
+                                                    placeholder="Explain when buyers can report an issue, what evidence is needed, and how refunds or replacements are handled."
+                                                    className="min-h-[140px] bg-gray-50/50 border-gray-100 rounded-xl resize-none"
+                                                />
+                                            </FormControl>
+                                            <p className="text-xs text-gray-400">Keep this aligned with your real store policy.</p>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+                        </section>
+
+                        <section className="space-y-6 rounded-[2rem] border border-gray-100/50 bg-white p-5 shadow-sm dark:bg-zinc-900 sm:p-8">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">Cooked / Finished Images</h2>
+                                    <p className="mt-1 text-sm text-gray-500">Upload serving or finished photos if the prepared result helps customers decide faster.</p>
+                                </div>
+                                <ProductHelpDialog
+                                    title="Cooked or finished images"
+                                    description="These photos show how the product looks when served, cooked, or fully prepared."
+                                    bullets={[
+                                        "Use clear photos of the finished meal or serving suggestion.",
+                                        "Only upload images that genuinely match the listed product.",
+                                        "These images are optional but useful for customer conversion.",
+                                    ]}
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 md:gap-4">
+                                {cookedImages.map((img, idx) => (
+                                    <div key={idx} className="aspect-square rounded-2xl overflow-hidden relative group border border-gray-100">
+                                        <Image
+                                            src={img}
+                                            alt={`Cooked image ${idx + 1}`}
+                                            fill
+                                            sizes="(max-width: 768px) 50vw, 25vw"
+                                            className="object-cover"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setCookedImages(prev => prev.filter((_, i) => i !== idx))}
+                                            className="absolute top-2 right-2 h-8 w-8 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                                        >
+                                            <X className="h-4 w-4" />
+                                        </button>
+                                    </div>
+                                ))}
+                                {isCookedImageUploading && (
+                                    <div className="aspect-square rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center animate-pulse">
+                                        <Loader2 className="h-8 w-8 text-gray-300 animate-spin" />
+                                    </div>
+                                )}
+                                <div className="col-span-full">
+                                    <div className="relative flex flex-col items-center justify-center rounded-[2rem] border-2 border-dashed border-gray-100 bg-gray-50/30 p-6 transition-colors hover:bg-gray-50/50 sm:p-10">
+                                        <div className="bg-white p-3 rounded-xl shadow-sm mb-4">
+                                            {isCookedImageUploading ? (
+                                                <Loader2 className="h-6 w-6 text-gray-400 animate-spin" />
+                                            ) : (
+                                                <Upload className="h-6 w-6 text-[#F58220]" />
+                                            )}
+                                        </div>
+                                        <p className="text-sm text-gray-500 mb-2">
+                                            {isCookedImageUploading ? "Uploading finished image..." : "Add a cooked or serving image"}
+                                        </p>
+                                        <Button type="button" variant="outline" className="h-10 px-8 rounded-lg border-gray-100 relative overflow-hidden" disabled={isCookedImageUploading}>
+                                            {isCookedImageUploading ? "Please wait..." : "Add File"}
+                                            <input
+                                                type="file"
+                                                className="absolute inset-0 opacity-0 cursor-pointer"
+                                                onChange={(event) => handleImageUpload(event, setCookedImages, setIsCookedImageUploading, "Cooked image uploaded")}
+                                                disabled={isCookedImageUploading}
                                                 accept="image/*"
                                             />
                                         </Button>
@@ -686,7 +941,7 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
                                     render={({ field }) => (
                                         <FormItem>
                                             <FormLabel className="text-sm font-medium text-gray-500">State</FormLabel>
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <Select onValueChange={field.onChange} value={field.value || undefined}>
                                                 <FormControl>
                                                     <SelectTrigger className="h-12 bg-gray-50/50 border-gray-100 rounded-xl">
                                                         <SelectValue placeholder="Select State" />
@@ -698,6 +953,8 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
                                                     ))}
                                                 </SelectContent>
                                             </Select>
+                                            <p className="text-xs text-gray-400">Choose the state where this product is posted from.</p>
+                                            <FormMessage />
                                         </FormItem>
                                     )}
                                 />
@@ -863,7 +1120,7 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
                         <Button type="button" variant="outline" className="h-10 w-full rounded-lg sm:w-auto sm:px-8" onClick={() => router.back()}>
                             Cancel
                         </Button>
-                        <Button type="submit" disabled={isSubmitting} className="h-10 w-full rounded-lg bg-[#F58220] font-bold hover:bg-[#E57210] sm:w-auto sm:px-10">
+                        <Button type="submit" disabled={!canSubmit} className="h-10 w-full rounded-lg bg-[#F58220] font-bold hover:bg-[#E57210] sm:w-auto sm:px-10 disabled:cursor-not-allowed disabled:opacity-60">
                             {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : (isEditing ? "Update Product" : "Submit for Review")}
                         </Button>
                     </div>

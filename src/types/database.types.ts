@@ -771,6 +771,27 @@ export type Database = {
                     }
                 ]
             }
+            newsletter_subscriptions: {
+                Row: {
+                    created_at: string
+                    email: string
+                    id: string
+                    source: string | null
+                }
+                Insert: {
+                    created_at?: string
+                    email: string
+                    id?: string
+                    source?: string | null
+                }
+                Update: {
+                    created_at?: string
+                    email?: string
+                    id?: string
+                    source?: string | null
+                }
+                Relationships: []
+            }
             ledger_entries: {
                 Row: {
                     amount: number
@@ -1329,6 +1350,58 @@ export type Database = {
                         columns: ["merchant_id"]
                         isOneToOne: false
                         referencedRelation: "profiles"
+                        referencedColumns: ["id"]
+                    },
+                ]
+            }
+            product_reviews: {
+                Row: {
+                    comment: string | null
+                    created_at: string
+                    customer_id: string
+                    id: string
+                    order_id: string
+                    product_id: string
+                    rating: number
+                }
+                Insert: {
+                    comment?: string | null
+                    created_at?: string
+                    customer_id: string
+                    id?: string
+                    order_id: string
+                    product_id: string
+                    rating: number
+                }
+                Update: {
+                    comment?: string | null
+                    created_at?: string
+                    customer_id?: string
+                    id?: string
+                    order_id?: string
+                    product_id?: string
+                    rating?: number
+                }
+                Relationships: [
+                    {
+                        foreignKeyName: "product_reviews_customer_id_fkey"
+                        columns: ["customer_id"]
+                        isOneToOne: false
+                        referencedRelation: "profiles"
+                        referencedColumns: ["id"]
+                    },
+                    {
+                        foreignKeyName: "product_reviews_order_id_fkey"
+                        columns: ["order_id"]
+                        isOneToOne: false
+                        referencedRelation: "orders"
+                        referencedColumns: ["id"]
+                    },
+                    {
+                        foreignKeyName: "product_reviews_product_id_fkey"
+                        columns: ["product_id"]
+                        isOneToOne: false
+                        referencedRelation: "products"
                         referencedColumns: ["id"]
                     },
                 ]

@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loader2, Eye, EyeOff, Home } from "lucide-react"
 import { SuccessModal } from "@/components/ui/SuccessModal"
+import { buildAbsoluteUrl, getClientSiteUrl } from "@/lib/site-url"
+import { resolvePostAuthPath } from "@/lib/auth-redirects"
 
 export default function RegisterPage() {
     const [fullName, setFullName] = useState("")
@@ -26,26 +28,50 @@ export default function RegisterPage() {
         setLoading(true)
         setError(null)
 
-        const { data, error: signUpError } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-                data: {
-                    full_name: fullName,
-                    referred_by_code: referralCode || undefined,
+        try {
+            const emailAddress = email.trim().toLowerCase()
+            const normalizedName = fullName.trim()
+            const emailRedirectTo = buildAbsoluteUrl(getClientSiteUrl(), "/auth/callback", {
+                next: "/",
+                ref: referralCode || undefined,
+            })
+
+            const { data, error: signUpError } = await supabase.auth.signUp({
+                email: emailAddress,
+                password,
+                options: {
+                    emailRedirectTo,
+                    data: {
+                        full_name: normalizedName,
+                        referred_by_code: referralCode || undefined,
+                    },
                 },
-            },
-        })
+            })
 
-        if (signUpError) {
-            setError(signUpError.message)
-            setLoading(false)
-            return
-        }
+            if (signUpError) {
+                setError(signUpError.message)
+                setLoading(false)
+                return
+            }
 
-        if (data.user) {
+            if (data.session && data.user) {
+                const destination = await resolvePostAuthPath(supabase, data.user.id, "/")
+                window.location.assign(destination)
+                return
+            }
+
+            if (data.user) {
+                setLoading(false)
+                setShowSuccessModal(true)
+                return
+            }
+
             setLoading(false)
-            setShowSuccessModal(true)
+            setError("Registration completed but the account could not be confirmed. Please try again.")
+        } catch (authError) {
+            console.error("Unexpected registration failure:", authError)
+            setError("Unable to create your account right now. Please try again.")
+            setLoading(false)
         }
     }
 
@@ -53,20 +79,26 @@ export default function RegisterPage() {
         setLoading(true)
         setError(null)
 
-        const redirectUrl = new URL("/auth/callback", location.origin)
-        if (referralCode) {
-            redirectUrl.searchParams.set("ref", referralCode)
-        }
+        try {
+            const redirectUrl = buildAbsoluteUrl(getClientSiteUrl(), "/auth/callback", {
+                next: "/",
+                ref: referralCode || undefined,
+            })
 
-        const { error } = await supabase.auth.signInWithOAuth({
-            provider: "google",
-            options: {
-                redirectTo: redirectUrl.toString(),
-            },
-        })
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: "google",
+                options: {
+                    redirectTo: redirectUrl,
+                },
+            })
 
-        if (error) {
-            setError(error.message)
+            if (error) {
+                setError(error.message)
+                setLoading(false)
+            }
+        } catch (authError) {
+            console.error("Unexpected Google sign-up failure:", authError)
+            setError("Unable to start Google sign up right now. Please try again.")
             setLoading(false)
         }
     }

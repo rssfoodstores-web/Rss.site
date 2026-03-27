@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,8 +13,10 @@ export default function ResetPasswordPage() {
     const [password, setPassword] = useState("")
     const [confirmPassword, setConfirmPassword] = useState("")
     const [loading, setLoading] = useState(false)
+    const [checkingSession, setCheckingSession] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [success, setSuccess] = useState(false)
+    const [sessionReady, setSessionReady] = useState(false)
 
     // Independent visibility states
     const [showPassword, setShowPassword] = useState(false)
@@ -22,10 +25,76 @@ export default function ResetPasswordPage() {
     const router = useRouter()
     const supabase = createClient()
 
+    useEffect(() => {
+        let active = true
+
+        const applySessionState = async () => {
+            try {
+                const { data, error: sessionError } = await supabase.auth.getSession()
+
+                if (sessionError) {
+                    throw sessionError
+                }
+
+                if (!active) {
+                    return
+                }
+
+                if (data.session) {
+                    setSessionReady(true)
+                    setError(null)
+                } else {
+                    setSessionReady(false)
+                    setError("This password reset link is invalid or has expired. Request a new one.")
+                }
+            } catch (sessionError) {
+                if (!active) {
+                    return
+                }
+
+                console.error("Failed to restore reset session:", sessionError)
+                setSessionReady(false)
+                setError("We could not verify your reset link. Request a new password reset email.")
+            } finally {
+                if (active) {
+                    setCheckingSession(false)
+                }
+            }
+        }
+
+        const { data: authListener } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
+            if (!active) {
+                return
+            }
+
+            if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+                setSessionReady(Boolean(session))
+                setCheckingSession(false)
+
+                if (session) {
+                    setError(null)
+                }
+            }
+        })
+
+        void applySessionState()
+
+        return () => {
+            active = false
+            authListener.subscription.unsubscribe()
+        }
+    }, [supabase])
+
     const handlePasswordUpdate = async (e: React.FormEvent) => {
         e.preventDefault()
         setLoading(true)
         setError(null)
+
+        if (!sessionReady) {
+            setError("This password reset link is invalid or has expired. Request a new one.")
+            setLoading(false)
+            return
+        }
 
         if (password !== confirmPassword) {
             setError("Passwords do not match")
@@ -66,6 +135,17 @@ export default function ResetPasswordPage() {
                             Return to Login
                         </Button>
                     </Link>
+                </div>
+            </div>
+        )
+    }
+
+    if (checkingSession) {
+        return (
+            <div className="flex min-h-screen items-center justify-center bg-white font-sans dark:bg-black">
+                <div className="text-center">
+                    <Loader2 className="mx-auto h-10 w-10 animate-spin text-[#F58220]" />
+                    <p className="mt-4 text-sm text-gray-500">Verifying your reset link...</p>
                 </div>
             </div>
         )
@@ -145,10 +225,18 @@ export default function ResetPasswordPage() {
 
                             {error && <p className="text-sm text-red-500 text-center">{error}</p>}
 
-                            <Button className="w-full h-[52px] bg-[#F58220] hover:bg-[#F58220]/90 text-white font-bold text-lg rounded-full" type="submit" disabled={loading}>
+                            <Button className="w-full h-[52px] bg-[#F58220] hover:bg-[#F58220]/90 text-white font-bold text-lg rounded-full" type="submit" disabled={loading || !sessionReady}>
                                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Reset Password"}
                             </Button>
                         </form>
+
+                        {!sessionReady ? (
+                            <div className="mt-6 text-center">
+                                <Link href="/forgot-password" className="text-sm font-semibold text-[#F58220] hover:underline">
+                                    Request a new reset link
+                                </Link>
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             </div>

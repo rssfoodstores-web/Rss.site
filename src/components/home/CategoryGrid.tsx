@@ -1,46 +1,80 @@
 "use client"
 
-import Image from "next/image"
 import Link from "next/link"
+import { usePathname, useSearchParams } from "next/navigation"
 import { ArrowRight } from "lucide-react"
-
-// Hardcoded Categories for demo
-const categories = [
-    { name: "Grains", image: "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?q=80&w=400&auto=format&fit=crop", count: 20 },
-    { name: "Frozen Food", image: "https://images.unsplash.com/photo-1627483262769-04d0a1401487?q=80&w=400&auto=format&fit=crop", count: 12 },
-    { name: "Vegetables", image: "https://images.unsplash.com/photo-1597362925123-77861d3fbac7?q=80&w=400&auto=format&fit=crop", count: 45 },
-    { name: "Soft drinks", image: "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?q=80&w=400&auto=format&fit=crop", count: 10 },
-    { name: "Dairy Products", image: "https://images.unsplash.com/photo-1628088062854-d1870b4553da?q=80&w=400&auto=format&fit=crop", count: 18 },
-    { name: "Seafood", image: "https://images.unsplash.com/photo-1534939561126-855b8675edd7?q=80&w=400&auto=format&fit=crop", count: 8 },
-]
+import { cn } from "@/lib/utils"
+import {
+    createStorefrontHref,
+    getStorefrontCategoryLabel,
+    storefrontNavigationCategories,
+} from "@/lib/categories"
 
 export function CategoryGrid() {
+    const pathname = usePathname()
+    const searchParams = useSearchParams()
+    const activeCategory = searchParams.get("category")
+
     return (
-        <section className="container mx-auto px-4 md:px-8 py-4 md:py-12">
-            <div className="flex items-center justify-between mb-4 md:mb-8">
-                <h2 className="text-lg md:text-3xl font-bold text-gray-900 dark:text-white">Shop with Categories</h2>
+        <section className="container mx-auto px-4 py-8 md:px-8 md:py-12">
+            <div className="mb-6 flex items-center justify-between md:mb-10">
+                <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#F58220]">Browse faster</p>
+                    <h2 className="mt-3 text-2xl font-bold text-gray-900 dark:text-white md:text-[3rem] md:leading-none">
+                        Shop by category
+                    </h2>
+                </div>
+                <div className="hidden items-center gap-2 text-sm font-semibold text-gray-500 md:flex">
+                    <span>{getStorefrontCategoryLabel(activeCategory)}</span>
+                    <ArrowRight className="h-4 w-4" />
+                </div>
             </div>
 
-            <div className="flex overflow-x-auto snap-x py-2 md:py-4 gap-3 md:grid md:grid-cols-3 lg:grid-cols-6 md:gap-6 no-scrollbar">
-                {categories.map((cat, idx) => (
-                    <Link key={idx} href={`/category/${cat.name.toLowerCase().replace(' ', '-')}`} className="group min-w-[110px] md:min-w-0 snap-start">
-                        <div className="bg-white dark:bg-card rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all border border-transparent hover:border-primary/20 h-full">
-                            <div className="relative aspect-[4/3] overflow-hidden bg-gray-100">
-                                <Image
-                                    src={cat.image}
-                                    alt={cat.name}
-                                    width={400}
-                                    height={300}
-                                    className="object-cover w-full h-full group-hover:scale-110 transition-transform duration-500"
-                                />
+            <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar md:grid md:grid-cols-2 md:gap-6 lg:grid-cols-4">
+                {storefrontNavigationCategories.map((category) => {
+                    const isActive = category.slug === null ? !activeCategory : activeCategory === category.slug
+                    const href = createStorefrontHref({
+                        pathname,
+                        searchParams,
+                        patch: {
+                            category: category.slug,
+                        },
+                        hash: "product-grid",
+                    })
+                    const Icon = category.icon
+
+                    return (
+                        <Link
+                            key={category.label}
+                            href={href}
+                            className={cn(
+                                "group min-w-[220px] rounded-[28px] border p-5 transition-all duration-200 md:min-w-0 md:min-h-[270px] md:p-7",
+                                isActive
+                                    ? "border-[#F58220] bg-orange-50 text-gray-900 shadow-sm shadow-orange-500/10 dark:border-orange-500/60 dark:bg-orange-950/20 dark:text-white"
+                                    : "border-gray-200 bg-white text-gray-900 hover:border-orange-200 hover:bg-orange-50/70 dark:border-zinc-800 dark:bg-zinc-900 dark:text-white dark:hover:border-zinc-700 dark:hover:bg-zinc-900/80"
+                            )}
+                        >
+                            <div className="flex items-start justify-between gap-4">
+                                <div className={cn(
+                                    "flex h-[72px] w-[72px] items-center justify-center rounded-[22px] transition-colors",
+                                    isActive
+                                        ? "bg-[#F58220] text-white"
+                                        : "bg-gray-100 text-gray-700 group-hover:bg-[#F58220] group-hover:text-white dark:bg-zinc-800 dark:text-zinc-200"
+                                )}>
+                                    <Icon className="h-7 w-7" />
+                                </div>
+                                <ArrowRight className={cn(
+                                    "mt-1 h-5 w-5 transition-transform group-hover:translate-x-1",
+                                    isActive ? "text-[#F58220]" : "text-gray-400"
+                                )} />
                             </div>
-                            <div className="p-2 md:p-4 text-center">
-                                <h3 className="font-bold text-xs md:text-base group-hover:text-primary transition-colors">{cat.name}</h3>
-                                <span className="text-xs text-muted-foreground hidden">{cat.count} items</span>
-                            </div>
-                        </div>
-                    </Link>
-                ))}
+                            <h3 className="mt-7 text-xl font-bold leading-tight">{category.label}</h3>
+                            <p className="mt-4 text-base leading-9 text-gray-500 dark:text-zinc-400">
+                                {category.description}
+                            </p>
+                        </Link>
+                    )
+                })}
             </div>
         </section>
     )

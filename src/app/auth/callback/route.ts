@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { getSafeNextPath, resolvePostAuthPath } from "@/lib/auth-redirects"
+import { buildAbsoluteUrl, getServerSiteUrl } from "@/lib/site-url"
 
 interface ErrorRedirectOptions {
     description?: string | null
@@ -8,16 +10,8 @@ interface ErrorRedirectOptions {
     message: string
 }
 
-function getSafeNextPath(nextPath: string | null) {
-    if (!nextPath || !nextPath.startsWith("/") || nextPath.startsWith("//")) {
-        return "/"
-    }
-
-    return nextPath
-}
-
 function buildErrorRedirect(origin: string, options: ErrorRedirectOptions) {
-    const url = new URL('/auth/auth-code-error', origin)
+    const url = new URL('/auth/auth-code-error', `${origin}/`)
     url.searchParams.set('error', options.message)
     url.searchParams.set('callback_url', `${origin}/auth/callback`)
 
@@ -33,7 +27,8 @@ function buildErrorRedirect(origin: string, options: ErrorRedirectOptions) {
 }
 
 export async function GET(request: Request) {
-    const { searchParams, origin } = new URL(request.url)
+    const { searchParams } = new URL(request.url)
+    const siteOrigin = getServerSiteUrl(request)
     const code = searchParams.get('code')
     const next = getSafeNextPath(searchParams.get('next'))
     const referralCode = searchParams.get('ref')?.trim().toUpperCase() ?? null
@@ -48,7 +43,7 @@ export async function GET(request: Request) {
             description: oauthErrorDescription,
         })
 
-        return buildErrorRedirect(origin, {
+        return buildErrorRedirect(siteOrigin, {
             message: oauthError,
             description: oauthErrorDescription,
             errorCode: oauthErrorCode,
@@ -56,7 +51,7 @@ export async function GET(request: Request) {
     }
 
     if (!code) {
-        return buildErrorRedirect(origin, {
+        return buildErrorRedirect(siteOrigin, {
             message: 'Missing auth code',
             description: 'Supabase did not return an authorization code.',
         })
@@ -87,7 +82,7 @@ export async function GET(request: Request) {
 
     if (error) {
         console.error('OAuth code exchange failed:', error)
-        return buildErrorRedirect(origin, {
+        return buildErrorRedirect(siteOrigin, {
             message: error.message,
             description: 'Session exchange failed in /auth/callback. Make sure you start and finish Google sign-in on the exact same origin and that this callback URL is allowlisted in Supabase Auth.',
             errorCode: 'session_exchange_failed',
@@ -126,16 +121,17 @@ export async function GET(request: Request) {
         }
     }
 
-    const forwardedHost = request.headers.get('x-forwarded-host')
-    const isLocalEnv = process.env.NODE_ENV === 'development'
+    let destination = next ?? "/"
 
-    if (isLocalEnv) {
-        return NextResponse.redirect(`${origin}${next}`)
+    try {
+        const { data: { user } } = await supabase.auth.getUser()
+
+        if (user) {
+            destination = await resolvePostAuthPath(supabase, user.id, next)
+        }
+    } catch (destinationError) {
+        console.error("Failed to resolve post-auth destination:", destinationError)
     }
 
-    if (forwardedHost) {
-        return NextResponse.redirect(`https://${forwardedHost}${next}`)
-    }
-
-    return NextResponse.redirect(`${origin}${next}`)
+    return NextResponse.redirect(buildAbsoluteUrl(siteOrigin, destination))
 }

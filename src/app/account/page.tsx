@@ -4,6 +4,7 @@ import { redirect } from "next/navigation"
 import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { DashboardStats } from "@/components/account/DashboardStats"
 import { AccountDetailsCards } from "@/components/account/AccountDetailsCards"
+import { createEmptyProfileRow } from "@/lib/profile"
 
 export default async function AccountPage() {
     const cookieStore = await cookies()
@@ -44,7 +45,7 @@ export default async function AccountPage() {
         .from("profiles")
         .select("*")
         .eq("id", user.id)
-        .single()
+        .maybeSingle()
 
     // Fetch Roles
     const { data: userRoles } = await supabase
@@ -83,12 +84,11 @@ export default async function AccountPage() {
         .eq("id", user.id)
         .single()
 
-    if (!profile) {
-        // Handle edge case where profile was not created (should exist via trigger, but safe fallback)
-        return <div>Error loading profile. Please contact support.</div>
-    }
-
     const currentRoles = userRoles?.map(r => r.role) || ["customer"]
+    const safeProfile = profile ?? createEmptyProfileRow(
+        user.id,
+        user.user_metadata?.full_name || user.email?.split("@")[0] || "Customer"
+    )
 
     return (
         <div className="min-h-screen bg-gray-50/50 py-6 dark:bg-black sm:py-8 lg:py-12">
@@ -115,7 +115,7 @@ export default async function AccountPage() {
                         />
                         <AccountDetailsCards
                             user={user}
-                            profile={profile}
+                            profile={safeProfile}
                             roles={currentRoles}
                             wallet={wallet}
                         />

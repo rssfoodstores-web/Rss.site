@@ -1,15 +1,46 @@
 "use client"
 
+import { FormEvent, useState, useTransition } from "react"
 import Link from "next/link"
-import { Facebook, Instagram, Twitter, Mail, Phone } from "lucide-react"
 import { SocialMediaFooter } from "./SocialMediaFooter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { usePathname } from "next/navigation"
+import { createStorefrontHref, storefrontCategories } from "@/lib/categories"
+import { buildContactMethodHref, getContactMethodByType } from "@/lib/contactPage"
+import { usePublicContactPageContent } from "@/hooks/usePublicContactPageContent"
+import { subscribeToNewsletter } from "@/app/actions/newsletterActions"
+import { toast } from "sonner"
 
 export function Footer() {
     const pathname = usePathname()
+    const featuredFooterCategories = storefrontCategories.slice(0, 4)
+    const content = usePublicContactPageContent()
+    const [email, setEmail] = useState("")
+    const [isPending, startTransition] = useTransition()
+    const primaryPhoneMethod = getContactMethodByType(content.methods, "phone")
+    const primaryEmailMethod = getContactMethodByType(content.methods, "email")
+    const phoneHref = primaryPhoneMethod ? buildContactMethodHref(primaryPhoneMethod) : null
+    const emailHref = primaryEmailMethod ? buildContactMethodHref(primaryEmailMethod) : null
     if (pathname?.startsWith('/merchant')) return null;
+
+    const handleSubscribe = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault()
+
+        startTransition(async () => {
+            try {
+                const result = await subscribeToNewsletter({
+                    email,
+                    source: "footer",
+                })
+
+                setEmail("")
+                toast.success(result.created ? "Newsletter subscription saved." : "This email is already subscribed.")
+            } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Unable to save your email right now.")
+            }
+        })
+    }
 
     return (
         <footer className="w-full font-sans">
@@ -17,23 +48,30 @@ export function Footer() {
             <div className="bg-[#F7F7F7] dark:bg-zinc-900 py-12 px-4 md:px-8 border-t dark:border-zinc-800">
                 <div className="container mx-auto flex flex-col lg:flex-row items-center justify-between gap-8">
                     <div className="flex flex-col gap-2 max-w-xl text-center lg:text-left">
-                        <h3 className="text-2xl font-bold text-[#1A1A1A] dark:text-white">Subcribe our Newsletter</h3>
+                        <h3 className="text-2xl font-bold text-[#1A1A1A] dark:text-white">{content.newsletter.title}</h3>
                         <p className="text-gray-500 text-sm leading-relaxed">
-                            Stay updated with the latest products, special offers, and helpful tips. Join our community and never miss an update.
+                            {content.newsletter.description}
                         </p>
                     </div>
 
                     <div className="flex flex-col sm:flex-row items-center gap-6 w-full lg:w-auto mt-4 lg:mt-0">
-                        <div className="relative w-full sm:w-[450px]">
+                        <form className="relative w-full sm:w-[450px]" onSubmit={handleSubscribe}>
                             <Input
                                 type="email"
-                                placeholder="Your email address"
+                                value={email}
+                                onChange={(event) => setEmail(event.target.value)}
+                                placeholder={content.newsletter.emailPlaceholder}
+                                required
                                 className="h-[52px] w-full rounded-full pl-6 pr-28 sm:pr-32 border-transparent bg-white shadow-sm focus-visible:ring-0 placeholder:text-gray-400 text-black dark:text-white"
                             />
-                            <Button className="absolute right-1 top-1 bottom-1 px-4 sm:px-8 rounded-full bg-[#F58220] hover:bg-[#F58220]/90 text-white font-bold h-auto z-10 text-sm sm:text-base">
-                                Subscribe
+                            <Button
+                                type="submit"
+                                disabled={isPending}
+                                className="absolute right-1 top-1 bottom-1 px-4 sm:px-8 rounded-full bg-[#F58220] hover:bg-[#F58220]/90 text-white font-bold h-auto z-10 text-sm sm:text-base"
+                            >
+                                {isPending ? "Saving..." : content.newsletter.buttonText}
                             </Button>
-                        </div>
+                        </form>
 
                         <div className="flex gap-3 shrink-0">
                             {/* Social Media Links */}
@@ -61,9 +99,23 @@ export function Footer() {
 
                             <div className="flex flex-col gap-4 pt-4 items-center lg:items-start">
                                 <div className="flex flex-col sm:flex-row items-center gap-2">
-                                    <span className="font-semibold text-lg text-white">+234 903 019 8544</span>
+                                    {phoneHref && primaryPhoneMethod ? (
+                                        <a href={phoneHref} className="font-semibold text-lg text-white transition-colors hover:text-[#F58220]">
+                                            {primaryPhoneMethod.value}
+                                        </a>
+                                    ) : (
+                                        <span className="font-semibold text-lg text-white">{primaryPhoneMethod?.value ?? ""}</span>
+                                    )}
                                     <span className="text-gray-500 hidden sm:inline">or</span>
-                                    <span className="font-semibold text-lg text-white border-b-2 border-[#F58220] pb-0.5">hello@myrss.com.ng</span>
+                                    {emailHref && primaryEmailMethod ? (
+                                        <a href={emailHref} className="font-semibold text-lg text-white border-b-2 border-[#F58220] pb-0.5 transition-colors hover:text-[#F58220]">
+                                            {primaryEmailMethod.value}
+                                        </a>
+                                    ) : (
+                                        <span className="font-semibold text-lg text-white border-b-2 border-[#F58220] pb-0.5">
+                                            {primaryEmailMethod?.value ?? ""}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -77,10 +129,22 @@ export function Footer() {
                             <div className="space-y-6">
                                 <h3 className="text-white font-bold text-base">Categories</h3>
                                 <ul className="space-y-4 text-sm text-gray-400">
-                                    <li><Link href="/retail?category=african-food" className="hover:text-white transition-colors">African Food</Link></li>
-                                    <li><Link href="/retail?category=vegetables" className="hover:text-white transition-colors">Vegetables</Link></li>
-                                    <li><Link href="/retail?category=beverages" className="hover:text-white transition-colors">Beverages</Link></li>
-                                    <li><Link href="/retail?category=frozen" className="hover:text-white transition-colors">Frozen Food</Link></li>
+                                    {featuredFooterCategories.map((category) => (
+                                        <li key={category.slug}>
+                                            <Link
+                                                href={createStorefrontHref({
+                                                    pathname,
+                                                    patch: {
+                                                        category: category.slug,
+                                                    },
+                                                    hash: "product-grid",
+                                                })}
+                                                className="hover:text-white transition-colors"
+                                            >
+                                                {category.label}
+                                            </Link>
+                                        </li>
+                                    ))}
                                 </ul>
                             </div>
 

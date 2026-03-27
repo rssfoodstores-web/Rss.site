@@ -1,31 +1,36 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
-import { createClient } from "@/lib/supabase/client"
-import { ProductCard, Product } from "@/components/home/ProductCard"
+import Link from "next/link"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { createPublicStorefrontClient } from "@/lib/supabase/client"
+import { ProductCard, type Product } from "@/components/home/ProductCard"
 import { Skeleton } from "@/components/ui/skeleton"
-import { AlertCircle, Filter } from "lucide-react"
+import { AlertCircle, Filter, MapPin, Search, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { groupProductReviewsByProduct, type ProductReviewRow } from "@/lib/productReviews"
-const NIGERIAN_STATES = [
-    "Lagos", "Abuja", "Rivers", "Oyo", "Ogun", "Kano", "Kaduna", "Enugu", "Delta", "Edo"
-]
-
-import { useSearchParams } from "next/navigation"
+import {
+    createStorefrontHref,
+    getStorefrontCategoryDescription,
+    getStorefrontCategoryLabel,
+    storefrontNavigationCategories,
+} from "@/lib/categories"
+import { getNigerianStateFilterCandidates, NIGERIAN_STATES } from "@/lib/constants/nigerianStates"
+import { cn } from "@/lib/utils"
 
 interface ProductGridProps {
-    salesType?: 'retail' | 'wholesale'
+    salesType?: "retail" | "wholesale"
     title?: string
 }
 
 interface ProductRow {
+    category: string
     id: string
+    image_url: string | null
+    merchant_id: string
     name: string
     price: number
-    image_url: string | null
-    category: string
-    stock_level: number
-    merchant_id: string
+    stock_level: number | null
 }
 
 interface ProductReviewQueryRow extends ProductReviewRow {
@@ -53,6 +58,13 @@ function isAbortLikeError(error: unknown) {
     return false
 }
 
+function sanitizeSearchTerm(value: string) {
+    return value
+        .replace(/[^a-zA-Z0-9\s-]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+}
+
 function getErrorMessage(error: unknown) {
     if (!error) return "Unknown product fetch error"
     if (typeof error === "string") return error
@@ -66,16 +78,19 @@ function getErrorMessage(error: unknown) {
 }
 
 export function ProductGrid({ salesType, title }: ProductGridProps) {
+    const pathname = usePathname()
+    const router = useRouter()
     const searchParams = useSearchParams()
-    const categoryFilter = searchParams.get('category')
+    const categoryFilter = searchParams.get("category")
+    const searchQuery = searchParams.get("q")?.trim() ?? ""
+    const locationFilter = searchParams.get("state")?.trim() ?? "all"
 
     const [products, setProducts] = useState<Product[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [retryCount, setRetryCount] = useState(0)
-    const [locationFilter, setLocationFilter] = useState<string>("all")
 
-    const supabase = createClient()
+    const [supabase] = useState(() => createPublicStorefrontClient())
     const requestIdRef = useRef(0)
     const isMountedRef = useRef(false)
 
@@ -94,24 +109,23 @@ export function ProductGrid({ salesType, title }: ProductGridProps) {
                 .order("created_at", { ascending: false })
                 .limit(20)
 
-            // Filter by sales type if provided
             if (salesType) {
-                query = query.eq('sales_type', salesType)
+                query = query.eq("sales_type", salesType)
             }
 
-            // Filter by Category
             if (categoryFilter) {
-                query = query.eq('category', categoryFilter)
+                query = query.filter("category", "eq", categoryFilter)
             }
 
-            // Manual Location Filter
-            if (locationFilter && locationFilter !== "all") {
-                const baseState = locationFilter.trim()
-                const stateVariations = [
-                    baseState,
-                    `${baseState} State`
-                ]
-                query = query.in("state", stateVariations)
+            const normalizedSearch = sanitizeSearchTerm(searchQuery)
+            if (normalizedSearch) {
+                query = query.or(
+                    `name.ilike.%${normalizedSearch}%,description.ilike.%${normalizedSearch}%,seo_title.ilike.%${normalizedSearch}%`
+                )
+            }
+
+            if (locationFilter !== "all") {
+                query = query.in("state", getNigerianStateFilterCandidates(locationFilter))
             }
 
             const { data, error } = await query
@@ -123,7 +137,7 @@ export function ProductGrid({ salesType, title }: ProductGridProps) {
             }
 
             if (data) {
-                const productRows = data as ProductRow[]
+                const productRows = data as unknown as ProductRow[]
                 const productIds = productRows.map((item) => item.id)
                 let reviewSummaryByProduct: Record<string, Product["reviewSummary"]> = {}
 
@@ -143,17 +157,16 @@ export function ProductGrid({ salesType, title }: ProductGridProps) {
                     }
                 }
 
-                const formattedProducts: Product[] = productRows.map((item) => ({
+                setProducts(productRows.map((item) => ({
                     id: item.id,
                     name: item.name,
                     price: item.price,
                     imageUrl: item.image_url ?? "",
                     category: item.category,
-                    stock: item.stock_level,
+                    stock: item.stock_level ?? 0,
                     merchantId: item.merchant_id,
                     reviewSummary: reviewSummaryByProduct[item.id] ?? null,
-                }))
-                setProducts(formattedProducts)
+                })))
             }
         } catch (err) {
             if (!isMountedRef.current || requestId !== requestIdRef.current) return
@@ -164,7 +177,7 @@ export function ProductGrid({ salesType, title }: ProductGridProps) {
 
             console.error("Error fetching products:", {
                 message: getErrorMessage(err),
-                error: err
+                error: err,
             })
             setError("Failed to load products. Please try again.")
         } finally {
@@ -172,75 +185,192 @@ export function ProductGrid({ salesType, title }: ProductGridProps) {
                 setLoading(false)
             }
         }
-    }, [supabase, locationFilter, salesType, categoryFilter])
+    }, [categoryFilter, locationFilter, salesType, searchQuery, supabase])
 
     useEffect(() => {
         isMountedRef.current = true
         fetchProducts()
+
         return () => {
             isMountedRef.current = false
         }
     }, [fetchProducts, retryCount])
 
+    const hasAnyFilter = Boolean(categoryFilter || searchQuery || locationFilter !== "all")
+    const categoryTitle = getStorefrontCategoryLabel(categoryFilter)
+    const categoryDescription = getStorefrontCategoryDescription(categoryFilter)
+    const searchTitle = searchQuery ? `Search results for "${searchQuery}"` : null
+    const displayTitle = searchTitle
+        ?? (categoryFilter ? categoryTitle : title)
+        ?? (salesType === "wholesale" ? "Wholesale products" : "Fresh products")
+    const displaySubtitle = searchQuery
+        ? `Showing ${categoryFilter ? `${categoryTitle.toLowerCase()} ` : ""}matches${locationFilter !== "all" ? ` in ${locationFilter}` : ""}.`
+        : categoryFilter
+            ? categoryDescription
+            : salesType === "wholesale"
+                ? "Browse bulk-ready listings, organized for fast wholesale ordering."
+                : "Browse approved products across fresh, packaged, and specialty categories."
+
+    const clearFiltersHref = createStorefrontHref({
+        pathname,
+        searchParams,
+        patch: {
+            category: null,
+            q: null,
+            state: null,
+        },
+        hash: "product-grid",
+    })
+
+    const handleLocationChange = (nextValue: string) => {
+        router.push(createStorefrontHref({
+            pathname,
+            searchParams,
+            patch: {
+                state: nextValue,
+            },
+            hash: "product-grid",
+        }))
+    }
+
+    const activeFilters = [
+        searchQuery
+            ? {
+                key: "q",
+                label: `Search: ${searchQuery}`,
+            }
+            : null,
+        categoryFilter
+            ? {
+                key: "category",
+                label: categoryTitle,
+            }
+            : null,
+        locationFilter !== "all"
+            ? {
+                key: "state",
+                label: locationFilter,
+            }
+            : null,
+    ].filter(Boolean) as Array<{ key: "q" | "category" | "state"; label: string }>
+
     if (error) {
         return (
             <div className="flex flex-col items-center justify-center py-12 text-center">
-                <AlertCircle className="h-10 w-10 text-red-500 mb-4" />
-                <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">{error}</p>
-                <Button onClick={() => setRetryCount(c => c + 1)}>Try Again</Button>
+                <AlertCircle className="mb-4 h-10 w-10 text-red-500" />
+                <p className="mb-2 text-lg font-medium text-gray-900 dark:text-gray-100">{error}</p>
+                <Button onClick={() => setRetryCount((current) => current + 1)}>Try Again</Button>
             </div>
         )
     }
 
-    const formatCategoryName = (slug: string) => {
-        return slug.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
-    }
-
-    const displayTitle = title
-        ? title
-        : categoryFilter
-            ? `${formatCategoryName(categoryFilter)} Products`
-            : locationFilter !== 'all'
-                ? `Products in ${locationFilter}`
-                : "Fresh products"
-
     return (
         <section className="py-8" id="product-grid">
             <div className="container mx-auto px-4 md:px-8">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                    <h2 className="text-2xl font-bold text-[#002603] dark:text-white">
-                        {displayTitle}
-                    </h2>
+                <div className="mb-6 rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 md:p-6">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                            <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#F58220]">
+                                {products.length} product{products.length === 1 ? "" : "s"} loaded
+                            </p>
+                            <h2 className="mt-2 text-2xl font-bold text-[#002603] dark:text-white md:text-3xl">
+                                {displayTitle}
+                            </h2>
+                            <p className="mt-2 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
+                                {displaySubtitle}
+                            </p>
+                        </div>
 
-                    <div className="flex items-center gap-2">
-                        <Filter className="h-4 w-4 text-gray-500" />
-                        <label className="sr-only" htmlFor="product-location-filter">
-                            Filter products by location
-                        </label>
-                        <select
-                            id="product-location-filter"
-                            value={locationFilter}
-                            onChange={(event) => setLocationFilter(event.target.value)}
-                            className="h-10 w-[180px] rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs focus:outline-none focus:ring-2 focus:ring-ring"
-                        >
-                            <option value="all">All Locations</option>
-                            {NIGERIAN_STATES.map((state) => (
-                                <option key={state} value={state}>
-                                    {state}
-                                </option>
-                            ))}
-                        </select>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                            <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+                                <Filter className="h-4 w-4 text-gray-500" />
+                                <label className="sr-only" htmlFor="product-location-filter">
+                                    Filter products by location
+                                </label>
+                                <select
+                                    id="product-location-filter"
+                                    value={locationFilter}
+                                    onChange={(event) => handleLocationChange(event.target.value)}
+                                    className="min-w-[160px] bg-transparent text-sm text-foreground outline-none"
+                                >
+                                    <option value="all">All locations</option>
+                                    {NIGERIAN_STATES.map((state) => (
+                                        <option key={state} value={state}>
+                                            {state}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {hasAnyFilter ? (
+                                <Button variant="outline" asChild className="rounded-full">
+                                    <Link href={clearFiltersHref}>Clear all filters</Link>
+                                </Button>
+                            ) : null}
+                        </div>
                     </div>
+
+                    <div className="mt-5 flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+                        {storefrontNavigationCategories.map((category) => {
+                            const isActive = category.slug === null ? !categoryFilter : categoryFilter === category.slug
+                            const href = createStorefrontHref({
+                                pathname,
+                                searchParams,
+                                patch: {
+                                    category: category.slug,
+                                },
+                                hash: "product-grid",
+                            })
+
+                            return (
+                                <Link
+                                    key={category.label}
+                                    href={href}
+                                    className={cn(
+                                        "whitespace-nowrap rounded-full border px-4 py-2 text-sm font-semibold transition-colors",
+                                        isActive
+                                            ? "border-[#F58220] bg-[#F58220] text-white"
+                                            : "border-gray-200 bg-white text-gray-600 hover:border-orange-200 hover:text-[#F58220] dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300"
+                                    )}
+                                >
+                                    {category.label}
+                                </Link>
+                            )
+                        })}
+                    </div>
+
+                    {activeFilters.length > 0 ? (
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                            {activeFilters.map((filter) => (
+                                <Link
+                                    key={filter.key}
+                                    href={createStorefrontHref({
+                                        pathname,
+                                        searchParams,
+                                        patch: {
+                                            [filter.key]: null,
+                                        },
+                                        hash: "product-grid",
+                                    })}
+                                    className="inline-flex items-center gap-2 rounded-full bg-orange-50 px-3 py-1.5 text-xs font-semibold text-[#C25F14] dark:bg-orange-950/20 dark:text-orange-200"
+                                >
+                                    {filter.key === "q" ? <Search className="h-3.5 w-3.5" /> : null}
+                                    {filter.key === "state" ? <MapPin className="h-3.5 w-3.5" /> : null}
+                                    <span>{filter.label}</span>
+                                    <X className="h-3.5 w-3.5" />
+                                </Link>
+                            ))}
+                        </div>
+                    ) : null}
                 </div>
 
                 {loading ? (
                     <>
-                        {/* Mobile: horizontal scroll skeleton */}
-                        <div className="flex overflow-x-auto snap-x gap-3 pb-4 no-scrollbar md:hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                            {[...Array(4)].map((_, i) => (
-                                <div key={i} className="min-w-[calc(50vw-1.5rem)] snap-start flex flex-col gap-3">
-                                    {[0, 1].map((j) => (
-                                        <div key={j} className="space-y-2">
+                        <div className="flex gap-3 overflow-x-auto pb-4 no-scrollbar md:hidden">
+                            {[...Array(4)].map((_, index) => (
+                                <div key={index} className="flex min-w-[calc(50vw-1.5rem)] snap-start flex-col gap-3">
+                                    {[0, 1].map((row) => (
+                                        <div key={row} className="space-y-2">
                                             <Skeleton className="h-[120px] w-full rounded-xl" />
                                             <Skeleton className="h-3 w-3/4" />
                                             <Skeleton className="h-3 w-1/2" />
@@ -249,10 +379,9 @@ export function ProductGrid({ salesType, title }: ProductGridProps) {
                                 </div>
                             ))}
                         </div>
-                        {/* Desktop: grid skeleton */}
-                        <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
-                            {[...Array(8)].map((_, i) => (
-                                <div key={i} className="space-y-3">
+                        <div className="hidden gap-4 md:grid md:grid-cols-3 lg:grid-cols-4 md:gap-6">
+                            {[...Array(8)].map((_, index) => (
+                                <div key={index} className="space-y-3">
                                     <Skeleton className="h-[180px] w-full rounded-xl" />
                                     <Skeleton className="h-4 w-3/4" />
                                     <Skeleton className="h-4 w-1/2" />
@@ -262,16 +391,16 @@ export function ProductGrid({ salesType, title }: ProductGridProps) {
                     </>
                 ) : products.length > 0 ? (
                     <>
-                        {/* Mobile: horizontal scroll, 2 rows per column */}
                         <div className="md:hidden">
-                            <div className="flex overflow-x-auto snap-x gap-3 pb-2 no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                            <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
                                 {(() => {
                                     const columns: Product[][] = []
-                                    for (let i = 0; i < products.length; i += 2) {
-                                        columns.push(products.slice(i, i + 2))
+                                    for (let index = 0; index < products.length; index += 2) {
+                                        columns.push(products.slice(index, index + 2))
                                     }
-                                    return columns.map((pair, colIdx) => (
-                                        <div key={colIdx} className="min-w-[calc(50vw-1.25rem)] max-w-[calc(50vw-1.25rem)] snap-start flex flex-col gap-3 shrink-0">
+
+                                    return columns.map((pair, columnIndex) => (
+                                        <div key={columnIndex} className="flex min-w-[calc(50vw-1.25rem)] max-w-[calc(50vw-1.25rem)] shrink-0 snap-start flex-col gap-3">
                                             {pair.map((product) => (
                                                 <ProductCard key={product.id} product={product} />
                                             ))}
@@ -280,21 +409,25 @@ export function ProductGrid({ salesType, title }: ProductGridProps) {
                                 })()}
                             </div>
                         </div>
-                        {/* Desktop: standard grid */}
-                        <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6 text-left">
+                        <div className="hidden text-left md:grid md:grid-cols-3 md:gap-4 lg:grid-cols-4 md:gap-6">
                             {products.map((product) => (
                                 <ProductCard key={product.id} product={product} />
                             ))}
                         </div>
                     </>
                 ) : (
-                    <div className="text-center py-12 bg-gray-50 dark:bg-zinc-900 rounded-xl">
-                        <p className="text-gray-500 dark:text-gray-400">
-                            No products found {locationFilter !== 'all' ? `in ${locationFilter}` : ''}.
+                    <div className="rounded-[28px] border border-dashed border-gray-200 bg-gray-50 px-6 py-12 text-center dark:border-zinc-800 dark:bg-zinc-900">
+                        <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                            No products matched your current filters.
                         </p>
-                        <Button variant="link" onClick={() => setLocationFilter("all")}>
-                            View all products
-                        </Button>
+                        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                            Try a broader search, switch category, or clear the location filter.
+                        </p>
+                        <div className="mt-5">
+                            <Button asChild className="rounded-full bg-[#F58220] text-white hover:bg-[#E57210]">
+                                <Link href={clearFiltersHref}>View all products</Link>
+                            </Button>
+                        </div>
                     </div>
                 )}
             </div>

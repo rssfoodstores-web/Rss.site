@@ -54,6 +54,32 @@ function buildProductPayload(data: ProductInput) {
         throw new Error("Choose one product category before submitting.")
     }
 
+    if (typeof productData.state !== "string" || !productData.state.trim()) {
+        throw new Error("Select a state before submitting this product for review.")
+    }
+
+    productData.state = productData.state.trim()
+
+    for (const key of ["return_refund_policy", "manufacture_date", "expiry_date"] as const) {
+        const rawValue = productData[key]
+        if (typeof rawValue === "string") {
+            const trimmedValue = rawValue.trim()
+            productData[key] = trimmedValue ? trimmedValue : null
+        }
+    }
+
+    for (const key of ["nutrition_content", "health_benefits", "suggested_combos", "cooked_images"] as const) {
+        const rawValue = productData[key]
+        if (Array.isArray(rawValue)) {
+            const normalizedValues = rawValue
+                .filter((item): item is string => typeof item === "string")
+                .map((item) => item.trim())
+                .filter(Boolean)
+
+            productData[key] = normalizedValues.length > 0 ? normalizedValues : null
+        }
+    }
+
     return {
         ...productData,
         price: nairaToKobo(parsedPrice),

@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loader2, Home } from "lucide-react"
+import { buildAbsoluteUrl, getClientSiteUrl } from "@/lib/site-url"
 
 export default function ForgotPasswordPage() {
     const [email, setEmail] = useState("")
@@ -18,17 +19,22 @@ export default function ForgotPasswordPage() {
         setLoading(true)
         setMessage(null)
 
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: `${window.location.origin}/reset-password`,
-        })
-
-        if (error) {
-            setMessage({ type: 'error', text: error.message })
-        } else {
-            setMessage({
-                type: 'success',
-                text: "If an account exists with this email, you will receive a password reset link shortly."
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+                redirectTo: buildAbsoluteUrl(getClientSiteUrl(), "/reset-password"),
             })
+
+            if (error) {
+                setMessage({ type: 'error', text: error.message })
+            } else {
+                setMessage({
+                    type: 'success',
+                    text: "If an account exists with this email, you will receive a password reset link shortly."
+                })
+            }
+        } catch (authError) {
+            console.error("Unexpected forgot-password failure:", authError)
+            setMessage({ type: "error", text: "Unable to start password recovery right now. Please try again." })
         }
         setLoading(false)
     }
@@ -80,7 +86,7 @@ export default function ForgotPasswordPage() {
                                 )}
 
                                 <Button className="w-full h-[52px] bg-[#F58220] hover:bg-[#F58220]/90 text-white font-bold text-lg rounded-full" type="submit" disabled={loading}>
-                                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Send Code"}
+                                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Send Reset Link"}
                                 </Button>
                             </form>
                         ) : (

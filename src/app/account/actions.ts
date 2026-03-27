@@ -4,6 +4,9 @@ import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
 
+type MerchantKycValue = string | null | Record<string, string>
+type CloudinaryUploadResult = { secure_url: string }
+
 // Initialize Supabase Server Client
 async function getSupabase() {
     const cookieStore = await cookies()
@@ -68,7 +71,8 @@ export async function updateProfileDetailed(formData: FormData) {
 
     const { error } = await supabase
         .from("profiles")
-        .update({
+        .upsert({
+            id: user.id,
             full_name,
             phone,
             company_name,
@@ -76,16 +80,19 @@ export async function updateProfileDetailed(formData: FormData) {
             state,
             street_address,
             house_number,
-            address, // Sync to legacy column
-            ...(location && { location }) // Only update if provided
+            address,
+            updated_at: new Date().toISOString(),
+            ...(location && { location }),
+        }, {
+            onConflict: "id",
         })
-        .eq("id", user.id)
 
     if (error) {
         return { error: error.message }
     }
 
     revalidatePath("/account")
+    revalidatePath("/account/profile")
     return { success: true }
 }
 
@@ -162,22 +169,25 @@ export async function registerMerchant(formData: FormData) {
     const store_name = formData.get("store_name") as string
     const business_email = formData.get("business_email") as string
     const owner_name = formData.get("owner_name") as string
-    const owner_email = formData.get("owner_email") as string
     const business_phone = formData.get("business_phone") as string
     const business_address = formData.get("business_address") as string
     const merchant_type = formData.get("merchant_type") as "business" | "individual"
+    const getFormText = (field: string) => {
+        const value = formData.get(field)
+        return typeof value === "string" ? value : null
+    }
 
     // KYC Data Extraction
-    const kyc_data: Record<string, any> = {}
+    const kyc_data: Record<string, MerchantKycValue> = {}
 
     if (merchant_type === "business") {
-        kyc_data.incorporation_date = formData.get("incorporation_date")
-        kyc_data.rc_number = formData.get("rc_number") // Optional
-        kyc_data.tin = formData.get("tin")
+        kyc_data.incorporation_date = getFormText("incorporation_date")
+        kyc_data.rc_number = getFormText("rc_number")
+        kyc_data.tin = getFormText("tin")
         // No bank account details in this form yet based on plan, but could be added
     } else {
-        kyc_data.next_of_kin_name = formData.get("next_of_kin_name")
-        kyc_data.next_of_kin_phone = formData.get("next_of_kin_phone")
+        kyc_data.next_of_kin_name = getFormText("next_of_kin_name")
+        kyc_data.next_of_kin_phone = getFormText("next_of_kin_phone")
     }
 
     // Handle File Uploads
@@ -196,12 +206,21 @@ export async function registerMerchant(formData: FormData) {
                 const buffer = Buffer.from(arrayBuffer)
 
                 // Upload to Cloudinary
-                const result = await new Promise<any>((resolve, reject) => {
+                const result = await new Promise<CloudinaryUploadResult>((resolve, reject) => {
                     const uploadStream = cloudinary.uploader.upload_stream(
                         { folder: `rssa/merchants/${user.id}/${field}` },
                         (error, result) => {
-                            if (error) reject(error)
-                            else resolve(result)
+                            if (error) {
+                                reject(error)
+                                return
+                            }
+
+                            if (!result?.secure_url) {
+                                reject(new Error("Cloudinary upload did not return a secure URL"))
+                                return
+                            }
+
+                            resolve({ secure_url: result.secure_url })
                         }
                     )
                     uploadStream.end(buffer)

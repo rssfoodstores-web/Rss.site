@@ -8,8 +8,8 @@ import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { useCategory } from "@/context/CategoryContext"
-import { categories } from "@/lib/categories"
-import { useSearchParams } from "next/navigation"
+import { createStorefrontHref, storefrontNavigationCategories } from "@/lib/categories"
+import { usePathname, useSearchParams } from "next/navigation"
 
 export interface HeroSlide {
     bodyText: string | null
@@ -73,6 +73,7 @@ function renderBackgroundMedia(slide: HeroSlide) {
 
 export function HeroSectionClient({ slides }: { slides: HeroSlide[] }) {
     const { isOpen } = useCategory()
+    const pathname = usePathname()
     const searchParams = useSearchParams()
     const currentCategory = searchParams.get("category")
     const [currentSlide, setCurrentSlide] = React.useState(0)
@@ -98,18 +99,25 @@ export function HeroSectionClient({ slides }: { slides: HeroSlide[] }) {
                 <div className={`${isOpen ? "w-64 translate-x-0 opacity-100" : "hidden w-0 -translate-x-full opacity-0"} hidden flex-shrink-0 overflow-hidden transition-all duration-300 ease-in-out md:block`}>
                     <Card className="h-full rounded-none border-none bg-white shadow-sm dark:bg-card">
                         <div className="flex h-[500px] flex-col overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-gray-200 dark:scrollbar-thumb-zinc-700">
-                            {categories.map((category, index) => {
-                                const categoryParam = category.href.split("category=")[1]
-                                const isActive = currentCategory === categoryParam || (!currentCategory && category.name === "Home Page")
+                            {storefrontNavigationCategories.map((category, index) => {
+                                const isActive = category.slug === null ? !currentCategory : currentCategory === category.slug
+                                const href = createStorefrontHref({
+                                    pathname,
+                                    searchParams,
+                                    patch: {
+                                        category: category.slug,
+                                    },
+                                    hash: "product-grid",
+                                })
 
                                 return (
                                     <Link
-                                        key={`${category.name}-${index}`}
-                                        href={category.href}
+                                        key={`${category.label}-${index}`}
+                                        href={href}
                                         className={`flex flex-shrink-0 items-center gap-3 px-6 py-3 text-sm font-medium transition-colors hover:bg-orange-50 hover:text-primary dark:hover:bg-accent ${isActive ? "sticky top-0 z-10 bg-[#F58220] text-white hover:bg-[#F58220]/90 hover:text-white" : "text-[#555555] dark:text-gray-300"}`}
                                     >
                                         <category.icon className={`h-5 w-5 flex-shrink-0 ${isActive ? "text-white" : "text-[#888888]"}`} />
-                                        <span className="truncate">{category.name}</span>
+                                        <span className="truncate">{category.label}</span>
                                     </Link>
                                 )
                             })}

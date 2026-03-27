@@ -1,5 +1,6 @@
 "use client"
 
+import { FormEvent } from "react"
 import Link from "next/link"
 import { useTheme } from "next-themes"
 import { Search, ShoppingCart, Heart, User, Phone, ChevronDown, Menu, Sun, Moon, LogOut, Bell } from "lucide-react"
@@ -18,22 +19,48 @@ import { useCategory } from "@/context/CategoryContext"
 import { useUser } from "@/context/UserContext"
 import { useCart } from "@/context/CartContext"
 import { useWishlist } from "@/context/WishlistContext"
+import { createStorefrontHref, getStorefrontBasePath, isStorefrontPath } from "@/lib/categories"
+import { getContactMethodByType } from "@/lib/contactPage"
+import { usePublicContactPageContent } from "@/hooks/usePublicContactPageContent"
 
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 export function Header() {
     const pathname = usePathname()
+    const router = useRouter()
+    const searchParams = useSearchParams()
     const { setTheme, theme } = useTheme()
     const { toggle, isOpen } = useCategory()
     const { user, roles, unreadCount } = useUser()
     const { itemCount } = useCart()
     const { items: wishlistItems } = useWishlist()
+    const contactContent = usePublicContactPageContent()
     const supabase = createClient()
 
     const { isMerchant, isRider } = roles
+    const isStorefrontPage = isStorefrontPath(pathname)
+    const currentQuery = searchParams.get("q") ?? ""
+    const primaryPhoneMethod = getContactMethodByType(contactContent.methods, "phone")
 
     const handleSignOut = async () => {
         await supabase.auth.signOut()
+    }
+
+    const submitSearch = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault()
+        const formData = new FormData(event.currentTarget)
+        const nextQuery = String(formData.get("q") ?? "")
+
+        const nextHref = createStorefrontHref({
+            pathname: getStorefrontBasePath(pathname),
+            searchParams: isStorefrontPage ? searchParams : undefined,
+            patch: {
+                q: nextQuery,
+            },
+            hash: "product-grid",
+        })
+
+        router.push(nextHref)
     }
 
     if (pathname?.startsWith('/merchant')) return null;
@@ -87,10 +114,10 @@ export function Header() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="bg-white dark:bg-zinc-950 border shadow-lg z-50">
                                 <DropdownMenuItem asChild>
-                                    <Link href="/profile">Profile</Link>
+                                    <Link href="/account/profile">Profile</Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem asChild>
-                                    <Link href="/orders">My Orders</Link>
+                                    <Link href="/account/orders">My Orders</Link>
                                 </DropdownMenuItem>
                                 {isMerchant && (
                                     <DropdownMenuItem asChild>
@@ -129,19 +156,25 @@ export function Header() {
 
                     {/* Search Bar - Figma Spec: Frame 8:391 */}
                     <div className="hidden md:flex flex-1 items-center justify-center">
-                        <div className="flex items-center w-full max-w-[498px] h-[45px] border border-[#ECECEC] dark:border-zinc-700 rounded-[6px] overflow-hidden bg-white dark:bg-zinc-900">
+                        <form
+                            key={`desktop-${pathname}-${currentQuery}`}
+                            onSubmit={submitSearch}
+                            className="flex items-center w-full max-w-[560px] h-[48px] border border-[#ECECEC] dark:border-zinc-700 rounded-xl overflow-hidden bg-white dark:bg-zinc-900 shadow-sm"
+                        >
                             <div className="flex items-center px-4 flex-1 h-full gap-2 text-[#808080]">
                                 <Search className="h-5 w-5 text-[#1A1A1A] dark:text-gray-200" />
                                 <Input
+                                    name="q"
                                     type="search"
-                                    placeholder="Search"
+                                    defaultValue={currentQuery}
+                                    placeholder="Search products, pantry items, or brands"
                                     className="h-full border-0 p-0 focus-visible:ring-0 placeholder:text-[#808080] text-[15px] bg-transparent dark:text-gray-100"
                                 />
                             </div>
-                            <Button className="h-full w-[98px] bg-[#F58220] hover:bg-[#F58220]/90 text-white font-semibold rounded-none shrink-0 text-sm">
+                            <Button type="submit" className="h-full w-[118px] bg-[#F58220] hover:bg-[#F58220]/90 text-white font-semibold rounded-none shrink-0 text-sm">
                                 Search
                             </Button>
-                        </div>
+                        </form>
                     </div>
 
                     {/* Icons & Contact */}
@@ -190,11 +223,33 @@ export function Header() {
                             </div>
                             <div className="flex flex-col leading-tight">
                                 <span className="text-xs text-muted-foreground">Call to order</span>
-                                <span className="font-bold">+234 903 019 8544</span>
+                                <span className="font-bold">{primaryPhoneMethod?.value ?? ""}</span>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                {isStorefrontPage && (
+                    <form
+                        key={`mobile-${pathname}-${currentQuery}`}
+                        onSubmit={submitSearch}
+                        className="mt-4 flex items-center gap-2 rounded-2xl border border-[#ECECEC] bg-white p-2 shadow-sm dark:border-zinc-800 dark:bg-zinc-950 md:hidden"
+                    >
+                        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-[#F7F7F7] px-3 dark:bg-zinc-900">
+                            <Search className="h-4 w-4 text-muted-foreground" />
+                            <Input
+                                name="q"
+                                type="search"
+                                defaultValue={currentQuery}
+                                placeholder="Search products"
+                                className="h-11 border-0 bg-transparent px-0 focus-visible:ring-0"
+                            />
+                        </div>
+                        <Button type="submit" className="h-11 rounded-xl bg-[#F58220] px-4 text-white hover:bg-[#E57210]">
+                            Search
+                        </Button>
+                    </form>
+                )}
             </div>
 
             {/* Navigation Bar - Figma Spec: Frame 8:363 */}
@@ -230,7 +285,7 @@ export function Header() {
                                     <Link href="/merchant" className={`${pathname === "/merchant" ? "text-[#F58220]" : "text-[#002603] dark:text-gray-200 hover:text-[#F58220]"} transition-colors font-bold`}>Dashboard</Link>
                                 )}
                                 <Link href="/retail" className={`${pathname === "/retail" ? "text-[#F58220]" : "text-[#002603] dark:text-gray-200 hover:text-[#F58220]"} transition-colors`}>RSS Retail</Link>
-                                <Link href="/wholesale" className={`${pathname === "/wholesale" ? "text-[#F58220]" : "text-[#002603] dark:text-gray-200 hover:text-[#F58220]"} transition-colors`}>RSS wholesales</Link>
+                                <Link href="/wholesale" className={`${pathname === "/wholesale" ? "text-[#F58220]" : "text-[#002603] dark:text-gray-200 hover:text-[#F58220]"} transition-colors`}>RSS Wholesale</Link>
                                 <Link href="/about" className={`${pathname === "/about" ? "text-[#F58220]" : "text-[#002603] dark:text-gray-200 hover:text-[#F58220]"} transition-colors`}>About RSS</Link>
                                 <Link href="/contact" className={`${pathname === "/contact" ? "text-[#F58220]" : "text-[#002603] dark:text-gray-200 hover:text-[#F58220]"} transition-colors`}>Contact</Link>
                             </nav>
@@ -256,11 +311,6 @@ export function Header() {
                                             <img src="/logo.png" alt="RSS Foods" className="h-10 w-auto object-contain" />
                                         </div>
 
-                                        <div className="relative">
-                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                            <Input placeholder="Search products..." className="pl-9" />
-                                        </div>
-
                                         <nav className="flex flex-col gap-4">
                                             <Link href="/" className={`text-lg font-medium transition-colors ${pathname === "/" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>Home</Link>
                                             {isMerchant && (
@@ -270,7 +320,7 @@ export function Header() {
                                                 </Link>
                                             )}
                                             <Link href="/retail" className={`text-lg font-medium transition-colors ${pathname === "/retail" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>RSS Retail</Link>
-                                            <Link href="/wholesale" className={`text-lg font-medium transition-colors ${pathname === "/wholesale" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>RSS wholesales</Link>
+                                            <Link href="/wholesale" className={`text-lg font-medium transition-colors ${pathname === "/wholesale" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>RSS Wholesale</Link>
                                             <Link href="/about" className={`text-lg font-medium transition-colors ${pathname === "/about" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>About RSS</Link>
                                             <Link href="/contact" className={`text-lg font-medium transition-colors ${pathname === "/contact" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>Contact</Link>
                                         </nav>

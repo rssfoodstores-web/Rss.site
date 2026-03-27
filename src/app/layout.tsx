@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import Providers from "@/components/Providers";
 import { Header } from "@/components/layout/Header";
@@ -22,7 +23,9 @@ export default function RootLayout({
         <Providers>
           <CategoryProvider>
             <div className="flex min-h-screen flex-col">
-              <Header />
+              <Suspense fallback={null}>
+                <Header />
+              </Suspense>
               <main className="flex-1">
                 {children}
               </main>

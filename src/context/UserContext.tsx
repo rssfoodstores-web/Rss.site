@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, Re
 import { createClient } from "@/lib/supabase/client"
 import { type Session, type User } from "@supabase/supabase-js"
 import { buildNotificationPathCounts } from "@/lib/notifications"
+import { createEmptyProfileRow } from "@/lib/profile"
 
 interface UserProfile {
     id: string
@@ -113,7 +114,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
                     .from('profiles')
                     .select('id, full_name, state, phone, avatar_url, address, location')
                     .eq('id', currentUser.id)
-                    .single(),
+                    .maybeSingle(),
 
                 // 2. Fetch Roles
                 supabase
@@ -148,10 +149,18 @@ export function UserProvider({ children }: { children: ReactNode }) {
             ])
 
             // Process Profile
-            if (profileResult.data) {
-                setProfile(profileResult.data)
-                // Update cache
-                localStorage.setItem("rssa_user_profile", JSON.stringify(profileResult.data))
+            if (profileResult.error) {
+                console.error("Error fetching profile data:", profileResult.error)
+            }
+
+            const nextProfile = profileResult.data ?? createEmptyProfileRow(
+                currentUser.id,
+                currentUser.user_metadata?.full_name || currentUser.email?.split("@")[0] || "Customer"
+            )
+
+            if (nextProfile) {
+                setProfile(nextProfile)
+                localStorage.setItem("rssa_user_profile", JSON.stringify(nextProfile))
             }
 
             // Process Roles

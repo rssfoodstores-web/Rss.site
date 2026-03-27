@@ -9,16 +9,48 @@ import { updateProfileDetailed } from "@/app/account/actions"
 import { Loader2, MapPin } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { ProfileSidebar } from "@/components/account/ProfileSidebar"
+import { createEmptyProfileRow } from "@/lib/profile"
+import { useUser } from "@/context/UserContext"
 
 export default function EditProfilePage() {
     const [loading, setLoading] = useState(false)
     const [locating, setLocating] = useState(false)
+    const [initializing, setInitializing] = useState(true)
     const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
     const router = useRouter()
+    const { profile: cachedProfile, user: currentUser } = useUser()
+    const currentUserDisplayName =
+        typeof currentUser?.user_metadata?.full_name === "string"
+            ? currentUser.user_metadata.full_name
+            : ""
 
     // Helper to get initial data
     const [profile, setProfile] = useState<Database["public"]["Tables"]["profiles"]["Row"] | null>(null)
     const [email, setEmail] = useState("")
+
+    useEffect(() => {
+        if (cachedProfile && !profile) {
+            const fallbackName = cachedProfile.full_name?.trim()
+                || currentUserDisplayName
+                || currentUser?.email?.split("@")[0]
+                || "Customer"
+
+            setProfile((current) => current ?? {
+                ...createEmptyProfileRow(cachedProfile.id, fallbackName),
+                address: cachedProfile.address ?? null,
+                avatar_url: cachedProfile.avatar_url ?? null,
+                full_name: fallbackName,
+                id: cachedProfile.id,
+                location: cachedProfile.location ?? null,
+                phone: cachedProfile.phone ?? null,
+                state: cachedProfile.state ?? null,
+            })
+        }
+
+        if (currentUser?.email) {
+            setEmail(currentUser.email)
+        }
+    }, [cachedProfile, currentUser?.email, currentUserDisplayName, profile])
 
     // Fetch data on mount
     useEffect(() => {
@@ -30,10 +62,30 @@ export default function EditProfilePage() {
                 const { data: { user }, error } = await supabase.auth.getUser()
                 if (error) throw error
 
-                if (mounted && user) {
+                if (!user) {
+                    router.replace("/login")
+                    return
+                }
+
+                if (mounted) {
                     setEmail(user.email || "")
-                    const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single()
-                    if (mounted && data) setProfile(data)
+                }
+
+                const { data, error: profileError } = await supabase
+                    .from("profiles")
+                    .select("*")
+                    .eq("id", user.id)
+                    .maybeSingle()
+
+                if (profileError) {
+                    throw profileError
+                }
+
+                if (mounted) {
+                    setProfile(data ?? createEmptyProfileRow(
+                        user.id,
+                        user.user_metadata?.full_name || user.email?.split("@")[0] || "Customer"
+                    ))
                 }
             } catch (error: unknown) {
                 const errorName = error instanceof Error ? error.name : ""
@@ -41,6 +93,16 @@ export default function EditProfilePage() {
 
                 if (errorName !== "AbortError" && errorMessage !== "Fetch is aborted") {
                     console.error("Error loading profile:", error)
+                    if (mounted && currentUser) {
+                        setProfile(createEmptyProfileRow(
+                            currentUser.id,
+                            currentUserDisplayName || currentUser.email?.split("@")[0] || "Customer"
+                        ))
+                    }
+                }
+            } finally {
+                if (mounted) {
+                    setInitializing(false)
                 }
             }
         }
@@ -48,7 +110,7 @@ export default function EditProfilePage() {
         loadData()
 
         return () => { mounted = false }
-    }, [])
+    }, [currentUser, currentUserDisplayName, router])
 
     const getGPSPosition = (): Promise<GeolocationPosition> => {
         return new Promise((resolve, reject) => {
@@ -140,7 +202,7 @@ export default function EditProfilePage() {
         }
     }
 
-    if (!profile) {
+    if (initializing || !profile) {
         return (
             <div className="min-h-screen bg-gray-50/50 py-6 dark:bg-black sm:py-8 lg:py-12">
                 <div className="container mx-auto px-4 sm:px-6">
