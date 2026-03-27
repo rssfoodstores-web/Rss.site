@@ -14,6 +14,19 @@ function isLocalHostName(hostname: string | null | undefined) {
         return false
     }
 
+    if (hostname === "::1") {
+        return true
+    }
+
+    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) {
+        const [firstOctet, secondOctet] = hostname.split(".").map((segment) => Number(segment))
+
+        return firstOctet === 127
+            || firstOctet === 10
+            || (firstOctet === 192 && secondOctet === 168)
+            || (firstOctet === 172 && secondOctet >= 16 && secondOctet <= 31)
+    }
+
     return hostname === "localhost"
         || hostname === "127.0.0.1"
         || hostname === "0.0.0.0"

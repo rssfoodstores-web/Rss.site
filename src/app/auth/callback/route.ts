@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { getSafeNextPath, resolvePostAuthPath } from "@/lib/auth-redirects"
+import { getSafeNextPath } from "@/lib/auth-redirects"
+import {
+    applyReferralCodeIfNeeded,
+    isPkceCodeVerifierMissingError,
+    resolveAuthenticatedDestination,
+} from "@/lib/auth-callback"
 import { buildAbsoluteUrl, getServerSiteUrl } from "@/lib/site-url"
 
 interface ErrorRedirectOptions {
@@ -82,6 +87,15 @@ export async function GET(request: Request) {
 
     if (error) {
         console.error('OAuth code exchange failed:', error)
+
+        if (isPkceCodeVerifierMissingError(error)) {
+            return NextResponse.redirect(buildAbsoluteUrl(siteOrigin, "/auth/callback-fallback", {
+                code,
+                next: next ?? "/",
+                ref: referralCode ?? undefined,
+            }))
+        }
+
         return buildErrorRedirect(siteOrigin, {
             message: error.message,
             description: 'Session exchange failed in /auth/callback. Make sure you start and finish Google sign-in on the exact same origin and that this callback URL is allowlisted in Supabase Auth.',
@@ -89,49 +103,8 @@ export async function GET(request: Request) {
         })
     }
 
-    if (referralCode) {
-        try {
-            const { data: { user } } = await supabase.auth.getUser()
-
-            if (user) {
-                const { data: profile } = await supabase
-                    .from("profiles")
-                    .select("referred_by")
-                    .eq("id", user.id)
-                    .single()
-
-                if (profile && !profile.referred_by) {
-                    const { data: referrer } = await supabase
-                        .from("profiles")
-                        .select("id")
-                        .eq("referral_code", referralCode)
-                        .maybeSingle()
-
-                    if (referrer && referrer.id !== user.id) {
-                        await supabase
-                            .from("profiles")
-                            .update({ referred_by: referrer.id })
-                            .eq("id", user.id)
-                            .is("referred_by", null)
-                    }
-                }
-            }
-        } catch (referralError) {
-            console.error("Failed to apply referral code in auth callback:", referralError)
-        }
-    }
-
-    let destination = next ?? "/"
-
-    try {
-        const { data: { user } } = await supabase.auth.getUser()
-
-        if (user) {
-            destination = await resolvePostAuthPath(supabase, user.id, next)
-        }
-    } catch (destinationError) {
-        console.error("Failed to resolve post-auth destination:", destinationError)
-    }
+    await applyReferralCodeIfNeeded(supabase, referralCode)
+    const destination = await resolveAuthenticatedDestination(supabase, next)
 
     return NextResponse.redirect(buildAbsoluteUrl(siteOrigin, destination))
 }
