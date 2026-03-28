@@ -27,6 +27,11 @@ interface SubmitSupportChatTurnResult {
     snapshot: SupportConversationSnapshot
 }
 
+export interface ContactSupportFormState {
+    error: string | null
+    success: string | null
+}
+
 function normalizeConversationStartPayload(value: unknown) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
         throw new Error("Support conversation could not be created.")
@@ -178,5 +183,63 @@ export async function submitSupportChatTurn(input: SubmitSupportChatTurnInput): 
     return {
         accessToken,
         snapshot: await fetchSupportConversationSnapshot(supabase, conversationId, accessToken),
+    }
+}
+
+export async function submitContactSupportForm(
+    prevState: ContactSupportFormState,
+    formData: FormData
+): Promise<ContactSupportFormState> {
+    const firstName = String(formData.get("first_name") ?? "").trim()
+    const lastName = String(formData.get("last_name") ?? "").trim()
+    const email = String(formData.get("email") ?? "").trim().toLowerCase()
+    const message = String(formData.get("message") ?? "").trim()
+    const name = [firstName, lastName].filter(Boolean).join(" ").trim()
+
+    if (name.length < 2) {
+        return {
+            error: "Please enter your first and last name.",
+            success: null,
+        }
+    }
+
+    if (!email) {
+        return {
+            error: "Please enter your email address.",
+            success: null,
+        }
+    }
+
+    if (message.length < 2) {
+        return {
+            error: "Please enter your message before sending.",
+            success: null,
+        }
+    }
+
+    try {
+        const supabase = await createClient()
+        const { error } = await supabase.rpc("start_support_conversation", {
+            p_channel: "contact_page",
+            p_email: email,
+            p_initial_message: message,
+            p_name: name,
+            p_subject: "Contact form submission",
+        })
+
+        if (error) {
+            throw new Error(error.message)
+        }
+
+        return {
+            error: null,
+            success: "Your message has been sent. The admin team can now see it in their dashboard.",
+        }
+    } catch (error) {
+        console.error("Contact support form submission failed:", error)
+        return {
+            error: error instanceof Error ? error.message : "We could not send your message right now.",
+            success: null,
+        }
     }
 }

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation"
 import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { DashboardStats } from "@/components/account/DashboardStats"
 import { AccountDetailsCards } from "@/components/account/AccountDetailsCards"
+import { AdPlacementSection } from "@/components/ads/AdPlacementSection"
 import { createEmptyProfileRow } from "@/lib/profile"
 
 export default async function AccountPage() {
@@ -107,6 +108,11 @@ export default async function AccountPage() {
 
                     {/* Main Dashboard Content */}
                     <main className="min-w-0 flex-1">
+                        <AdPlacementSection
+                            placement="account_dashboard"
+                            title="Recommended campaigns"
+                            description="Sponsored campaigns can surface here while customers manage their account."
+                        />
                         <DashboardStats
                             totalOrders={totalOrders || 0}
                             pendingOrders={pendingOrders || 0}

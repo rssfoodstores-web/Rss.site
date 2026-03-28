@@ -39,6 +39,10 @@ interface WalletSummary {
     description: string
     canTopUp: boolean
     canWithdraw: boolean
+    withdrawAvailableNow: boolean
+    actionSummary: string
+    withdrawPolicyLabel: string
+    withdrawPolicyHint: string
     entries: WalletActivity[]
 }
 
@@ -72,8 +76,22 @@ export default function WalletPage() {
 
     const handleWalletSelection = (walletId: string | null) => {
         setSelectedWalletId(walletId)
+        setSelectedBank("")
+        setAccountNumber("")
         setAccountName("")
         setWithdrawAmount("")
+        setIsWithdrawOpen(false)
+    }
+
+    function handleBankChange(value: string) {
+        setSelectedBank(value)
+        setAccountName("")
+    }
+
+    function handleAccountNumberChange(value: string) {
+        const normalizedValue = value.replace(/\D/g, "").slice(0, 10)
+        setAccountNumber(normalizedValue)
+        setAccountName("")
     }
 
     const loadData = async () => {
@@ -176,6 +194,16 @@ export default function WalletPage() {
     }
 
     async function handleWithdraw() {
+        if (!activeWallet) {
+            showStatus("error", "Wallet unavailable", "Select a wallet before withdrawing.")
+            return
+        }
+
+        if (!activeWallet.withdrawAvailableNow) {
+            showStatus("error", "Withdrawals unavailable", activeWallet.withdrawPolicyHint)
+            return
+        }
+
         const numericAmount = Number.parseFloat(withdrawAmount)
         if (Number.isNaN(numericAmount) || numericAmount < 1000) {
             showStatus("error", "Invalid amount", "Minimum withdrawal is ₦1,000.")
@@ -190,7 +218,13 @@ export default function WalletPage() {
         const bank = banks.find((entry) => entry.code === selectedBank)
 
         setWithdrawLoading(true)
-        const result = await initiateWithdrawal(selectedBank, accountNumber, numericAmount, bank?.name || "")
+        const result = await initiateWithdrawal(
+            activeWallet.id,
+            selectedBank,
+            accountNumber,
+            numericAmount,
+            bank?.name || ""
+        )
         setWithdrawLoading(false)
 
         if (result.success) {
@@ -245,7 +279,11 @@ export default function WalletPage() {
                                         </span>
                                     </div>
                                     <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{wallet.description}</p>
+                                    <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#F58220]">
+                                        {wallet.actionSummary}
+                                    </p>
                                     <p className="mt-4 text-2xl font-bold text-gray-900 dark:text-white">{formatKobo(wallet.balance)}</p>
+                                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{wallet.withdrawPolicyHint}</p>
                                 </button>
                             ))}
                         </div>
@@ -283,28 +321,45 @@ export default function WalletPage() {
                                     </div>
                                     <h2 className="mt-3 text-4xl font-bold lg:text-5xl">{loading ? "Loading..." : formatKobo(activeWallet?.balance ?? 0)}</h2>
                                     <p className="mt-3 max-w-2xl text-sm text-white/80">{activeWallet?.description}</p>
+                                    <div className="mt-4 flex flex-wrap gap-2">
+                                        <span className="rounded-full bg-white/15 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white">
+                                            {activeWallet?.actionSummary || "Loading actions"}
+                                        </span>
+                                        <span className="rounded-full bg-black/15 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-white/90">
+                                            {activeWallet?.withdrawPolicyLabel || "Loading policy"}
+                                        </span>
+                                    </div>
+                                    {activeWallet?.withdrawPolicyHint ? (
+                                        <p className="mt-4 max-w-2xl text-sm text-white/80">{activeWallet.withdrawPolicyHint}</p>
+                                    ) : null}
                                 </div>
 
                                 {activeWallet?.canWithdraw ? (
                                     <Dialog open={isWithdrawOpen} onOpenChange={setIsWithdrawOpen}>
                                         <DialogTrigger asChild>
-                                            <Button variant="outline" className="border-white/20 bg-white/10 text-white hover:bg-white/20">
+                                            <Button
+                                                variant="outline"
+                                                className="border-white/20 bg-white/10 text-white hover:bg-white/20 disabled:border-white/10 disabled:bg-white/5 disabled:text-white/70"
+                                                disabled={!activeWallet?.withdrawAvailableNow}
+                                            >
                                                 <Banknote className="mr-2 h-4 w-4" />
-                                                Withdraw
+                                                {activeWallet?.withdrawAvailableNow ? "Withdraw" : "Withdraw locked"}
                                             </Button>
                                         </DialogTrigger>
                                         <DialogContent className="sm:max-w-[440px] rounded-3xl border-gray-200 bg-white p-0 dark:border-zinc-800 dark:bg-zinc-900">
                                             <DialogHeader className="p-6 pb-0">
                                                 <DialogTitle className="text-xl font-bold">Withdraw funds</DialogTitle>
-                                                <DialogDescription>Transfer money from your customer wallet to your bank account.</DialogDescription>
+                                                <DialogDescription>
+                                                    Transfer money from your {activeWallet?.label?.toLowerCase() || "wallet"} to your verified bank account.
+                                                </DialogDescription>
                                             </DialogHeader>
                                             <div className="space-y-5 p-6">
-                                                <select className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm dark:border-zinc-800 dark:bg-zinc-800/50" value={selectedBank} onChange={(event) => setSelectedBank(event.target.value)}>
+                                                <select className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm dark:border-zinc-800 dark:bg-zinc-800/50" value={selectedBank} onChange={(event) => handleBankChange(event.target.value)}>
                                                     <option value="">Choose a bank</option>
                                                     {banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}
                                                 </select>
                                                 <div className="flex gap-2">
-                                                    <Input placeholder="Enter 10-digit account number" maxLength={10} className="h-12 rounded-xl bg-gray-50 dark:bg-zinc-800/50" value={accountNumber} onChange={(event) => setAccountNumber(event.target.value)} />
+                                                    <Input placeholder="Enter 10-digit account number" inputMode="numeric" maxLength={10} className="h-12 rounded-xl bg-gray-50 dark:bg-zinc-800/50" value={accountNumber} onChange={(event) => handleAccountNumberChange(event.target.value)} />
                                                     <Button type="button" variant="secondary" className="h-12 rounded-xl px-6 font-bold" onClick={handleVerifyAccount} disabled={verifying || accountNumber.length !== 10}>
                                                         {verifying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
                                                     </Button>
@@ -322,7 +377,7 @@ export default function WalletPage() {
                                             </div>
                                             <DialogFooter className="flex flex-col gap-3 p-6 pt-0 sm:flex-row">
                                                 <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setIsWithdrawOpen(false)}>Cancel</Button>
-                                                <Button className="w-full bg-[#F58220] text-white hover:bg-[#E57210] sm:flex-1" onClick={handleWithdraw} disabled={withdrawLoading || !accountName}>
+                                                <Button className="w-full bg-[#F58220] text-white hover:bg-[#E57210] sm:flex-1" onClick={handleWithdraw} disabled={withdrawLoading || !accountName || !activeWallet?.withdrawAvailableNow}>
                                                     {withdrawLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                                                     Confirm withdrawal
                                                 </Button>
@@ -342,7 +397,7 @@ export default function WalletPage() {
                                     </Button>
                                 </div>
                             ) : (
-                                <div className="mt-6 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-white/90">This wallet is funded automatically by completed-order settlement.</div>
+                                <div className="mt-6 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-white/90">Role wallets are withdraw-only and are funded automatically by completed-order settlement.</div>
                             )}
                         </section>
 
@@ -376,7 +431,7 @@ export default function WalletPage() {
                         <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
                             <div className="border-b border-gray-100 p-6 dark:border-zinc-800">
                                 <h3 className="text-lg font-bold text-gray-900 dark:text-white">{activeWallet?.label || "Recent activity"}</h3>
-                                <p className="text-sm text-gray-500 dark:text-gray-400">{activeWallet?.canTopUp ? "Customer funding and payment activity." : "Role payout history from settlement."}</p>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">{activeWallet?.canTopUp ? "Customer funding, withdrawals, and payment activity." : "Role payout and withdrawal history."}</p>
                             </div>
                             <div className="divide-y divide-gray-50 dark:divide-zinc-800">
                                 {loading ? (

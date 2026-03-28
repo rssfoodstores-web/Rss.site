@@ -1,8 +1,7 @@
 import Link from "next/link"
 import { Globe, Home, Mail, MapPin, MessageCircle, Phone, Send } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { AdPlacementSection } from "@/components/ads/AdPlacementSection"
+import { ContactSupportForm } from "@/components/contact/ContactSupportForm"
 import { SupportChatBubble } from "@/components/support/SupportChatBubble"
 import { buildContactMethodHref, type ContactMethodContent } from "@/lib/contactPage"
 import { getContactPageContent } from "@/lib/contactPageData"
@@ -47,6 +46,12 @@ export default async function ContactPage() {
                     <span className="text-[#F58220]">{content.pageTitle}</span>
                 </div>
             </div>
+
+            <AdPlacementSection
+                placement="contact_inline"
+                title="Featured campaigns"
+                description="Sponsored placements can also direct visitors to active promotions or landing pages."
+            />
 
             <div className="container mx-auto px-4 pb-20 pt-4 md:px-8">
                 <div className="mx-auto flex max-w-6xl flex-col gap-6 lg:flex-row">
@@ -97,33 +102,13 @@ export default async function ContactPage() {
                             <p className="max-w-lg text-sm leading-relaxed text-gray-400">{content.introDescription}</p>
                         </div>
 
-                        <form className="space-y-6">
-                            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                                <Input
-                                    placeholder={content.form.firstNamePlaceholder}
-                                    className="h-[52px] rounded-lg border-gray-200 bg-white px-4 text-base placeholder:text-gray-300 focus-visible:border-[#F58220] focus-visible:ring-[#F58220]"
-                                />
-                                <Input
-                                    placeholder={content.form.lastNamePlaceholder}
-                                    className="h-[52px] rounded-lg border-gray-200 bg-white px-4 text-base placeholder:text-gray-300 focus-visible:border-[#F58220] focus-visible:ring-[#F58220]"
-                                />
-                            </div>
-
-                            <Input
-                                type="email"
-                                placeholder={content.form.emailPlaceholder}
-                                className="h-[52px] rounded-lg border-gray-200 bg-white px-4 text-base placeholder:text-gray-300 focus-visible:border-[#F58220] focus-visible:ring-[#F58220]"
-                            />
-
-                            <Textarea
-                                placeholder={content.form.messagePlaceholder}
-                                className="min-h-[120px] resize-none rounded-lg border-gray-200 bg-white px-4 py-4 text-base placeholder:text-gray-300 focus-visible:border-[#F58220] focus-visible:ring-[#F58220]"
-                            />
-
-                            <Button className="min-w-[200px] rounded-full bg-[#F58220] px-8 text-base font-bold text-white hover:bg-[#F58220]/90">
-                                {content.form.buttonText}
-                            </Button>
-                        </form>
+                        <ContactSupportForm
+                            buttonText={content.form.buttonText}
+                            emailPlaceholder={content.form.emailPlaceholder}
+                            firstNamePlaceholder={content.form.firstNamePlaceholder}
+                            lastNamePlaceholder={content.form.lastNamePlaceholder}
+                            messagePlaceholder={content.form.messagePlaceholder}
+                        />
                     </div>
                 </div>
             </div>

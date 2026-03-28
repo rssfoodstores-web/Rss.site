@@ -8,7 +8,6 @@ import { CartProvider } from "@/context/CartContext"
 import { WishlistProvider } from "@/context/WishlistContext"
 import { UserProvider } from "@/context/UserContext"
 import { RealtimeNotificationBridge } from "@/components/notifications/RealtimeNotificationBridge"
-import { SessionRefresher } from "@/components/auth/SessionRefresher"
 
 export default function Providers({ children }: { children: React.ReactNode }) {
     return (
@@ -19,7 +18,6 @@ export default function Providers({ children }: { children: React.ReactNode }) {
             disableTransitionOnChange
         >
             <UserProvider>
-                <SessionRefresher />
                 <CartProvider>
                     <WishlistProvider>
                         <RealtimeNotificationBridge />

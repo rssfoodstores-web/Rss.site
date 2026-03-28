@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { useDashboardLayout } from "@/contexts/DashboardLayoutContext"
 import { createClient } from "@/lib/supabase/client"
 import { useState, useEffect } from "react"
+import { performLogout } from "@/lib/auth/performLogout"
 
 const menuItems = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/rider" },
@@ -22,7 +23,22 @@ export function RiderSidebar() {
     const pathname = usePathname()
     const { isSidebarCollapsed, toggleSidebar, isMobileMenuOpen, setMobileMenuOpen } = useDashboardLayout()
     const [availableCount, setAvailableCount] = useState(0)
+    const [isLoggingOut, setIsLoggingOut] = useState(false)
     const [supabase] = useState(() => createClient())
+
+    const handleLogout = async () => {
+        if (isLoggingOut) {
+            return
+        }
+
+        setMobileMenuOpen(false)
+        setIsLoggingOut(true)
+        const didLogout = await performLogout(supabase)
+
+        if (!didLogout) {
+            setIsLoggingOut(false)
+        }
+    }
 
     useEffect(() => {
         const fetchCount = async () => {
@@ -137,13 +153,15 @@ export function RiderSidebar() {
                 <div className="p-4 border-t border-gray-100 dark:border-zinc-800 space-y-2">
                     <Button
                         variant="ghost"
+                        onClick={handleLogout}
+                        disabled={isLoggingOut}
                         className={cn(
                             "w-full justify-start text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10",
                             isSidebarCollapsed ? "justify-center px-0" : "gap-3"
                         )}
                     >
                         <LogOut className="h-5 w-5" />
-                        {!isSidebarCollapsed && "Logout"}
+                        {!isSidebarCollapsed && (isLoggingOut ? "Signing Out..." : "Logout")}
                     </Button>
 
                     {/* Desktop Collapse Toggle */}

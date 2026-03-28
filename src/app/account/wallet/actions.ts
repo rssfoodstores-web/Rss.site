@@ -9,6 +9,12 @@ import { createServerClient } from "@supabase/ssr"
 import { createClient as createSupabaseClient } from "@supabase/supabase-js"
 import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
+import {
+    DEFAULT_WALLET_WITHDRAWAL_SETTINGS,
+    getRoleWalletWithdrawalAvailability,
+    normalizeWalletWithdrawalSettings,
+    WALLET_WITHDRAWAL_SETTINGS_KEY,
+} from "@/lib/walletWithdrawalSettings"
 
 type WalletType = "customer" | "merchant" | "agent" | "rider"
 
@@ -34,6 +40,10 @@ interface WalletSummary {
     description: string
     canTopUp: boolean
     canWithdraw: boolean
+    withdrawAvailableNow: boolean
+    actionSummary: string
+    withdrawPolicyLabel: string
+    withdrawPolicyHint: string
     entries: WalletActivity[]
 }
 
@@ -270,15 +280,16 @@ async function ensureWalletExists(userId: string) {
 
 function getWalletSortOrder(type: WalletType) {
     switch (type) {
-        case "merchant":
-            return 0
-        case "agent":
-            return 1
-        case "rider":
-            return 2
         case "customer":
-        default:
+            return 0
+        case "merchant":
+            return 1
+        case "agent":
+            return 2
+        case "rider":
             return 3
+        default:
+            return 4
     }
 }
 
@@ -299,15 +310,32 @@ function getWalletLabel(type: WalletType) {
 function getWalletDescription(type: WalletType) {
     switch (type) {
         case "merchant":
-            return "Tracks settled merchant payouts from completed orders."
+            return "Tracks settled merchant payouts and supports withdrawals only."
         case "agent":
-            return "Tracks agent commissions from delivered orders."
+            return "Tracks agent commissions and supports withdrawals only."
         case "rider":
-            return "Tracks rider earnings from completed deliveries."
+            return "Tracks rider earnings and supports withdrawals only."
         case "customer":
         default:
             return "Use this wallet for top-ups, direct wallet payments, and withdrawals."
     }
+}
+
+async function getWalletWithdrawalSettings(
+    supabase: Awaited<ReturnType<typeof getSupabase>>
+) {
+    const { data, error } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", WALLET_WITHDRAWAL_SETTINGS_KEY)
+        .maybeSingle()
+
+    if (error) {
+        console.error("Unable to load wallet withdrawal settings:", error)
+        return DEFAULT_WALLET_WITHDRAWAL_SETTINGS
+    }
+
+    return normalizeWalletWithdrawalSettings(data?.value)
 }
 
 export async function initializeTopUp(amount: number) {
@@ -365,9 +393,9 @@ export async function initializeTopUp(amount: number) {
             checkoutUrl: data.checkoutUrl,
             reference,
         }
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Top-up initialization error:", error)
-        return { error: error.message ?? "Unable to initialize top-up" }
+        return { error: error instanceof Error ? error.message : "Unable to initialize top-up" }
     }
 }
 
@@ -380,6 +408,8 @@ export async function getWalletData() {
     }
 
     const customerWallet = await ensureWalletExists(user.id)
+    const walletWithdrawalSettings = await getWalletWithdrawalSettings(supabase)
+    const roleWalletWithdrawal = getRoleWalletWithdrawalAvailability(walletWithdrawalSettings)
 
     const { data: wallets } = await supabase
         .from("wallets")
@@ -401,12 +431,14 @@ export async function getWalletData() {
     const walletIds = allWallets.map((wallet) => wallet.id)
 
     const [{ data: transactionRows }, { data: ledgerRows }] = await Promise.all([
-        supabase
-            .from("wallet_transactions")
-            .select("*")
-            .eq("wallet_id", customerWallet.id)
-            .order("created_at", { ascending: false })
-            .limit(20),
+        walletIds.length
+            ? supabase
+                .from("wallet_transactions")
+                .select("*")
+                .in("wallet_id", walletIds)
+                .order("created_at", { ascending: false })
+                .limit(80)
+            : Promise.resolve({ data: [] as never[] }),
         walletIds.length
             ? supabase
                 .from("ledger_entries")
@@ -460,7 +492,27 @@ export async function getWalletData() {
         label: getWalletLabel(wallet.type),
         description: getWalletDescription(wallet.type),
         canTopUp: wallet.type === "customer",
-        canWithdraw: wallet.type === "customer",
+        canWithdraw: true,
+        withdrawAvailableNow:
+            wallet.type === "customer"
+                ? true
+                : roleWalletWithdrawal.availableNow,
+        actionSummary:
+            wallet.type === "customer"
+                ? "Top up + withdraw anytime"
+                : roleWalletWithdrawal.availableNow
+                    ? "Withdraw only · month-end window open"
+                    : roleWalletWithdrawal.mode === "anytime"
+                        ? "Withdraw only · anytime"
+                        : "Withdraw only · month-end only",
+        withdrawPolicyLabel:
+            wallet.type === "customer"
+                ? "Withdraw anytime"
+                : roleWalletWithdrawal.label,
+        withdrawPolicyHint:
+            wallet.type === "customer"
+                ? "Customer wallet top-ups and withdrawals are always available."
+                : roleWalletWithdrawal.helpText,
         entries: (entriesByWallet.get(wallet.id) ?? [])
             .sort((left, right) => {
                 const leftTime = left.created_at ? new Date(left.created_at).getTime() : 0
@@ -471,8 +523,8 @@ export async function getWalletData() {
     }))
 
     const primaryWallet =
-        walletSummaries.find((wallet) => wallet.type !== "customer") ??
         walletSummaries.find((wallet) => wallet.type === "customer") ??
+        walletSummaries.find((wallet) => wallet.type !== "customer") ??
         null
 
     return {
@@ -489,8 +541,8 @@ export async function getBanks() {
     try {
         const data = await invokeEdgeFunction<{ banks: Array<Record<string, unknown>> }>(supabase, "monnify-banks")
         return { success: true, banks: data.banks }
-    } catch (error: any) {
-        return { error: error.message ?? "Unable to fetch banks" }
+    } catch (error: unknown) {
+        return { error: error instanceof Error ? error.message : "Unable to fetch banks" }
     }
 }
 
@@ -504,13 +556,22 @@ export async function verifyAccount(bankCode: string, accountNumber: string) {
         })
 
         return { success: true, accountName: data.accountName, code: null }
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Account verification error:", error)
-        return { error: error.message ?? "Verification service is unavailable", code: undefined }
+        return {
+            error: error instanceof Error ? error.message : "Verification service is unavailable",
+            code: undefined,
+        }
     }
 }
 
-export async function initiateWithdrawal(bankCode: string, accountNumber: string, amount: number, bankName: string) {
+export async function initiateWithdrawal(
+    walletId: string,
+    bankCode: string,
+    accountNumber: string,
+    amount: number,
+    bankName: string
+) {
     const supabase = await getSupabase()
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -522,17 +583,40 @@ export async function initiateWithdrawal(bankCode: string, accountNumber: string
         return { error: "Invalid amount" }
     }
 
+    const normalizedAccountNumber = accountNumber.trim()
+    if (!normalizedAccountNumber) {
+        return { error: "Account number is required" }
+    }
+
+    const { data: selectedWallet } = await supabase
+        .from("wallets")
+        .select("id, owner_id, type")
+        .eq("id", walletId)
+        .eq("owner_id", user.id)
+        .maybeSingle()
+
+    if (!selectedWallet || !["customer", "merchant", "agent", "rider"].includes(selectedWallet.type)) {
+        return { error: "Wallet not found" }
+    }
+
     const reference = `WIT-${Date.now()}-${Math.floor(Math.random() * 1000)}`
     const amountKobo = Math.round(amount * 100)
+    const walletLabel = getWalletLabel(selectedWallet.type as WalletType)
 
     try {
-        const { data: rpcResult, error: rpcError } = await supabase.rpc("initiate_withdrawal", {
+        await invokeEdgeFunction<{ accountName: string }>(supabase, "monnify-verify-account", {
+            bankCode,
+            accountNumber: normalizedAccountNumber,
+        })
+
+        const { data: rpcResult, error: rpcError } = await supabase.rpc("initiate_wallet_withdrawal", {
+            p_wallet_id: selectedWallet.id,
             amount_kobo: amountKobo,
             bank_code: bankCode,
-            account_number: accountNumber,
+            account_number: normalizedAccountNumber,
             bank_name: bankName,
             reference,
-            description: `Withdrawal to ${bankName} (${accountNumber})`,
+            description: `${walletLabel} withdrawal to ${bankName} (${normalizedAccountNumber})`,
         })
 
         if (rpcError) {
@@ -548,13 +632,13 @@ export async function initiateWithdrawal(bankCode: string, accountNumber: string
                 amount,
                 reference,
                 bankCode,
-                accountNumber,
-                narration: "Withdrawal from RSS Foods Wallet",
+                accountNumber: normalizedAccountNumber,
+                narration: `Withdrawal from ${walletLabel}`,
             })
-        } catch (error: any) {
+        } catch (error: unknown) {
             const { data: compensationResult, error: compensationError } = await supabase.rpc("refund_failed_withdrawal", {
                 p_reference: reference,
-                p_reason: error.message ?? "Monnify withdrawal failed",
+                p_reason: error instanceof Error ? error.message : "Monnify withdrawal failed",
             })
 
             if (compensationError || !compensationResult?.success) {
@@ -587,8 +671,8 @@ export async function initiateWithdrawal(bankCode: string, accountNumber: string
             message: "Withdrawal initiated successfully",
             reference,
         }
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Withdrawal error:", error)
-        return { error: error.message ?? "Unable to initiate withdrawal" }
+        return { error: error instanceof Error ? error.message : "Unable to initiate withdrawal" }
     }
 }

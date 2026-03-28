@@ -65,6 +65,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     const [supabase] = useState(() => createClient())
     const unreadRefreshTimeoutRef = useRef<number | null>(null)
+    const authRefreshTimeoutRef = useRef<number | null>(null)
 
     // Load cached profile from localStorage on mount (Optimistic Load)
     useEffect(() => {
@@ -104,6 +105,16 @@ export function UserProvider({ children }: { children: ReactNode }) {
         setUnreadCount(unreadNotifications.length)
         setNotificationPathCounts(buildNotificationPathCounts(unreadNotifications))
     }, [supabase, user?.id])
+
+    const resetUserState = useCallback(() => {
+        setProfile(null)
+        setRoleNames([])
+        setWorkspaceStatuses({ merchant: null, agent: null, rider: null })
+        setRoles({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
+        setUnreadCount(0)
+        setNotificationPathCounts({})
+        localStorage.removeItem("rssa_user_profile")
+    }, [])
 
     const fetchUserData = useCallback(async (currentUser: User) => {
         try {
@@ -164,16 +175,19 @@ export function UserProvider({ children }: { children: ReactNode }) {
             }
 
             // Process Roles
-            const merchantStatus = merchantResult.data?.status ?? null
-            const agentStatus = agentResult.data?.status ?? null
-            const riderStatus = riderResult.data?.status ?? null
+            const merchantProfile = merchantResult.data
+            const agentProfile = agentResult.data
+            const riderProfile = riderResult.data
+            const merchantStatus = merchantProfile?.status ?? null
+            const agentStatus = agentProfile?.status ?? null
+            const riderStatus = riderProfile?.status ?? null
             const rawRoleNames = (rolesResult.data ?? []).map((roleRow: UserRoleRow) => roleRow.role)
             const derivedRoleNames = Array.from(
                 new Set([
                     ...rawRoleNames,
-                    ...(merchantStatus ? ["merchant"] : []),
-                    ...(agentStatus ? ["agent"] : []),
-                    ...(riderStatus ? ["rider"] : []),
+                    ...(merchantProfile ? ["merchant"] : []),
+                    ...(agentProfile ? ["agent"] : []),
+                    ...(riderProfile ? ["rider"] : []),
                 ])
             )
             const userRoles = {
@@ -216,13 +230,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
                     if (user) {
                         await fetchUserData(user)
                     } else {
-                        setProfile(null)
-                        setRoleNames([])
-                        setWorkspaceStatuses({ merchant: null, agent: null, rider: null })
-                        setRoles({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
-                        setUnreadCount(0)
-                        setNotificationPathCounts({})
-                        localStorage.removeItem("rssa_user_profile")
+                        resetUserState()
                     }
                 }
             } catch (error: unknown) {
@@ -239,29 +247,43 @@ export function UserProvider({ children }: { children: ReactNode }) {
         initAuth()
 
         // Auth State Listener
-        const { data: authListener } = supabase.auth.onAuthStateChange(async (event: string, session: Session | null) => {
+        const { data: authListener } = supabase.auth.onAuthStateChange((event: string, session: Session | null) => {
+            if (!mounted) {
+                return
+            }
+
             if (session?.user) {
                 setUser(session.user)
+
                 if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-                    await fetchUserData(session.user)
+                    if (authRefreshTimeoutRef.current !== null) {
+                        window.clearTimeout(authRefreshTimeoutRef.current)
+                    }
+
+                    // Run after the auth callback returns so Supabase can release its internal auth lock first.
+                    authRefreshTimeoutRef.current = window.setTimeout(() => {
+                        authRefreshTimeoutRef.current = null
+
+                        if (mounted) {
+                            void fetchUserData(session.user)
+                        }
+                    }, 0)
                 }
             } else if (event === 'SIGNED_OUT') {
                 setUser(null)
-                setProfile(null)
-                setRoleNames([])
-                setWorkspaceStatuses({ merchant: null, agent: null, rider: null })
-                setRoles({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
-                setUnreadCount(0)
-                setNotificationPathCounts({})
-                localStorage.removeItem("rssa_user_profile")
+                resetUserState()
             }
         })
 
         return () => {
             mounted = false
+            if (authRefreshTimeoutRef.current !== null) {
+                window.clearTimeout(authRefreshTimeoutRef.current)
+                authRefreshTimeoutRef.current = null
+            }
             authListener.subscription.unsubscribe()
         }
-    }, [fetchUserData, supabase])
+    }, [fetchUserData, resetUserState, supabase])
 
     useEffect(() => {
         if (!user?.id) {

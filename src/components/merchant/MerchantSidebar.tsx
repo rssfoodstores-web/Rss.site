@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils"
 import Image from "next/image"
 import { createClient } from "@/lib/supabase/client"
+import { performLogout } from "@/lib/auth/performLogout"
 
 const navItems = [
     { label: "Dashboard", href: "/merchant", icon: LayoutGrid },
@@ -42,10 +43,20 @@ export function MerchantSidebar({
 }) {
     const pathname = usePathname()
     const [supabase] = useState(() => createClient())
+    const [isLoggingOut, setIsLoggingOut] = useState(false)
 
     const handleLogout = async () => {
-        await supabase.auth.signOut()
-        window.location.href = "/login"
+        if (isLoggingOut) {
+            return
+        }
+
+        onNavigate?.()
+        setIsLoggingOut(true)
+        const didLogout = await performLogout(supabase)
+
+        if (!didLogout) {
+            setIsLoggingOut(false)
+        }
     }
 
     const [activeOrderCount, setActiveOrderCount] = useState(0)
@@ -203,6 +214,7 @@ export function MerchantSidebar({
             <div className={cn("mt-auto pt-6 border-t border-gray-50 dark:border-zinc-900", isCollapsed ? "px-2" : "px-2")}>
                 <button
                     onClick={handleLogout}
+                    disabled={isLoggingOut}
                     title={isCollapsed ? "Logout" : undefined}
                     className={cn(
                         "flex items-center gap-4 w-full rounded-xl text-gray-400 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 transition-all duration-300 group",
@@ -210,7 +222,7 @@ export function MerchantSidebar({
                     )}
                 >
                     <LogOut className="h-5 w-5 group-hover:text-red-500 shrink-0" />
-                    {!isCollapsed && <span className="font-semibold text-[15px]">Logout</span>}
+                    {!isCollapsed && <span className="font-semibold text-[15px]">{isLoggingOut ? "Signing Out..." : "Logout"}</span>}
                 </button>
             </div>
         </aside>

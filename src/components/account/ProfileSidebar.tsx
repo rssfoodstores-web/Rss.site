@@ -43,6 +43,7 @@ import { createClient } from "@/lib/supabase/client"
 import { useUser } from "@/context/UserContext"
 import { canUpdateAccountPassword } from "@/lib/authProviders"
 import { getNotificationCountForHrefs } from "@/lib/notifications"
+import { performLogout } from "@/lib/auth/performLogout"
 
 interface ProfileSidebarProps {
     className?: string
@@ -186,6 +187,8 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
     const { unreadCount, notificationPathCounts, roleNames, workspaceStatuses, isLoading, user } = useUser()
     const [supabase] = useState(() => createClient())
     const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({})
+    const [isLoggingOut, setIsLoggingOut] = useState(false)
+    const [mobileSheetOpen, setMobileSheetOpen] = useState(false)
     const mobileNavRef = useRef<HTMLDivElement | null>(null)
     const showLoadingSkeleton =
         isLoading &&
@@ -314,8 +317,17 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
     }, [pathname])
 
     const handleLogout = async () => {
-        await supabase.auth.signOut()
-        window.location.href = "/login"
+        if (isLoggingOut) {
+            return
+        }
+
+        setMobileSheetOpen(false)
+        setIsLoggingOut(true)
+        const didLogout = await performLogout(supabase)
+
+        if (!didLogout) {
+            setIsLoggingOut(false)
+        }
     }
 
     const toggleSection = (key: string) => {
@@ -440,7 +452,7 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                         </div>
                     </div>
 
-                    <Sheet>
+                    <Sheet open={mobileSheetOpen} onOpenChange={setMobileSheetOpen}>
                         <SheetTrigger asChild>
                             <Button
                                 type="button"
@@ -467,10 +479,11 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                                         type="button"
                                         variant="ghost"
                                         onClick={handleLogout}
+                                        disabled={isLoggingOut}
                                         className="w-full justify-start rounded-xl px-4 py-3 text-red-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/10"
                                     >
                                         <LogOut className="mr-3 h-5 w-5" />
-                                        Log Out
+                                        {isLoggingOut ? "Signing Out..." : "Log Out"}
                                     </Button>
                                 </div>
                             </div>
@@ -531,10 +544,11 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
 
                     <button
                         onClick={handleLogout}
+                        disabled={isLoggingOut}
                         className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-red-500 transition-all duration-200 hover:bg-red-50 dark:hover:bg-red-900/10"
                     >
                         <LogOut className="h-5 w-5" />
-                        <span className="font-medium">Log Out</span>
+                        <span className="font-medium">{isLoggingOut ? "Signing Out..." : "Log Out"}</span>
                     </button>
                 </nav>
             </div>

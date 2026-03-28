@@ -19,6 +19,8 @@ import {
 import { cn } from "@/lib/utils"
 // import Image from "next/image" // Keeping image import if we decide to use it later for logo
 import { createClient } from "@/lib/supabase/client"
+import { useState } from "react"
+import { performLogout } from "@/lib/auth/performLogout"
 
 const navItems = [
     { label: "Overview", href: "/agent", icon: LayoutDashboard },
@@ -45,10 +47,20 @@ export function AgentSidebar({
 }) {
     const pathname = usePathname()
     const supabase = createClient()
+    const [isLoggingOut, setIsLoggingOut] = useState(false)
 
     const handleLogout = async () => {
-        await supabase.auth.signOut()
-        window.location.href = "/login"
+        if (isLoggingOut) {
+            return
+        }
+
+        onNavigate?.()
+        setIsLoggingOut(true)
+        const didLogout = await performLogout(supabase)
+
+        if (!didLogout) {
+            setIsLoggingOut(false)
+        }
     }
 
     return (
@@ -131,6 +143,7 @@ export function AgentSidebar({
             <div className={cn("mt-auto pt-6 border-t border-gray-50 dark:border-zinc-900", isCollapsed ? "px-2" : "px-2")}>
                 <button
                     onClick={handleLogout}
+                    disabled={isLoggingOut}
                     title={isCollapsed ? "Logout" : undefined}
                     className={cn(
                         "flex items-center gap-4 w-full rounded-xl text-gray-400 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 transition-all duration-300 group",
@@ -138,7 +151,7 @@ export function AgentSidebar({
                     )}
                 >
                     <LogOut className="h-5 w-5 group-hover:text-red-500 shrink-0" />
-                    {!isCollapsed && <span className="font-semibold text-[15px]">Logout</span>}
+                    {!isCollapsed && <span className="font-semibold text-[15px]">{isLoggingOut ? "Signing Out..." : "Logout"}</span>}
                 </button>
             </div>
         </aside>

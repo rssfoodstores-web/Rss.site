@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent } from "react"
+import { FormEvent, useState } from "react"
 import Link from "next/link"
 import { useTheme } from "next-themes"
 import { Search, ShoppingCart, Heart, User, Phone, ChevronDown, Menu, Sun, Moon, LogOut, Bell } from "lucide-react"
@@ -22,6 +22,7 @@ import { useWishlist } from "@/context/WishlistContext"
 import { createStorefrontHref, getStorefrontBasePath, isStorefrontPath } from "@/lib/categories"
 import { getContactMethodByType } from "@/lib/contactPage"
 import { usePublicContactPageContent } from "@/hooks/usePublicContactPageContent"
+import { performLogout } from "@/lib/auth/performLogout"
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
@@ -35,6 +36,7 @@ export function Header() {
     const { itemCount } = useCart()
     const { items: wishlistItems } = useWishlist()
     const contactContent = usePublicContactPageContent()
+    const [isSigningOut, setIsSigningOut] = useState(false)
     const supabase = createClient()
 
     const { isMerchant, isRider } = roles
@@ -43,7 +45,16 @@ export function Header() {
     const primaryPhoneMethod = getContactMethodByType(contactContent.methods, "phone")
 
     const handleSignOut = async () => {
-        await supabase.auth.signOut()
+        if (isSigningOut) {
+            return
+        }
+
+        setIsSigningOut(true)
+        const didLogout = await performLogout(supabase)
+
+        if (!didLogout) {
+            setIsSigningOut(false)
+        }
     }
 
     const submitSearch = (event: FormEvent<HTMLFormElement>) => {
@@ -130,9 +141,9 @@ export function Header() {
                                     </DropdownMenuItem>
                                 )}
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={handleSignOut}>
+                                <DropdownMenuItem onClick={handleSignOut} disabled={isSigningOut}>
                                     <LogOut className="h-4 w-4 mr-2" />
-                                    Sign Out
+                                    {isSigningOut ? "Signing Out..." : "Sign Out"}
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>

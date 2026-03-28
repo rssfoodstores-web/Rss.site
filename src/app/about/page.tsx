@@ -178,9 +178,6 @@ export default function AboutPage() {
                                 Our goal is to create a platform that empowers families, strengthens communities, and supports a healthier, more sustainable food ecosystem.
                             </p>
                         </div>
-                        <Button className="h-14 px-10 rounded-full bg-[#F58220] hover:bg-[#F58220]/90 text-white font-bold text-lg shadow-lg shadow-[#F58220]/20 transition-all hover:scale-105">
-                            Join Our Mission
-                        </Button>
                     </motion.div>
                 </div>
             </div>

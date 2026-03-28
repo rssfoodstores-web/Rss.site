@@ -1,33 +1,30 @@
 import { createClient } from "@/lib/supabase/server"
+import {
+    DEFAULT_STOREFRONT_HERO_SLIDE,
+    resolveStorefrontHeroDefaultSlide,
+    STOREFRONT_HERO_DEFAULT_SETTING_KEY,
+} from "@/lib/storefront-hero"
 import { HeroSectionClient, type HeroSlide } from "./HeroSectionClient"
-
-const fallbackSlides: HeroSlide[] = [
-    {
-        bodyText: "Premium groceries, fresh produce, and household staples delivered with speed across Nigeria.",
-        buttonText: "Shop now",
-        buttonUrl: "/retail",
-        eyebrowText: "Sale up to 48% off",
-        highlightText: "Organic Food",
-        id: "fallback-hero-slide",
-        marketingMode: "standard",
-        mediaType: "image",
-        mediaUrl: "/assets/hero-banner.png",
-        title: "Fresh & Healthy",
-    },
-]
 
 export async function HeroSection() {
     const supabase = await createClient()
-    const { data } = await supabase
-        .from("hero_carousel_slides")
-        .select("id, marketing_mode, eyebrow_text, title, highlight_text, body_text, button_text, button_url, media_type, media_url")
-        .eq("placement", "storefront")
-        .eq("is_active", true)
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: true })
+    const [{ data: slidesData }, { data: defaultSlideSetting }] = await Promise.all([
+        supabase
+            .from("hero_carousel_slides")
+            .select("id, marketing_mode, eyebrow_text, title, highlight_text, body_text, button_text, button_url, media_type, media_url")
+            .eq("placement", "storefront")
+            .eq("is_active", true)
+            .order("sort_order", { ascending: true })
+            .order("created_at", { ascending: true }),
+        supabase
+            .from("app_settings")
+            .select("value")
+            .eq("key", STOREFRONT_HERO_DEFAULT_SETTING_KEY)
+            .maybeSingle(),
+    ])
 
-    const slides: HeroSlide[] = Array.isArray(data) && data.length > 0
-        ? data.map((slide) => ({
+    const slides: HeroSlide[] = Array.isArray(slidesData) && slidesData.length > 0
+        ? slidesData.map((slide) => ({
             bodyText: slide.body_text ?? null,
             buttonText: slide.button_text ?? null,
             buttonUrl: slide.button_url ?? null,
@@ -39,7 +36,7 @@ export async function HeroSection() {
             mediaUrl: slide.media_url,
             title: slide.title,
         }))
-        : fallbackSlides
+        : [defaultSlideSetting?.value ? resolveStorefrontHeroDefaultSlide(defaultSlideSetting.value) : DEFAULT_STOREFRONT_HERO_SLIDE]
 
     return <HeroSectionClient slides={slides} />
 }
