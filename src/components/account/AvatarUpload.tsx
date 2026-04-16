@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useRef } from "react"
+import Image from "next/image"
+import { useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Database } from "@/types/database.types"
 import { updateAvatar } from "@/app/account/actions"
-import { Loader2, Upload } from "lucide-react"
+import { Loader2 } from "lucide-react"
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
 
@@ -50,8 +51,9 @@ export function AvatarUpload({ profile, email }: AvatarUploadProps) {
                 }
             }
 
-        } catch (error: any) {
-            alert("Error uploading avatar: " + error.message)
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : "Upload failed"
+            alert("Error uploading avatar: " + errorMessage)
             console.error(error)
         } finally {
             setUploading(false)
@@ -74,7 +76,13 @@ export function AvatarUpload({ profile, email }: AvatarUploadProps) {
                     <Loader2 className="h-6 w-6 text-[#F58220] animate-spin" />
                 </div>
             ) : profile.avatar_url ? (
-                <img src={profile.avatar_url} alt="Profile" className="h-16 w-16 rounded-full object-cover" />
+                <Image
+                    src={profile.avatar_url}
+                    alt="Profile"
+                    width={64}
+                    height={64}
+                    className="h-16 w-16 rounded-full object-cover"
+                />
             ) : (
                 <div className="h-16 w-16 bg-[#F58220]/10 rounded-full flex items-center justify-center text-[#F58220] font-bold text-2xl uppercase">
                     {profile.full_name?.[0] || email?.[0]}

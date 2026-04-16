@@ -7,6 +7,10 @@ import { createClient } from "@/lib/supabase/client"
 import { getSafeNextPath } from "@/lib/auth-redirects"
 import { buildAbsoluteUrl, getClientSiteUrl } from "@/lib/site-url"
 
+function isPkceCodeVerifierMissingError(message: string) {
+    return message.toLowerCase().includes("pkce code verifier not found")
+}
+
 function buildAuthErrorUrl(message: string, description: string) {
     return buildAbsoluteUrl(getClientSiteUrl(), "/auth/auth-code-error", {
         error: message,
@@ -16,9 +20,16 @@ function buildAuthErrorUrl(message: string, description: string) {
     })
 }
 
+function buildLoginHelpUrl(next: string) {
+    return buildAbsoluteUrl(getClientSiteUrl(), "/login", {
+        next,
+        auth_message: "This confirmation link finished in a different browser or app. Your email may already be verified, so please sign in to continue.",
+    })
+}
+
 export default function AuthCallbackFallbackPage() {
     const searchParams = useSearchParams()
-    const [statusMessage, setStatusMessage] = useState("Completing Google sign-in...")
+    const [statusMessage, setStatusMessage] = useState("Completing secure sign-in...")
 
     const code = searchParams.get("code")
     const next = useMemo(
@@ -46,10 +57,15 @@ export default function AuthCallbackFallbackPage() {
                 const { error } = await supabase.auth.exchangeCodeForSession(code)
 
                 if (error) {
+                    if (isPkceCodeVerifierMissingError(error.message)) {
+                        window.location.assign(buildLoginHelpUrl(next))
+                        return
+                    }
+
                     window.location.assign(
                         buildAuthErrorUrl(
                             error.message,
-                            "Google sign-in could not be completed in the browser fallback flow."
+                            "This secure sign-in could not be completed in the browser fallback flow."
                         )
                     )
                     return
@@ -72,7 +88,7 @@ export default function AuthCallbackFallbackPage() {
                 window.location.assign(
                     buildAuthErrorUrl(
                         "Authentication fallback failed",
-                        "Google sign-in started, but the callback could not be completed."
+                        "Sign-in started, but the callback could not be completed."
                     )
                 )
             }

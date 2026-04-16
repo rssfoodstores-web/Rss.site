@@ -3,6 +3,7 @@
 import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
+import type { Database } from "@/types/database.types"
 
 type MerchantKycValue = string | null | Record<string, string>
 type CloudinaryUploadResult = { secure_url: string }
@@ -45,50 +46,129 @@ export async function updateProfileDetailed(formData: FormData) {
         return { error: "Not authenticated" }
     }
 
-    const first_name = formData.get("first_name") as string
-    const last_name = formData.get("last_name") as string
-    const full_name = `${first_name} ${last_name}`.trim()
+    const getOptionalText = (field: string) => {
+        const value = formData.get(field)
 
-    const phone = formData.get("phone") as string
-    const company_name = formData.get("company_name") as string
-    const zip_code = formData.get("zip_code") as string
-    const state = formData.get("state") as string
-    const street_address = formData.get("street_address") as string
-    const house_number = formData.get("house_number") as string
+        if (typeof value !== "string") {
+            return null
+        }
 
-    // Construct full address for legacy support
-    const address = `${house_number} ${street_address}, ${state} ${zip_code}`.trim()
-
-    // Handle Location (lat, long)
-    const lat = formData.get("latitude")
-    const long = formData.get("longitude")
-    let location = null
-
-    if (lat && long) {
-        // PostGIS format: POINT(long lat)
-        location = `POINT(${long} ${lat})`
+        const trimmed = value.trim()
+        return trimmed.length > 0 ? trimmed : null
     }
 
-    const { error } = await supabase
+    const hasField = (field: string) => formData.has(field)
+
+    const explicitFullName = getOptionalText("fullName")
+    const firstName = getOptionalText("first_name")
+    const lastName = getOptionalText("last_name")
+    const combinedFullName = [firstName, lastName]
+        .filter((value): value is string => Boolean(value))
+        .join(" ")
+        .trim()
+    const fullName = explicitFullName ?? (combinedFullName || null)
+
+    const addressFromSingleField = hasField("address") ? getOptionalText("address") : undefined
+    const phone = hasField("phone") ? getOptionalText("phone") : undefined
+    const companyName = hasField("company_name") ? getOptionalText("company_name") : undefined
+    const zipCode = hasField("zip_code") ? getOptionalText("zip_code") : undefined
+    const state = hasField("state") ? getOptionalText("state") : undefined
+    const streetAddress = hasField("street_address") ? getOptionalText("street_address") : undefined
+    const houseNumber = hasField("house_number") ? getOptionalText("house_number") : undefined
+
+    let address = addressFromSingleField
+
+    if (address === undefined && (
+        hasField("house_number")
+        || hasField("street_address")
+        || hasField("state")
+        || hasField("zip_code")
+    )) {
+        const lineOne = [houseNumber, streetAddress]
+            .filter((value): value is string => Boolean(value))
+            .join(" ")
+            .trim()
+        const lineTwo = [state, zipCode]
+            .filter((value): value is string => Boolean(value))
+            .join(" ")
+            .trim()
+        const combined = [lineOne, lineTwo]
+            .filter((value) => value.length > 0)
+            .join(", ")
+            .trim()
+
+        address = combined.length > 0 ? combined : null
+    }
+
+    const latitude = getOptionalText("latitude")
+    const longitude = getOptionalText("longitude")
+    const location = latitude && longitude
+        ? `POINT(${longitude} ${latitude})`
+        : undefined
+
+    const updates: Database["public"]["Tables"]["profiles"]["Update"] = {
+        updated_at: new Date().toISOString(),
+    }
+
+    if (fullName !== null) {
+        updates.full_name = fullName
+    }
+
+    if (phone !== undefined) {
+        updates.phone = phone
+    }
+
+    if (companyName !== undefined) {
+        updates.company_name = companyName
+    }
+
+    if (zipCode !== undefined) {
+        updates.zip_code = zipCode
+    }
+
+    if (state !== undefined) {
+        updates.state = state
+    }
+
+    if (streetAddress !== undefined) {
+        updates.street_address = streetAddress
+    }
+
+    if (houseNumber !== undefined) {
+        updates.house_number = houseNumber
+    }
+
+    if (address !== undefined) {
+        updates.address = address
+    }
+
+    if (location !== undefined) {
+        updates.location = location
+    }
+
+    const { data: updatedProfile, error } = await supabase
         .from("profiles")
-        .upsert({
-            id: user.id,
-            full_name,
-            phone,
-            company_name,
-            zip_code,
-            state,
-            street_address,
-            house_number,
-            address,
-            updated_at: new Date().toISOString(),
-            ...(location && { location }),
-        }, {
-            onConflict: "id",
-        })
+        .update(updates)
+        .eq("id", user.id)
+        .select("id")
+        .maybeSingle()
 
     if (error) {
         return { error: error.message }
+    }
+
+    if (!updatedProfile) {
+        return { error: "Profile not found for the authenticated user." }
+    }
+
+    if (fullName) {
+        const { error: metadataError } = await supabase.auth.updateUser({
+            data: { full_name: fullName },
+        })
+
+        if (metadataError) {
+            console.error("Failed to sync auth user metadata after profile update:", metadataError)
+        }
     }
 
     revalidatePath("/account")
@@ -241,11 +321,26 @@ export async function registerMerchant(formData: FormData) {
     const store_description = `Business Email: ${business_email}`
 
     // 1. Update profile name and phone if provided
-    if (owner_name || business_phone) {
-        await supabase.from("profiles").update({
+    if (owner_name || business_phone || business_address) {
+        const { error: profileError } = await supabase.from("profiles").update({
             full_name: owner_name || undefined,
-            phone: business_phone || undefined
+            phone: business_phone || undefined,
+            address: business_address || undefined,
         }).eq("id", user.id)
+
+        if (profileError) {
+            return { error: `Unable to update your profile before merchant submission: ${profileError.message}` }
+        }
+    }
+
+    if (owner_name?.trim()) {
+        const { error: metadataError } = await supabase.auth.updateUser({
+            data: { full_name: owner_name.trim() },
+        })
+
+        if (metadataError) {
+            console.error("Merchant auth metadata sync error:", metadataError)
+        }
     }
 
     // 2. Insert/Update merchants table
@@ -259,7 +354,12 @@ export async function registerMerchant(formData: FormData) {
             business_address,
             status: 'pending', // Pending approval
             merchant_type,
-            kyc_data
+            kyc_data: {
+                ...kyc_data,
+                business_email,
+                owner_email: getFormText("owner_email"),
+            },
+            updated_at: new Date().toISOString(),
         })
 
     if (merchantError) {

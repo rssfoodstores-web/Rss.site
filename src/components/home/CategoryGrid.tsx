@@ -6,6 +6,7 @@ import { ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
     createStorefrontHref,
+    getActiveStorefrontCategory,
     getStorefrontCategoryLabel,
     storefrontNavigationCategories,
 } from "@/lib/categories"
@@ -13,7 +14,7 @@ import {
 export function CategoryGrid() {
     const pathname = usePathname()
     const searchParams = useSearchParams()
-    const activeCategory = searchParams.get("category")
+    const activeCategory = getActiveStorefrontCategory(pathname, searchParams)
 
     return (
         <section className="container mx-auto px-4 py-8 md:px-8 md:py-12">

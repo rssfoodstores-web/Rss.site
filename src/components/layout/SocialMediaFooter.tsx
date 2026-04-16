@@ -26,7 +26,7 @@ interface SocialLink {
 
 export function SocialMediaFooter() {
     const [links, setLinks] = useState<SocialLink[]>([])
-    const supabase = createClient()
+    const [supabase] = useState(() => createClient())
 
     useEffect(() => {
         // 1. Initial Fetch
@@ -53,7 +53,7 @@ export function SocialMediaFooter() {
         return () => {
             supabase.removeChannel(channel)
         }
-    }, [])
+    }, [supabase])
 
     if (links.length === 0) return null
 

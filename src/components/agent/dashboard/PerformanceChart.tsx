@@ -1,6 +1,6 @@
 "use client"
 
-import { LineChart, Line, XAxis, Tooltip, ResponsiveContainer, CartesianGrid, Area } from "recharts"
+import { LineChart, Line, XAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts"
 
 const data = [
     { name: "Mon", value: 10 },

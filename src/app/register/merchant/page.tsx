@@ -1,99 +1,101 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Upload, ChevronRight, Loader2, CheckCircle2 } from "lucide-react"
-import Link from "next/link"
+import { CheckCircle2, Loader2 } from "lucide-react"
 import { registerMerchant } from "@/app/account/actions"
 import { useRouter } from "next/navigation"
-import { motion, AnimatePresence } from "framer-motion"
+import { AnimatePresence, motion } from "framer-motion"
 import { createClient } from "@/lib/supabase/client"
+
+const SHOWCASE_IMAGES = [
+    {
+        alt: "Happy Market Woman",
+        src: "/merchant-showcase/merchant_showcase_1_1769431074272.png",
+    },
+    {
+        alt: "Wholesale Warehouse",
+        src: "/merchant-showcase/merchant_showcase_2_1769431099130.png",
+    },
+    {
+        alt: "Digital Dashboard",
+        src: "/merchant-showcase/merchant_showcase_3_1769431117704.png",
+    },
+]
+
+interface UserRoleRow {
+    role: string
+}
 
 export default function MerchantRegisterPage() {
     const [loading, setLoading] = useState(false)
     const [success, setSuccess] = useState(false)
     const [currentImage, setCurrentImage] = useState(0)
     const [merchantType, setMerchantType] = useState<"business" | "individual">("business")
+    const [authReady, setAuthReady] = useState(false)
     const router = useRouter()
 
-    const images = [
-        "/_next/image?url=" + encodeURIComponent("C:/Users/PC USER/.gemini/antigravity/brain/42c460ca-8aef-40c1-b427-7dc3c581f709/merchant_showcase_1_1769431074272.png") + "&w=3840&q=75",
-        "/_next/image?url=" + encodeURIComponent("C:/Users/PC USER/.gemini/antigravity/brain/42c460ca-8aef-40c1-b427-7dc3c581f709/merchant_showcase_2_1769431099130.png") + "&w=3840&q=75",
-        "/_next/image?url=" + encodeURIComponent("C:/Users/PC USER/.gemini/antigravity/brain/42c460ca-8aef-40c1-b427-7dc3c581f709/merchant_showcase_3_1769431117704.png") + "&w=3840&q=75"
-    ]
-
-    // Use placeholder URLs if not running in an environment that can serve local files like this easily, 
-    // but for this environment, we'll try to use the absolute paths directly if possible or base64. 
-    // Since browser can't access local files directly usually, let's assume valid public URLs or adjust.
-    // However, given the constraint, I will use the generated paths but note they may need to be moved to public/ to work perfectly in dev.
-    // For now, I will use the absolute paths as strings, assuming the Next.js config or local setup handles it, or just use them as source reference.
-    // Actually, to ensure they work, I should probably copy them to public. But I can't move files easily.
-    // I'll stick to the tool output paths but assume they might be broken images without a "public" move.
-    // Better approach: Use the URLs I have, but if they fail, I'll use placeholders that look similar or just keep provided paths.
-
-    // CORRECTION: I will use the generated file paths directly. 
-    // NOTE: In a real app, I'd move these to /public. Here I will use the paths provided by the tool.
-
-    // Actually, I can't serve C:/... in browser. I will use the uploaded_media references or similar if available, or just the paths and hope for the best in the preview engine context.
-    // Since I can't move files, I'll use the exact path and hope the implementation environment allows local file access or I'll just use the raw string path.
-    // Wait, the previous steps showed: "C:/Users/PC USER/.gemini/antigravity/brain/.../merchant_showcase_1_...png"
-    // I will use these exact paths.
-
-    const showcaseImages = [
-        {
-            src: "/merchant-showcase/merchant_showcase_1_1769431074272.png",
-            alt: "Happy Market Woman"
-        },
-        {
-            src: "/merchant-showcase/merchant_showcase_2_1769431099130.png",
-            alt: "Wholesale Warehouse"
-        },
-        {
-            src: "/merchant-showcase/merchant_showcase_3_1769431117704.png",
-            alt: "Digital Dashboard"
-        }
-    ]
-
     useEffect(() => {
-        const timer = setInterval(() => {
-            setCurrentImage((prev) => (prev + 1) % showcaseImages.length)
+        const timer = window.setInterval(() => {
+            setCurrentImage((current) => (current + 1) % SHOWCASE_IMAGES.length)
         }, 5000)
-        return () => clearInterval(timer)
+
+        return () => window.clearInterval(timer)
     }, [])
 
     useEffect(() => {
         const checkRole = async () => {
             const supabase = createClient()
-            const { data: { user } } = await supabase.auth.getUser()
-            if (user) {
-                const { data: roles } = await supabase
-                    .from("user_roles")
-                    .select("role")
-                    .eq("user_id", user.id)
+            const {
+                data: { user },
+            } = await supabase.auth.getUser()
 
-                if (roles && roles.length > 0) {
-                    const roleNames = roles.map((r: { role: string }) => r.role)
-                    if (roleNames.includes("merchant")) router.push("/merchant")
-                }
+            if (!user) {
+                router.replace("/login?next=%2Fregister%2Fmerchant")
+                return
             }
+
+            const { data: roles } = await supabase
+                .from("user_roles")
+                .select("role")
+                .eq("user_id", user.id)
+
+            const roleNames = (roles ?? []).map((roleRow: UserRoleRow) => roleRow.role)
+
+            if (roleNames.includes("merchant")) {
+                router.replace("/merchant")
+                return
+            }
+
+            setAuthReady(true)
         }
-        checkRole()
+
+        void checkRole()
     }, [router])
+
+    if (!authReady && !success) {
+        return (
+            <div className="flex min-h-screen items-center justify-center bg-white dark:bg-zinc-950">
+                <Loader2 className="h-8 w-8 animate-spin text-[#F58220]" />
+            </div>
+        )
+    }
 
     async function handleSubmit(formData: FormData) {
         setLoading(true)
         const result = await registerMerchant(formData)
         setLoading(false)
 
-        if (result.success) {
-            setSuccess(true)
-            setTimeout(() => {
-                router.push("/merchant")
-            }, 3000)
-        } else {
+        if (!result.success) {
             alert("Registration failed: " + result.error)
+            return
         }
+
+        setSuccess(true)
+        window.setTimeout(() => {
+            router.push("/merchant")
+        }, 3000)
     }
 
     if (success) {
@@ -105,7 +107,7 @@ export default function MerchantRegisterPage() {
                     </div>
                     <h1 className="text-3xl font-extrabold text-gray-900 mb-4">Application Submitted!</h1>
                     <p className="text-gray-500 mb-8 leading-relaxed">
-                        We've received your merchant application. Our team will review your details and get back to you within 24-48 hours.
+                        We&apos;ve received your merchant application. Our team will review your details and get back to you within 24-48 hours.
                     </p>
                     <div className="flex items-center justify-center gap-2 text-[#F58220] font-bold">
                         <Loader2 className="h-5 w-5 animate-spin" /> Redirecting to your dashboard...
@@ -117,15 +119,13 @@ export default function MerchantRegisterPage() {
 
     return (
         <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-white dark:bg-zinc-950">
-            {/* Left Column: Form */}
             <div className="flex flex-col justify-center px-4 py-8 md:px-6 lg:px-24 bg-white dark:bg-zinc-950 relative z-10">
                 <div className="max-w-md w-full mx-auto">
                     <header className="mb-8 lg:mb-10">
                         <h1 className="text-3xl lg:text-4xl font-extrabold text-[#1A1A1A] dark:text-gray-100 mb-3">Create your Merchant Account</h1>
-                        <p className="text-[#8E8E93] text-base lg:text-lg font-medium">Business Informations</p>
+                        <p className="text-[#8E8E93] text-base lg:text-lg font-medium">Business Information</p>
                     </header>
 
-                    {/* Merchant Type Selector */}
                     <div className="flex p-1 bg-gray-100 dark:bg-zinc-900 rounded-xl mb-8">
                         <button
                             type="button"
@@ -150,11 +150,9 @@ export default function MerchantRegisterPage() {
                     </div>
 
                     <form action={handleSubmit} className="space-y-5">
-                        {/* Hidden Input for Type */}
                         <input type="hidden" name="merchant_type" value={merchantType} />
 
                         <div className="space-y-4">
-                            {/* Common Basic Info */}
                             <Input name="store_name" placeholder={merchantType === "business" ? "Company/Business Name" : "Store Name"} className="h-14 px-6 rounded-xl border-[#E5E5EA] dark:border-zinc-800 bg-[#F2F2F7]/30 dark:bg-zinc-900 text-lg focus:border-[#F58220] dark:focus:border-[#F58220] dark:text-white" required />
                             <Input name="business_email" type="email" placeholder="Business Email" className="h-14 px-6 rounded-xl border-[#E5E5EA] dark:border-zinc-800 bg-[#F2F2F7]/30 dark:bg-zinc-900 text-lg focus:border-[#F58220] dark:focus:border-[#F58220] dark:text-white" required />
                             <Input name="owner_name" placeholder="Contact Person Name" className="h-14 px-6 rounded-xl border-[#E5E5EA] dark:border-zinc-800 bg-[#F2F2F7]/30 dark:bg-zinc-900 text-lg focus:border-[#F58220] dark:focus:border-[#F58220] dark:text-white" required />
@@ -197,7 +195,6 @@ export default function MerchantRegisterPage() {
                                     </>
                                 )}
 
-                                {/* Common Uploads */}
                                 <FileUploadField label="Food Handler's Certificate (Optional)" name="food_handler_certificate" required={false} />
                                 <FileUploadField label="Kitchen/Premise Photo" name="kitchen_photo" />
                             </div>
@@ -209,19 +206,16 @@ export default function MerchantRegisterPage() {
                         >
                             {loading ? <Loader2 className="h-6 w-6 animate-spin" /> : "Submit Application"}
                         </Button>
-
-
                     </form>
                 </div>
             </div>
 
-            {/* Right Column: Dynamic Slideshow */}
             <div className="hidden lg:block relative overflow-hidden bg-black">
                 <AnimatePresence mode="wait">
                     <motion.img
                         key={currentImage}
-                        src={showcaseImages[currentImage].src}
-                        alt={showcaseImages[currentImage].alt}
+                        src={SHOWCASE_IMAGES[currentImage].src}
+                        alt={SHOWCASE_IMAGES[currentImage].alt}
                         initial={{ opacity: 0, scale: 1.1 }}
                         animate={{ opacity: 0.6, scale: 1 }}
                         exit={{ opacity: 0 }}
@@ -230,12 +224,12 @@ export default function MerchantRegisterPage() {
                     />
                 </AnimatePresence>
 
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
 
                 <div className="absolute inset-0 flex flex-col justify-end p-20 text-white z-10">
                     <blockquote className="max-w-xl">
                         <p className="text-4xl lg:text-5xl font-extrabold leading-tight mb-8">
-                            “Buying in bulk isn't just saving money — <span className="text-[#F58220]">it's buying freedom</span> from future stress.”
+                            &ldquo;Buying in bulk isn&apos;t just saving money. <span className="text-[#F58220]">It&apos;s buying freedom</span> from future stress.&rdquo;
                         </p>
                         <footer className="space-y-1">
                             <p className="text-2xl font-bold">Marie Forleo</p>
@@ -244,14 +238,12 @@ export default function MerchantRegisterPage() {
                     </blockquote>
                 </div>
 
-                {/* Carousel Indicators */}
                 <div className="absolute top-10 right-10 flex gap-2 z-20">
-                    {showcaseImages.map((_, idx) => (
+                    {SHOWCASE_IMAGES.map((_, index) => (
                         <div
-                            key={idx}
-                            onClick={() => setCurrentImage(idx)}
-                            className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${idx === currentImage ? "w-8 bg-white" : "w-2 bg-white/30 hover:bg-white/50"
-                                }`}
+                            key={index}
+                            onClick={() => setCurrentImage(index)}
+                            className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${index === currentImage ? "w-8 bg-white" : "w-2 bg-white/30 hover:bg-white/50"}`}
                         />
                     ))}
                 </div>
@@ -260,7 +252,7 @@ export default function MerchantRegisterPage() {
     )
 }
 
-function FileUploadField({ label, name, required = true }: { label: string, name: string, required?: boolean }) {
+function FileUploadField({ label, name, required = true }: { label: string; name: string; required?: boolean }) {
     const [fileName, setFileName] = useState<string | null>(null)
 
     return (
@@ -288,9 +280,9 @@ function FileUploadField({ label, name, required = true }: { label: string, name
                     className="hidden"
                     accept=".pdf,.jpg,.jpeg,.png"
                     required={required}
-                    onChange={(e) => {
-                        if (e.target.files?.[0]) {
-                            setFileName(e.target.files[0].name)
+                    onChange={(event) => {
+                        if (event.target.files?.[0]) {
+                            setFileName(event.target.files[0].name)
                         }
                     }}
                 />

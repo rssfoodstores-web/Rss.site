@@ -9,10 +9,32 @@ import {
 } from "@/lib/auth-callback"
 import { buildAbsoluteUrl, getServerSiteUrl } from "@/lib/site-url"
 
+type SupportedEmailOtpType =
+    | "signup"
+    | "invite"
+    | "magiclink"
+    | "recovery"
+    | "email_change"
+    | "email"
+
 interface ErrorRedirectOptions {
     description?: string | null
     errorCode?: string | null
     message: string
+}
+
+function getSupportedOtpType(value: string | null): SupportedEmailOtpType | null {
+    switch (value) {
+        case "signup":
+        case "invite":
+        case "magiclink":
+        case "recovery":
+        case "email_change":
+        case "email":
+            return value
+        default:
+            return null
+    }
 }
 
 function buildErrorRedirect(origin: string, options: ErrorRedirectOptions) {
@@ -37,6 +59,8 @@ export async function GET(request: Request) {
     const code = searchParams.get('code')
     const next = getSafeNextPath(searchParams.get('next'))
     const referralCode = searchParams.get('ref')?.trim().toUpperCase() ?? null
+    const tokenHash = searchParams.get("token_hash")
+    const otpType = getSupportedOtpType(searchParams.get("type"))
     const oauthError = searchParams.get('error')
     const oauthErrorCode = searchParams.get('error_code')
     const oauthErrorDescription = searchParams.get('error_description')
@@ -52,13 +76,6 @@ export async function GET(request: Request) {
             message: oauthError,
             description: oauthErrorDescription,
             errorCode: oauthErrorCode,
-        })
-    }
-
-    if (!code) {
-        return buildErrorRedirect(siteOrigin, {
-            message: 'Missing auth code',
-            description: 'Supabase did not return an authorization code.',
         })
     }
 
@@ -83,28 +100,57 @@ export async function GET(request: Request) {
         }
     )
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
 
-    if (error) {
-        console.error('OAuth code exchange failed:', error)
+        if (error) {
+            console.error('OAuth code exchange failed:', error)
 
-        if (isPkceCodeVerifierMissingError(error)) {
-            return NextResponse.redirect(buildAbsoluteUrl(siteOrigin, "/auth/callback-fallback", {
-                code,
-                next: next ?? "/",
-                ref: referralCode ?? undefined,
-            }))
+            if (isPkceCodeVerifierMissingError(error)) {
+                return NextResponse.redirect(buildAbsoluteUrl(siteOrigin, "/auth/callback-fallback", {
+                    code,
+                    next: next ?? "/",
+                    ref: referralCode ?? undefined,
+                }))
+            }
+
+            return buildErrorRedirect(siteOrigin, {
+                message: error.message,
+                description: 'Session exchange failed in /auth/callback. Make sure you start and finish sign-in on the exact same origin and that this callback URL is allowlisted in Supabase Auth.',
+                errorCode: 'session_exchange_failed',
+            })
         }
 
-        return buildErrorRedirect(siteOrigin, {
-            message: error.message,
-            description: 'Session exchange failed in /auth/callback. Make sure you start and finish Google sign-in on the exact same origin and that this callback URL is allowlisted in Supabase Auth.',
-            errorCode: 'session_exchange_failed',
-        })
+        await applyReferralCodeIfNeeded(supabase, referralCode)
+        const destination = await resolveAuthenticatedDestination(supabase, next)
+
+        return NextResponse.redirect(buildAbsoluteUrl(siteOrigin, destination))
     }
 
-    await applyReferralCodeIfNeeded(supabase, referralCode)
-    const destination = await resolveAuthenticatedDestination(supabase, next)
+    if (tokenHash && otpType) {
+        const { error } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: otpType,
+        })
 
-    return NextResponse.redirect(buildAbsoluteUrl(siteOrigin, destination))
+        if (error) {
+            console.error("Email auth verification failed:", error)
+
+            return buildErrorRedirect(siteOrigin, {
+                message: error.message,
+                description: "We could not complete this email verification link. If the link was already used, try signing in manually.",
+                errorCode: "email_verification_failed",
+            })
+        }
+
+        await applyReferralCodeIfNeeded(supabase, referralCode)
+        const destination = await resolveAuthenticatedDestination(supabase, next)
+
+        return NextResponse.redirect(buildAbsoluteUrl(siteOrigin, destination))
+    }
+
+    return buildErrorRedirect(siteOrigin, {
+        message: 'Missing auth code',
+        description: 'Supabase did not return an authorization code or verification token.',
+    })
 }

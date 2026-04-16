@@ -5,6 +5,11 @@ import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
 
+interface OrderItemInsertPayload {
+    product_id: string
+    quantity: number
+}
+
 export function OrderNotifications({ merchantId }: { merchantId: string }) {
     const router = useRouter()
     const supabase = createClient()
@@ -38,9 +43,9 @@ export function OrderNotifications({ merchantId }: { merchantId: string }) {
                     schema: 'public',
                     table: 'order_items'
                 },
-                async (payload: { new: { product_id: string; quantity: number } }) => {
+                async (payload: { new: OrderItemInsertPayload }) => {
                     console.log('New Order Item:', payload)
-                    const newItem = payload.new as any
+                    const newItem = payload.new
 
                     // Check if this item matches our merchant's products
                     const { data: product } = await supabase

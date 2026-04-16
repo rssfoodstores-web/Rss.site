@@ -18,6 +18,7 @@ export default function LoginPage() {
     const [showPassword, setShowPassword] = useState(false)
     const searchParams = useSearchParams()
     const supabase = createClient()
+    const authMessage = searchParams.get("auth_message")?.trim() ?? ""
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -149,6 +150,12 @@ export default function LoginPage() {
                                     Forget Password
                                 </Link>
                             </div>
+
+                            {authMessage ? (
+                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                                    {authMessage}
+                                </div>
+                            ) : null}
 
                             {error && <p className="text-sm text-red-500 text-center">{error}</p>}
 

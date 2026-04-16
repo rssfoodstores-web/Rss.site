@@ -1,9 +1,23 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { Minus, Plus, X, Trash2, MapPin, Smartphone, CreditCard, ChevronRight, Home, ArrowLeft, Loader2, AlertCircle, CheckCircle2, Wallet, Gift } from "lucide-react"
+import {
+    Minus,
+    Plus,
+    X,
+    MapPin,
+    Smartphone,
+    CreditCard,
+    Home,
+    Loader2,
+    AlertCircle,
+    CheckCircle2,
+    Wallet,
+    Gift,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useCart } from "@/context/CartContext"
 import { formatKobo } from "@/lib/money"
@@ -12,76 +26,119 @@ import { toast } from "sonner"
 import Script from "next/script"
 import { calculateDeliveryFee } from "@/app/actions/delivery"
 import { Input } from "@/components/ui/input"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { getRewardCheckoutSummary } from "@/app/account/rewards/actions"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+    getRewardCheckoutSummary,
+    type RewardCheckoutSummary,
+} from "@/app/account/rewards/actions"
 import { initiateDirectPayment, processGiftCardPayment, processWalletPayment } from "@/app/actions/orderActions"
+import type { DeliverySettings } from "@/app/actions/settingsActions"
 
-// Standard Nigeria Lat/Lng (Middle of Nigeria for default)
-const DEFAULT_CENTER: [number, number] = [9.0820, 8.6753]
+type UserLocation = { lat: number; lng: number }
+type PaymentMethod = "direct" | "wallet" | "giftCard"
+type OrderPayload = Parameters<typeof processWalletPayment>[0]
+type PaymentOptionColor = "orange" | "violet"
+
+interface CartLocationResponse {
+    address: string
+    location: UserLocation | null
+    phone_numbers: string[]
+    settings: DeliverySettings
+}
+
+interface CartBalancesResponse {
+    gift_card_balance: number
+    gift_card_count: number
+    wallet_balance: number
+}
+
+interface PaymentOptionProps {
+    color: PaymentOptionColor
+    icon: ReactNode
+    isDisabled: boolean
+    isSelected: boolean
+    onClick: () => void
+    subtitle: string
+    title: string
+}
+
+const EMPTY_CONTACT_NUMBERS = ["", "", ""]
+
+function normalizeContactNumbers(numbers: string[] | undefined) {
+    const nextNumbers = [...EMPTY_CONTACT_NUMBERS]
+
+    numbers?.slice(0, 3).forEach((number, index) => {
+        nextNumbers[index] = number ?? ""
+    })
+
+    return nextNumbers
+}
 
 export default function CartPage() {
     const { items: cartItems, removeFromCart, updateQuantity, cartTotal, clearCart } = useCart()
     const { user } = useUser()
     const router = useRouter()
     const [mapLoaded, setMapLoaded] = useState(false)
-    const [mapInstance, setMapInstance] = useState<any>(null)
-    const [markerInstance, setMarkerInstance] = useState<any>(null)
+    const [mapInstance, setMapInstance] = useState<LeafletMapInstance | null>(null)
+    const [markerInstance, setMarkerInstance] = useState<LeafletMarkerInstance | null>(null)
     const mapRef = useRef<HTMLDivElement>(null)
 
     // User Location & Delivery State
-    const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+    const [userLocation, setUserLocation] = useState<UserLocation | null>(null)
     const [savedProfileAddress, setSavedProfileAddress] = useState<string>("")
     const [deliveryFeeKobo, setDeliveryFeeKobo] = useState<number>(0)
     const [isCalculatingFee, setIsCalculatingFee] = useState(false)
-    const [deliverySettings, setDeliverySettings] = useState<any>(null)
+    const [deliverySettings, setDeliverySettings] = useState<DeliverySettings | null>(null)
     const [distanceKm, setDistanceKm] = useState<number>(0)
-    const [contactNumbers, setContactNumbers] = useState<string[]>(["", "", ""])
+    const [contactNumbers, setContactNumbers] = useState<string[]>(EMPTY_CONTACT_NUMBERS)
 
     // Checkout State
     const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
     const [isProcessing, setIsProcessing] = useState(false)
-    const [paymentMethod, setPaymentMethod] = useState<'direct' | 'wallet' | 'giftCard' | null>(null)
+    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null)
     const [walletBalance, setWalletBalance] = useState<number | null>(null)
     const [isLoadingBalance, setIsLoadingBalance] = useState(false)
     const [giftCardBalance, setGiftCardBalance] = useState<number | null>(null)
     const [giftCardCount, setGiftCardCount] = useState<number>(0)
 
     // Rewards State
-    const [rewardSummary, setRewardSummary] = useState<any>(null)
+    const [rewardSummary, setRewardSummary] = useState<RewardCheckoutSummary | null>(null)
     const [rewardPointsInput, setRewardPointsInput] = useState<string>("")
     const [rewardDiscountKobo, setRewardDiscountKobo] = useState<number>(0)
 
     // Fetch User Data & Settings
     useEffect(() => {
         const fetchData = async () => {
-            if (!user) return
+            if (!user) {
+                setDeliverySettings(null)
+                setRewardSummary(null)
+                setSavedProfileAddress("")
+                setUserLocation(null)
+                setContactNumbers(EMPTY_CONTACT_NUMBERS)
+                return
+            }
 
             try {
-                // Fetch rewards
-                if (cartTotal > 0) {
-                    const rewards = await getRewardCheckoutSummary(cartTotal)
-                    setRewardSummary(rewards)
-                }
+                const [rewards, response] = await Promise.all([
+                    cartTotal > 0 ? getRewardCheckoutSummary(cartTotal) : Promise.resolve(null),
+                    fetch("/api/user/profile-location", { cache: "no-store" }),
+                ])
 
-                // Fetch delivery settings and location via a combined profile call would be better,
-                // but for now we follow the existing pattern if available.
-                // Assuming existing logic from user code was working:
-                const response = await fetch('/api/user/profile-location')
+                setRewardSummary(rewards)
+
                 if (response.ok) {
-                    const data = await response.json()
-                    if (data.location) {
-                        setUserLocation(data.location)
-                        setSavedProfileAddress(data.address || "")
-                        setContactNumbers(data.phone_numbers || ["", "", ""])
-                    }
+                    const data = await response.json() as CartLocationResponse
+                    setUserLocation(data.location ?? null)
+                    setSavedProfileAddress(data.address ?? "")
+                    setContactNumbers(normalizeContactNumbers(data.phone_numbers))
                     setDeliverySettings(data.settings)
                 }
             } catch (error) {
                 console.error("Error fetching cart init data:", error)
             }
         }
-        fetchData()
-    }, [user])
+        void fetchData()
+    }, [cartTotal, user])
 
     // Calculate Rewards Discount
     useEffect(() => {
@@ -106,9 +163,9 @@ export default function CartPage() {
             const fetchBalances = async () => {
                 setIsLoadingBalance(true)
                 try {
-                    const response = await fetch('/api/user/balances')
+                    const response = await fetch("/api/user/balances", { cache: "no-store" })
                     if (response.ok) {
-                        const data = await response.json()
+                        const data = await response.json() as CartBalancesResponse
                         setWalletBalance(data.wallet_balance)
                         setGiftCardBalance(data.gift_card_balance)
                         setGiftCardCount(data.gift_card_count)
@@ -119,7 +176,7 @@ export default function CartPage() {
                     setIsLoadingBalance(false)
                 }
             }
-            fetchBalances()
+            void fetchBalances()
         }
     }, [isCheckoutOpen, user])
 
@@ -138,39 +195,46 @@ export default function CartPage() {
                 } finally {
                     setIsCalculatingFee(false)
                 }
+            } else {
+                setDeliveryFeeKobo(0)
+                setDistanceKm(0)
             }
         }
-        getFee()
+        void getFee()
     }, [userLocation, deliverySettings])
 
     // Leaflet Map Initialization
     useEffect(() => {
         if (mapLoaded && mapRef.current && !mapInstance && userLocation) {
-            const L = (window as any).L
-            const map = L.map(mapRef.current).setView([userLocation.lat, userLocation.lng], 13)
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            const leaflet = window.L
+            const map = leaflet.map(mapRef.current).setView([userLocation.lat, userLocation.lng], 13)
+            leaflet.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
             }).addTo(map)
 
-            const icon = L.icon({
-                iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-                shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+            const icon = leaflet.icon({
+                iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+                shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
                 iconSize: [25, 41],
-                iconAnchor: [12, 41]
+                iconAnchor: [12, 41],
             })
 
-            const marker = L.marker([userLocation.lat, userLocation.lng], { icon }).addTo(map)
+            const marker = leaflet.marker([userLocation.lat, userLocation.lng], { icon }).addTo(map)
             setMapInstance(map)
             setMarkerInstance(marker)
         } else if (mapInstance && userLocation && markerInstance) {
             markerInstance.setLatLng([userLocation.lat, userLocation.lng])
             mapInstance.setView([userLocation.lat, userLocation.lng], 13)
         }
-    }, [mapLoaded, userLocation])
+    }, [mapInstance, mapLoaded, markerInstance, userLocation])
+
+    useEffect(() => {
+        return () => {
+            mapInstance?.remove()
+        }
+    }, [mapInstance])
 
     const total = Math.max(0, (cartTotal - rewardDiscountKobo) + deliveryFeeKobo)
-    const shipping = deliveryFeeKobo
-    const baseTotal = cartTotal + deliveryFeeKobo
 
     const handleProceedToCheckout = () => {
         if (!user) {
@@ -185,22 +249,24 @@ export default function CartPage() {
         setIsCheckoutOpen(true)
     }
 
-    const getCommonPayload = () => {
-        if (!user) return null;
-        
+    const getCommonPayload = (): OrderPayload | null => {
+        if (!user) {
+            return null
+        }
+
         return {
             userId: user.id,
-            items: cartItems.map(i => ({ 
-                product_id: i.id, 
-                quantity: i.quantity 
+            items: cartItems.map((item) => ({
+                product_id: item.id,
+                quantity: item.quantity,
             })),
             deliveryLocation: userLocation ? {
                 type: "Point" as const,
-                coordinates: [userLocation.lng, userLocation.lat] as [number, number]
+                coordinates: [userLocation.lng, userLocation.lat] as [number, number],
             } : null,
-            deliveryFeeKobo: deliveryFeeKobo,
-            contactNumbers: contactNumbers.filter(n => n.trim() !== ""),
-            rewardPointsToRedeem: parseInt(rewardPointsInput) || 0
+            deliveryFeeKobo,
+            contactNumbers: contactNumbers.filter((number) => number.trim() !== ""),
+            rewardPointsToRedeem: Number.parseInt(rewardPointsInput, 10) || 0,
         }
     }
 
@@ -297,10 +363,12 @@ export default function CartPage() {
 
                 <div className="container mx-auto px-4 lg:px-6 flex flex-col items-center justify-center text-center py-12">
                     <div className="relative w-full max-w-md aspect-video mb-12">
-                        <img
+                        <Image
                             src="/images/cart image.png"
-                            alt="Empty Cart"
-                            className="w-full h-full object-contain"
+                            alt="Empty cart"
+                            fill
+                            className="object-contain"
+                            sizes="(max-width: 768px) 90vw, 28rem"
                         />
                     </div>
 
@@ -537,7 +605,7 @@ export default function CartPage() {
                                                 <div className="flex gap-3">
                                                     <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
                                                     <p className="font-medium">
-                                                        Delivery is strictly tied to this saved location. Ensure it's accurate because our riders are dispatched using these exact coordinates.
+                                                        Delivery is strictly tied to this saved location. Ensure it&apos;s accurate because our riders are dispatched using these exact coordinates.
                                                     </p>
                                                 </div>
                                             </div>
@@ -676,7 +744,6 @@ export default function CartPage() {
                                             <div className="grid gap-4">
                                                 {/* Payment Option Components... */}
                                                 <PaymentOption 
-                                                    id="wallet"
                                                     title="Rss Wallet"
                                                     subtitle={isLoadingBalance ? "Checking..." : `Balance: ${formatKobo(walletBalance ?? 0)}`}
                                                     icon={<Wallet className="h-6 w-6" />}
@@ -686,9 +753,12 @@ export default function CartPage() {
                                                     color="orange"
                                                 />
                                                 <PaymentOption 
-                                                    id="giftCard"
                                                     title="Gift Card"
-                                                    subtitle={isLoadingBalance ? "Checking..." : `Balance: ${formatKobo(giftCardBalance ?? 0)}`}
+                                                    subtitle={
+                                                        isLoadingBalance
+                                                            ? "Checking..."
+                                                            : `Balance: ${formatKobo(giftCardBalance ?? 0)} | ${giftCardCount} active`
+                                                    }
                                                     icon={<Gift className="h-6 w-6" />}
                                                     isSelected={paymentMethod === 'giftCard'}
                                                     isDisabled={giftCardBalance === null || giftCardBalance < total}
@@ -696,7 +766,6 @@ export default function CartPage() {
                                                     color="violet"
                                                 />
                                                 <PaymentOption 
-                                                    id="direct"
                                                     title="Secure Pay"
                                                     subtitle="Cards, Bank, Transfer, USSD"
                                                     icon={<CreditCard className="h-6 w-6" />}
@@ -744,23 +813,23 @@ export default function CartPage() {
     )
 }
 
-function PaymentOption({ id, title, subtitle, icon, isSelected, isDisabled, onClick, color }: any) {
+function PaymentOption({ title, subtitle, icon, isSelected, isDisabled, onClick, color }: PaymentOptionProps) {
     const colorClasses = {
-        orange: isSelected ? 'border-[#F58220] bg-orange-50/50 dark:bg-orange-500/10' : 'border-gray-100 dark:border-zinc-800 hover:border-orange-200',
-        violet: isSelected ? 'border-violet-600 bg-violet-50/50 dark:bg-violet-500/10' : 'border-gray-100 dark:border-zinc-800 hover:border-violet-200'
+        orange: isSelected ? "border-[#F58220] bg-orange-50/50 dark:bg-orange-500/10" : "border-gray-100 dark:border-zinc-800 hover:border-orange-200",
+        violet: isSelected ? "border-violet-600 bg-violet-50/50 dark:bg-violet-500/10" : "border-gray-100 dark:border-zinc-800 hover:border-violet-200",
     }
 
     const iconBg = {
-        orange: isSelected ? 'bg-[#F58220] text-white shadow-lg shadow-orange-500/30' : 'bg-gray-100 dark:bg-zinc-800 text-gray-400',
-        violet: isSelected ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30' : 'bg-gray-100 dark:bg-zinc-800 text-gray-400'
+        orange: isSelected ? "bg-[#F58220] text-white shadow-lg shadow-orange-500/30" : "bg-gray-100 dark:bg-zinc-800 text-gray-400",
+        violet: isSelected ? "bg-violet-600 text-white shadow-lg shadow-violet-500/30" : "bg-gray-100 dark:bg-zinc-800 text-gray-400",
     }
 
     return (
         <div
             onClick={() => !isDisabled && onClick()}
-            className={`flex items-center gap-3 md:gap-4 p-4 md:p-5 rounded-[2rem] border-2 transition-all cursor-pointer group relative overflow-hidden ${colorClasses[color as keyof typeof colorClasses]} ${isDisabled ? 'opacity-40 grayscale-[0.5] cursor-not-allowed' : 'active:scale-[0.98]'}`}
+            className={`flex items-center gap-3 md:gap-4 p-4 md:p-5 rounded-[2rem] border-2 transition-all cursor-pointer group relative overflow-hidden ${colorClasses[color]} ${isDisabled ? "opacity-40 grayscale-[0.5] cursor-not-allowed" : "active:scale-[0.98]"}`}
         >
-            <div className={`p-3 md:p-4 rounded-2xl transition-all duration-300 ${iconBg[color as keyof typeof iconBg]}`}>
+            <div className={`p-3 md:p-4 rounded-2xl transition-all duration-300 ${iconBg[color]}`}>
                 {icon}
             </div>
             <div className="flex-1">
@@ -768,7 +837,7 @@ function PaymentOption({ id, title, subtitle, icon, isSelected, isDisabled, onCl
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{subtitle}</p>
             </div>
             {isSelected && (
-                <div className={`h-8 w-8 rounded-full flex items-center justify-center border-4 border-white dark:border-zinc-950 shadow-md ${color === 'orange' ? 'bg-[#F58220]' : 'bg-violet-600'}`}>
+                <div className={`h-8 w-8 rounded-full flex items-center justify-center border-4 border-white dark:border-zinc-950 shadow-md ${color === "orange" ? "bg-[#F58220]" : "bg-violet-600"}`}>
                     <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
                 </div>
             )}

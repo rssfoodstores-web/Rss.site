@@ -1,6 +1,14 @@
+import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { RouteRefreshBridge } from "@/components/realtime/RouteRefreshBridge"
+
+export const metadata: Metadata = {
+    robots: {
+        follow: false,
+        index: false,
+    },
+}
 
 export default async function AccountLayout({
     children,

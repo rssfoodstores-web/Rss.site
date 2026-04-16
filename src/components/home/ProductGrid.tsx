@@ -11,14 +11,18 @@ import { Button } from "@/components/ui/button"
 import { groupProductReviewsByProduct, type ProductReviewRow } from "@/lib/productReviews"
 import {
     createStorefrontHref,
+    getActiveStorefrontCategory,
+    getStorefrontCategoryFromPath,
     getStorefrontCategoryDescription,
     getStorefrontCategoryLabel,
+    type StorefrontCategorySlug,
     storefrontNavigationCategories,
 } from "@/lib/categories"
 import { getNigerianStateFilterCandidates, NIGERIAN_STATES } from "@/lib/constants/nigerianStates"
 import { cn } from "@/lib/utils"
 
 interface ProductGridProps {
+    forcedCategory?: StorefrontCategorySlug | null
     salesType?: "retail" | "wholesale"
     title?: string
 }
@@ -77,13 +81,16 @@ function getErrorMessage(error: unknown) {
     return String(error)
 }
 
-export function ProductGrid({ salesType, title }: ProductGridProps) {
+export function ProductGrid({ forcedCategory = null, salesType, title }: ProductGridProps) {
     const pathname = usePathname()
     const router = useRouter()
     const searchParams = useSearchParams()
-    const categoryFilter = searchParams.get("category")
+    const routeCategory = getStorefrontCategoryFromPath(pathname)
+    const activeCategory = forcedCategory ?? getActiveStorefrontCategory(pathname, searchParams)
+    const categoryFilter = activeCategory
     const searchQuery = searchParams.get("q")?.trim() ?? ""
     const locationFilter = searchParams.get("state")?.trim() ?? "all"
+    const hasCanonicalCategoryRoute = Boolean(forcedCategory ?? routeCategory)
 
     const [products, setProducts] = useState<Product[]>([])
     const [loading, setLoading] = useState(true)
@@ -196,7 +203,7 @@ export function ProductGrid({ salesType, title }: ProductGridProps) {
         }
     }, [fetchProducts, retryCount])
 
-    const hasAnyFilter = Boolean(categoryFilter || searchQuery || locationFilter !== "all")
+    const hasAnyFilter = Boolean(searchQuery || locationFilter !== "all" || (!hasCanonicalCategoryRoute && categoryFilter))
     const categoryTitle = getStorefrontCategoryLabel(categoryFilter)
     const categoryDescription = getStorefrontCategoryDescription(categoryFilter)
     const searchTitle = searchQuery ? `Search results for "${searchQuery}"` : null
@@ -215,7 +222,7 @@ export function ProductGrid({ salesType, title }: ProductGridProps) {
         pathname,
         searchParams,
         patch: {
-            category: null,
+            category: hasCanonicalCategoryRoute ? undefined : null,
             q: null,
             state: null,
         },
@@ -240,7 +247,7 @@ export function ProductGrid({ salesType, title }: ProductGridProps) {
                 label: `Search: ${searchQuery}`,
             }
             : null,
-        categoryFilter
+        categoryFilter && !hasCanonicalCategoryRoute
             ? {
                 key: "category",
                 label: categoryTitle,

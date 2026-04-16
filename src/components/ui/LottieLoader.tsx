@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client"
 
 import Script from "next/script"
@@ -18,7 +17,6 @@ export function LottieLoader(props: LottieLoaderProps) {
                 type="module"
                 strategy="lazyOnload"
             />
-            {/* @ts-ignore - Custom element handled by script */}
             <dotlottie-wc
                 src={props.src || "https://lottie.host/10b4c7ad-bb59-4b35-a94d-1d1a83534a62/D10aU5stU9.lottie"}
                 style={{ width: props.width || "300px", height: props.height || "300px" }}
@@ -28,4 +26,3 @@ export function LottieLoader(props: LottieLoaderProps) {
         </div>
     )
 }
-// @ts-nocheck

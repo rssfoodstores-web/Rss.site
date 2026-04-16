@@ -1,9 +1,17 @@
+import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { AccountInProcess } from "@/components/access/AccountInProcess"
 import { AccountWorkspaceShell } from "@/components/account/AccountWorkspaceShell"
 import { RouteRefreshBridge } from "@/components/realtime/RouteRefreshBridge"
 import { createClient } from "@/lib/supabase/server"
 import { getOperationalApprovalStatus } from "@/lib/operationalAccess"
+
+export const metadata: Metadata = {
+    robots: {
+        follow: false,
+        index: false,
+    },
+}
 
 export default async function AgentLayout({
     children,

@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import Link from "next/link"
 import { Globe, Home, Mail, MapPin, MessageCircle, Phone, Send } from "lucide-react"
 import { AdPlacementSection } from "@/components/ads/AdPlacementSection"
@@ -5,9 +6,20 @@ import { ContactSupportForm } from "@/components/contact/ContactSupportForm"
 import { SupportChatBubble } from "@/components/support/SupportChatBubble"
 import { buildContactMethodHref, type ContactMethodContent } from "@/lib/contactPage"
 import { getContactPageContent } from "@/lib/contactPageData"
+import { buildSeoMetadata } from "@/lib/seo"
 import { getSupportChatBootstrap } from "@/lib/supportChatData"
 
 export const dynamic = "force-dynamic"
+
+export async function generateMetadata(): Promise<Metadata> {
+    const content = await getContactPageContent()
+
+    return buildSeoMetadata({
+        description: content.introDescription,
+        path: "/contact",
+        title: content.pageTitle,
+    })
+}
 
 function getContactMethodIcon(method: ContactMethodContent) {
     switch (method.type) {

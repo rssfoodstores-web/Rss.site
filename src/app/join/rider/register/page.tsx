@@ -12,6 +12,10 @@ export default async function RiderRegisterPage() {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
+    if (!user) {
+        redirect("/login?next=%2Fjoin%2Frider%2Fregister")
+    }
+
     if (user) {
         const { data: roles } = await supabase
             .from("user_roles")

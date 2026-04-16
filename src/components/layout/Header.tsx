@@ -1,6 +1,7 @@
 "use client"
 
 import { FormEvent, useState } from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { useTheme } from "next-themes"
 import { Search, ShoppingCart, Heart, User, Phone, ChevronDown, Menu, Sun, Moon, LogOut, Bell } from "lucide-react"
@@ -81,7 +82,7 @@ export function Header() {
             {/* Top Bar */}
             <div className="w-full bg-black text-white text-xs py-2 px-4 md:px-8 flex justify-between items-center">
                 <div className="flex items-center gap-4">
-                    <Link href="/sell" className="hover:text-primary transition-colors flex items-center gap-1">
+                    <Link href="/join/merchant" className="hover:text-primary transition-colors flex items-center gap-1">
                         Sell on RSS FOODS
                     </Link>
                 </div>
@@ -162,7 +163,7 @@ export function Header() {
                 <div className="container mx-auto flex items-center justify-between gap-4">
                     {/* Logo */}
                     <Link href="/" className="flex-shrink-0">
-                        <img src="/logo.png" alt="RSS Foods" className="h-12 w-auto object-contain" />
+                        <Image src="/logo.png" alt="RSS Foods" width={180} height={48} className="h-12 w-auto object-contain" priority />
                     </Link>
 
                     {/* Search Bar - Figma Spec: Frame 8:391 */}
@@ -319,7 +320,7 @@ export function Header() {
                                     <SheetTitle className="sr-only">Mobile navigation menu</SheetTitle>
                                     <div className="flex flex-col gap-6 mt-8">
                                         <div className="flex items-center gap-2 mb-4">
-                                            <img src="/logo.png" alt="RSS Foods" className="h-10 w-auto object-contain" />
+                                            <Image src="/logo.png" alt="RSS Foods" width={160} height={40} className="h-10 w-auto object-contain" />
                                         </div>
 
                                         <nav className="flex flex-col gap-4">

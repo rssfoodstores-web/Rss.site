@@ -25,7 +25,7 @@ export function Slideshow({ slides }: SlideshowProps) {
             setCurrentSlide((prev) => (prev + 1) % slides.length)
         }, 5000)
         return () => clearInterval(timer)
-    }, [])
+    }, [slides.length])
 
     return (
         <div className="relative h-full w-full overflow-hidden bg-zinc-900 text-white">
@@ -59,7 +59,7 @@ export function Slideshow({ slides }: SlideshowProps) {
                         transition={{ duration: 0.5, delay: 0.2 }}
                     >
                         <h2 className="text-3xl md:text-4xl font-bold leading-tight mb-6">
-                            "{slides[currentSlide].quote}"
+                            &ldquo;{slides[currentSlide].quote}&rdquo;
                         </h2>
                         <div>
                             <p className="text-xl font-semibold">{slides[currentSlide].author}</p>

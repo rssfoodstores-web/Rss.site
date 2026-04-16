@@ -3,6 +3,11 @@
 import { useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 
+function isAbortLike(error: unknown) {
+    return error instanceof Error
+        && (error.name === "AbortError" || error.message.includes("aborted"))
+}
+
 export function SessionRefresher() {
     useEffect(() => {
         const supabase = createClient()
@@ -10,8 +15,8 @@ export function SessionRefresher() {
         const refresh = async () => {
             try {
                 await supabase.auth.refreshSession()
-            } catch (error: any) {
-                if (error?.name === "AbortError" || error?.message?.includes("aborted")) {
+            } catch (error: unknown) {
+                if (isAbortLike(error)) {
                     return
                 }
                 console.error("Failed to refresh session:", error)

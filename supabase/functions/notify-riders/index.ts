@@ -6,9 +6,23 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+interface OrderWebhookRecord {
+    id: string
+    status?: string | null
+}
+
+interface OrderWebhookPayload {
+    record: OrderWebhookRecord
+    type: string
+}
+
+interface NearbyRiderTokenRow {
+    fcm_token: string | null
+}
+
 serve(async (req: Request) => {
     try {
-        const payload = await req.json();
+        const payload = await req.json() as OrderWebhookPayload;
         console.log("Order Triggered Notification:", payload);
 
         // Payload structure for Supabase Webhook (Insert onto orders)
@@ -65,7 +79,9 @@ serve(async (req: Request) => {
             return new Response("Error querying riders", { status: 500 });
         }
 
-        const tokens = riders?.map((r: any) => r.fcm_token).filter(Boolean);
+        const tokens = ((riders ?? []) as NearbyRiderTokenRow[])
+            .map((rider) => rider.fcm_token)
+            .filter((token): token is string => Boolean(token));
 
         if (!tokens || tokens.length === 0) {
             console.log("No nearby riders with FCM tokens found.");
@@ -87,8 +103,9 @@ serve(async (req: Request) => {
             headers: { "Content-Type": "application/json" }
         });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : "Unexpected edge function error"
         console.error("Edge Function Error:", error);
-        return new Response(error.message, { status: 500 });
+        return new Response(errorMessage, { status: 500 });
     }
 });

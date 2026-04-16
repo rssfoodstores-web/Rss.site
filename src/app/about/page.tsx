@@ -1,9 +1,7 @@
 "use client"
 
-import Link from "next/link"
-import { Home, Check, Shield, Zap, Heart, Leaf } from "lucide-react"
+import { Shield, Zap, Heart, Leaf } from "lucide-react"
 import { motion } from "framer-motion"
-import { Button } from "@/components/ui/button"
 
 const coreValues = [
     { 

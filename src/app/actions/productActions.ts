@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { nairaToKobo } from "@/lib/money"
 import { assertMerchantCanPostProducts } from "@/lib/merchantPostingAccess"
+import { buildCanonicalProductPath } from "@/lib/seo"
 
 type ProductInput = Record<string, unknown> & {
     price?: number
@@ -68,6 +69,14 @@ function buildProductPayload(data: ProductInput) {
         }
     }
 
+    for (const key of ["seo_title", "seo_description"] as const) {
+        const rawValue = productData[key]
+        if (typeof rawValue === "string") {
+            const trimmedValue = rawValue.trim()
+            productData[key] = trimmedValue ? trimmedValue : null
+        }
+    }
+
     for (const key of ["nutrition_content", "health_benefits", "suggested_combos", "cooked_images"] as const) {
         const rawValue = productData[key]
         if (Array.isArray(rawValue)) {
@@ -78,6 +87,13 @@ function buildProductPayload(data: ProductInput) {
 
             productData[key] = normalizedValues.length > 0 ? normalizedValues : null
         }
+    }
+
+    if (Array.isArray(productData.tags)) {
+        productData.tags = productData.tags
+            .filter((item): item is string => typeof item === "string")
+            .map((item) => item.trim())
+            .filter(Boolean)
     }
 
     return {
@@ -165,6 +181,7 @@ export async function updateProduct(id: string, data: ProductInput) {
 
     revalidatePath("/merchant/products")
     revalidatePath(`/merchant/products/${id}`)
+    revalidatePath(`/products/${id}`)
 }
 
 export async function deleteProduct(id: string) {
@@ -187,7 +204,7 @@ export async function approveProduct(id: string) {
             submitted_for_review_at: new Date().toISOString(),
         })
         .eq("id", id)
-        .select("merchant_id, name")
+        .select("merchant_id, name, category, sales_type")
         .single()
 
     if (error) {
@@ -205,6 +222,17 @@ export async function approveProduct(id: string) {
     revalidatePath("/merchant/products")
     revalidatePath("/admin/approvals")
     revalidatePath("/")
+    revalidatePath("/retail")
+    revalidatePath("/wholesale")
+
+    if (product) {
+        revalidatePath(buildCanonicalProductPath(product.name, id))
+
+        if (typeof product.category === "string" && product.category.trim()) {
+            revalidatePath(`/retail/category/${product.category}`)
+            revalidatePath(`/wholesale/category/${product.category}`)
+        }
+    }
 }
 
 export async function rejectProduct(id: string) {
@@ -233,6 +261,8 @@ export async function rejectProduct(id: string) {
 
     revalidatePath("/merchant/products")
     revalidatePath("/admin/approvals")
+    revalidatePath("/retail")
+    revalidatePath("/wholesale")
 }
 
 export async function submitMerchantPriceInput(productId: string, amountNaira: number, notes?: string) {

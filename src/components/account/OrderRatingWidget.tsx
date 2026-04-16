@@ -60,7 +60,7 @@ export function OrderRatingWidget({ orderId, riderName, items }: OrderRatingWidg
             } else {
                 toast.error(res.message || "Failed to submit review")
             }
-        } catch (error) {
+        } catch {
             toast.error("An error occurred")
         } finally {
             setLoading(false)
@@ -84,7 +84,7 @@ export function OrderRatingWidget({ orderId, riderName, items }: OrderRatingWidg
             } else {
                 toast.error(res.message || "Failed to submit reviews")
             }
-        } catch (error) {
+        } catch {
             toast.error("An error occurred")
         } finally {
             setLoading(false)

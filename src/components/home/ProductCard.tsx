@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { ShoppingCart, Heart, Eye, MessageSquareQuote } from "lucide-react"
+import { ShoppingCart, Heart, MessageSquareQuote } from "lucide-react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -21,6 +21,8 @@ import { cn } from "@/lib/utils"
 import { formatKobo } from "@/lib/money"
 import type { ProductReviewSummary } from "@/lib/productReviews"
 import { formatProductReviewDate } from "@/lib/productReviews"
+import { buildCanonicalProductPath } from "@/lib/seo"
+import { buildOptimizedImageUrl, shouldBypassNextImageOptimizer } from "@/lib/imageDelivery"
 
 export interface Product {
     id: string
@@ -42,7 +44,8 @@ export function ProductCard({ product }: { product: Product }) {
     const [reviewsOpen, setReviewsOpen] = useState(false)
 
     const reviewSummary = product.reviewSummary ?? null
-    const previewReviews = reviewSummary?.reviews.filter((review) => review.comment).slice(0, 1) ?? []
+    const productImageSrc = buildOptimizedImageUrl(product.imageUrl, { width: 960 })
+    const bypassNextImageOptimizer = shouldBypassNextImageOptimizer(product.imageUrl)
 
     const handleAddToCart = (e: React.MouseEvent) => {
         e.preventDefault()
@@ -70,16 +73,18 @@ export function ProductCard({ product }: { product: Product }) {
             className="group relative bg-white dark:bg-zinc-900/50 backdrop-blur-sm border border-gray-100 dark:border-zinc-800 rounded-xl md:rounded-2xl overflow-hidden shadow-sm hover:shadow-xl hover:shadow-orange-500/10 transition-all duration-300 flex flex-col"
         >
             <Dialog open={reviewsOpen} onOpenChange={setReviewsOpen}>
-                <Link href={`/products/${product.id}`} className="flex flex-col flex-1 h-full">
+                <Link href={buildCanonicalProductPath(product.name, product.id)} className="flex flex-col flex-1 h-full">
                     {/* Image Container */}
                     <div className="relative aspect-[5/4] md:aspect-[4/5] bg-gray-50 dark:bg-zinc-900 overflow-hidden shrink-0">
                         <div className="w-full h-full transition-transform duration-500 ease-out group-hover:scale-105">
                             {product.imageUrl ? (
                                 <Image
-                                    src={product.imageUrl}
+                                    src={productImageSrc}
                                     alt={product.name}
                                     fill
                                     className="object-cover"
+                                    sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 20vw"
+                                    unoptimized={bypassNextImageOptimizer}
                                 />
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-300">

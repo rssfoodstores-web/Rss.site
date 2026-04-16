@@ -1,12 +1,15 @@
 "use client"
 
+import type { User } from "@supabase/supabase-js"
 import { Bell, Search, Menu } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useDashboardLayout } from "@/contexts/DashboardLayoutContext"
 
-export function RiderHeader({ user }: { user?: any }) {
+type RiderHeaderUser = Pick<User, "email" | "user_metadata">
+
+export function RiderHeader({ user }: { user?: RiderHeaderUser | null }) {
     const { toggleMobileMenu } = useDashboardLayout()
 
     return (

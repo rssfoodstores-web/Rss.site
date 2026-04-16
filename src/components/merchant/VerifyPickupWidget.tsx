@@ -28,7 +28,7 @@ export function VerifyPickupWidget({ orderId }: { orderId: string }) {
             } else {
                 toast.error(result.message || "Verification failed")
             }
-        } catch (error) {
+        } catch {
             toast.error("Something went wrong")
         } finally {
             setLoading(false)

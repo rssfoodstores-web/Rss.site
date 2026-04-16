@@ -15,7 +15,6 @@ import { Input } from "@/components/ui/input"
 import { Database } from "@/types/database.types"
 import { updateProfile } from "@/app/account/actions"
 import { LottieLoader } from "@/components/ui/LottieLoader"
-import { useRouter } from "next/navigation"
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
 
@@ -26,7 +25,6 @@ interface ProfileEditDialogProps {
 export function ProfileEditDialog({ profile }: ProfileEditDialogProps) {
     const [open, setOpen] = useState(false)
     const [loading, setLoading] = useState(false)
-    const router = useRouter() // Use router for client-side refresh if needed
 
     async function handleSubmit(formData: FormData) {
         setLoading(true)
@@ -52,7 +50,7 @@ export function ProfileEditDialog({ profile }: ProfileEditDialogProps) {
                 <DialogHeader>
                     <DialogTitle>Edit Profile</DialogTitle>
                     <DialogDescription>
-                        Make changes to your profile here. Click save when you're done.
+                        Make changes to your profile here. Click save when you&apos;re done.
                     </DialogDescription>
                 </DialogHeader>
                 <form action={handleSubmit} className="space-y-4 py-4">

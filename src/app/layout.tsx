@@ -6,10 +6,35 @@ import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { CategoryProvider } from "@/context/CategoryContext";
 import Script from "next/script";
+import {
+  DEFAULT_OG_IMAGE_PATH,
+  DEFAULT_SITE_DESCRIPTION,
+  SITE_NAME,
+} from "@/lib/seo";
+import { getConfiguredSiteUrl } from "@/lib/site-url";
 
 export const metadata: Metadata = {
-  title: "RSS Foods | Fresh Groceries Delivered",
-  description: "Shop premium groceries, fresh produce, and household essentials online. Fast delivery across Nigeria.",
+  applicationName: SITE_NAME,
+  description: DEFAULT_SITE_DESCRIPTION,
+  metadataBase: new URL(getConfiguredSiteUrl()),
+  openGraph: {
+    description: DEFAULT_SITE_DESCRIPTION,
+    images: [DEFAULT_OG_IMAGE_PATH],
+    locale: "en_NG",
+    siteName: SITE_NAME,
+    title: "RSS Foods | Fresh Groceries Delivered",
+    type: "website",
+  },
+  title: {
+    default: "RSS Foods | Fresh Groceries Delivered",
+    template: "%s | RSS Foods",
+  },
+  twitter: {
+    card: "summary_large_image",
+    description: DEFAULT_SITE_DESCRIPTION,
+    images: [DEFAULT_OG_IMAGE_PATH],
+    title: "RSS Foods | Fresh Groceries Delivered",
+  },
 };
 
 export default function RootLayout({

@@ -5,6 +5,17 @@ import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
 import cloudinary from "@/lib/cloudinary"
 
+interface CloudinaryUploadResult {
+    secure_url: string
+}
+
+interface RiderGuarantor {
+    form_url?: string
+    id_url?: string
+    name: string
+    phone: string
+}
+
 // Initialize Supabase Server Client
 async function getSupabase() {
     const cookieStore = await cookies()
@@ -48,7 +59,7 @@ export async function submitDeliveryApplication(formData: FormData) {
     // Guarantor Details
     const guarantor_name = formData.get("guarantor_name") as string
     const guarantor_phone = formData.get("guarantor_phone") as string
-    const guarantors: Record<string, any> = { name: guarantor_name, phone: guarantor_phone }
+    const guarantors: RiderGuarantor = { name: guarantor_name, phone: guarantor_phone }
 
     // File Uploads
     const fileFields = [
@@ -72,12 +83,18 @@ export async function submitDeliveryApplication(formData: FormData) {
                 const buffer = Buffer.from(arrayBuffer)
 
                 // Upload to Cloudinary
-                const result = await new Promise<any>((resolve, reject) => {
+                const result = await new Promise<CloudinaryUploadResult>((resolve, reject) => {
                     const uploadStream = cloudinary.uploader.upload_stream(
                         { folder: `rssa/riders/${user.id}/${field}` },
                         (error, result) => {
-                            if (error) reject(error)
-                            else resolve(result)
+                            if (error || !result?.secure_url) {
+                                reject(error ?? new Error("Upload failed"))
+                                return
+                            }
+
+                            resolve({
+                                secure_url: result.secure_url,
+                            })
                         }
                     )
                     uploadStream.end(buffer)
@@ -103,11 +120,26 @@ export async function submitDeliveryApplication(formData: FormData) {
     const passport_photo_url = uploadedUrls.passport_photo
 
     // 1. Update Profile (Phone, Address)
-    await supabase.from("profiles").update({
+    const { error: profileError } = await supabase.from("profiles").update({
         full_name,
         phone,
         address
     }).eq("id", user.id)
+
+    if (profileError) {
+        console.error("Rider profile sync error:", profileError)
+        return { error: "Failed to update your account profile: " + profileError.message }
+    }
+
+    if (full_name.trim()) {
+        const { error: metadataError } = await supabase.auth.updateUser({
+            data: { full_name: full_name.trim() },
+        })
+
+        if (metadataError) {
+            console.error("Rider auth metadata sync error:", metadataError)
+        }
+    }
 
     // 2. Insert into rider_profiles
     const { error: riderError } = await supabase

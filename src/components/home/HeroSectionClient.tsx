@@ -8,7 +8,11 @@ import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { useCategory } from "@/context/CategoryContext"
-import { createStorefrontHref, storefrontNavigationCategories } from "@/lib/categories"
+import {
+    createStorefrontHref,
+    getActiveStorefrontCategory,
+    storefrontNavigationCategories,
+} from "@/lib/categories"
 import { usePathname, useSearchParams } from "next/navigation"
 
 export interface HeroSlide {
@@ -75,7 +79,7 @@ export function HeroSectionClient({ slides }: { slides: HeroSlide[] }) {
     const { isOpen } = useCategory()
     const pathname = usePathname()
     const searchParams = useSearchParams()
-    const currentCategory = searchParams.get("category")
+    const currentCategory = getActiveStorefrontCategory(pathname, searchParams)
     const [currentSlide, setCurrentSlide] = React.useState(0)
 
     React.useEffect(() => {

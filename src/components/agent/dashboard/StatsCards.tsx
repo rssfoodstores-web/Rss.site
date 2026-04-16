@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowUp, ArrowDown, Package, CheckCircle, Clock, Wallet } from "lucide-react"
+import { Package, CheckCircle, Clock, Wallet } from "lucide-react"
 
 const stats = [
     {

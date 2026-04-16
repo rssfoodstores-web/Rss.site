@@ -5,6 +5,10 @@ import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
 import cloudinary from "@/lib/cloudinary"
 
+interface CloudinaryUploadResult {
+    secure_url: string
+}
+
 // Initialize Supabase Server Client
 async function getSupabase() {
     const cookieStore = await cookies()
@@ -64,10 +68,6 @@ export async function registerAgent(formData: FormData) {
 
     const guarantors = { guarantor1, guarantor2 }
 
-    // File Uploads
-    const fileFields = ["idCard"]
-    // Note: We're starting with ID Card. If more docs form needed, add here.
-
     let id_card_url = ""
 
     const file = formData.get("idCard") as File | null
@@ -77,12 +77,18 @@ export async function registerAgent(formData: FormData) {
             const buffer = Buffer.from(arrayBuffer)
 
             // Upload to Cloudinary
-            const result = await new Promise<any>((resolve, reject) => {
+            const result = await new Promise<CloudinaryUploadResult>((resolve, reject) => {
                 const uploadStream = cloudinary.uploader.upload_stream(
                     { folder: `rssa/agents/${user.id}/id_card` },
                     (error, result) => {
-                        if (error) reject(error)
-                        else resolve(result)
+                        if (error || !result?.secure_url) {
+                            reject(error ?? new Error("Upload failed"))
+                            return
+                        }
+
+                        resolve({
+                            secure_url: result.secure_url,
+                        })
                     }
                 )
                 uploadStream.end(buffer)
@@ -98,20 +104,37 @@ export async function registerAgent(formData: FormData) {
 
     // 1. Update Profile (Phone, Address, potentially Full Name if allowed)
     // We only update what's missing or if we treat this as source of truth
-    await supabase.from("profiles").update({
+    const { error: profileError } = await supabase.from("profiles").update({
+        full_name: fullName,
         phone: phone,
         address: address
     }).eq("id", user.id)
 
+    if (profileError) {
+        console.error("Agent profile sync error:", profileError)
+        return { error: "Failed to update your account profile: " + profileError.message }
+    }
+
+    if (fullName.trim()) {
+        const { error: metadataError } = await supabase.auth.updateUser({
+            data: { full_name: fullName.trim() },
+        })
+
+        if (metadataError) {
+            console.error("Agent auth metadata sync error:", metadataError)
+        }
+    }
+
     // 2. Insert into agent_profiles
     const { error: agentError } = await supabase
-        .from("agent_profiles" as any) // Cast to any until types are regenerated
+        .from("agent_profiles")
         .upsert({
             id: user.id,
             status: "pending",
             bank_details: bankDetails,
             guarantors: guarantors,
-            id_card_url: id_card_url
+            id_card_url: id_card_url,
+            updated_at: new Date().toISOString(),
         })
 
     if (agentError) {

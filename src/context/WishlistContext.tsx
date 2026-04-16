@@ -1,13 +1,43 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react"
-import { createClient } from "@/lib/supabase/client"
+import {
+    createContext,
+    useCallback,
+    useContext,
+    useEffect,
+    useState,
+    type ReactNode,
+} from "react"
 import { toast } from "sonner"
-import { Product } from "@/components/home/ProductCard" // Import type
+import { createClient } from "@/lib/supabase/client"
 import { useUser } from "@/context/UserContext"
 
+interface ProductRow {
+    category: string
+    id: string
+    image_url: string | null
+    name: string
+    price: number
+    stock_level: number | null
+}
+
+interface WishlistProductInput {
+    category?: string | null
+    id: string
+    image?: string | null
+    imageUrl?: string | null
+    name: string
+    price: number
+    stock_level?: number | null
+}
+
+interface WishlistRelationRow {
+    product_id: string | null
+    products: ProductRow | ProductRow[] | null
+}
+
 interface WishlistItem {
-    id: string // Product ID
+    id: string
     name: string
     price: number
     image?: string
@@ -18,194 +48,253 @@ interface WishlistItem {
 interface WishlistContextType {
     items: WishlistItem[]
     isInWishlist: (productId: string) => boolean
-    toggleWishlist: (product: any) => Promise<void>
+    toggleWishlist: (product: WishlistProductInput) => Promise<void>
     isLoading: boolean
 }
 
 const WishlistContext = createContext<WishlistContextType | undefined>(undefined)
+const WISHLIST_STORAGE_KEY = "rssa_wishlist"
+
+function mapProductToWishlistItem(product: ProductRow): WishlistItem {
+    return {
+        category: product.category,
+        id: product.id,
+        image: product.image_url ?? undefined,
+        name: product.name,
+        price: product.price,
+        status: (product.stock_level ?? 0) > 0 ? "In Stock" : "Out of Stock",
+    }
+}
+
+function buildWishlistItemFromInput(product: WishlistProductInput): WishlistItem {
+    return {
+        category: product.category ?? undefined,
+        id: product.id,
+        image: product.imageUrl ?? product.image ?? undefined,
+        name: product.name,
+        price: product.price,
+        status: (product.stock_level ?? 1) > 0 ? "In Stock" : "Out of Stock",
+    }
+}
+
+function parseStoredWishlist(value: string | null): WishlistItem[] {
+    if (!value) {
+        return []
+    }
+
+    try {
+        const parsed = JSON.parse(value) as unknown
+
+        if (!Array.isArray(parsed)) {
+            return []
+        }
+
+        return parsed.filter((item): item is WishlistItem => {
+            if (!item || typeof item !== "object") {
+                return false
+            }
+
+            return typeof item.id === "string"
+                && typeof item.name === "string"
+                && typeof item.price === "number"
+        })
+    } catch (error) {
+        console.error("Failed to parse stored wishlist:", error)
+        return []
+    }
+}
+
+function getFirstRelatedProduct(products: WishlistRelationRow["products"]): ProductRow | null {
+    if (Array.isArray(products)) {
+        return products[0] ?? null
+    }
+
+    return products ?? null
+}
 
 export function WishlistProvider({ children }: { children: ReactNode }) {
     const [items, setItems] = useState<WishlistItem[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const { user, isLoading: isUserLoading } = useUser()
-    const supabase = createClient()
+    const [supabase] = useState(() => createClient())
 
-    // 1. Respond to User Changes
+    const persistLocalWishlist = useCallback((nextItems: WishlistItem[]) => {
+        if (typeof window === "undefined") {
+            return
+        }
+
+        localStorage.setItem(WISHLIST_STORAGE_KEY, JSON.stringify(nextItems))
+    }, [])
+
+    const loadWishlistFromLocal = useCallback(async () => {
+        if (typeof window === "undefined") {
+            setItems([])
+            return
+        }
+
+        const localItems = parseStoredWishlist(localStorage.getItem(WISHLIST_STORAGE_KEY))
+        const productIds = localItems.map((item) => item.id)
+
+        if (!productIds.length) {
+            setItems([])
+            return
+        }
+
+        const { data, error } = await supabase
+            .from("products")
+            .select("id, name, price, image_url, stock_level, category")
+            .in("id", productIds)
+
+        const refreshedProducts = (data ?? null) as ProductRow[] | null
+
+        if (error || !refreshedProducts) {
+            if (error) {
+                console.error("Error refreshing local wishlist items:", error)
+            }
+            setItems(localItems)
+            return
+        }
+
+        const refreshedItems = refreshedProducts.map(mapProductToWishlistItem)
+        setItems(refreshedItems)
+        persistLocalWishlist(refreshedItems)
+    }, [persistLocalWishlist, supabase])
+
+    const fetchWishlistFromDB = useCallback(async (userId: string) => {
+        const { data, error } = await supabase
+            .from("wishlists")
+            .select(`
+                product_id,
+                products (
+                    id,
+                    name,
+                    price,
+                    image_url,
+                    stock_level,
+                    category
+                )
+            `)
+            .eq("user_id", userId)
+
+        if (error) {
+            throw error
+        }
+
+        const rows = (data ?? []) as WishlistRelationRow[]
+        const formattedItems = rows
+            .map((row) => getFirstRelatedProduct(row.products))
+            .filter((product): product is ProductRow => Boolean(product))
+            .map(mapProductToWishlistItem)
+
+        setItems(formattedItems)
+    }, [supabase])
+
+    const syncLocalToDB = useCallback(async (userId: string) => {
+        if (typeof window === "undefined") {
+            return
+        }
+
+        const localItems = parseStoredWishlist(localStorage.getItem(WISHLIST_STORAGE_KEY))
+
+        if (!localItems.length) {
+            return
+        }
+
+        for (const item of localItems) {
+            const { error } = await supabase
+                .from("wishlists")
+                .upsert(
+                    { product_id: item.id, user_id: userId },
+                    {
+                        ignoreDuplicates: true,
+                        onConflict: "user_id,product_id",
+                    }
+                )
+
+            if (error) {
+                console.error("Error syncing wishlist item:", error)
+            }
+        }
+
+        localStorage.removeItem(WISHLIST_STORAGE_KEY)
+    }, [supabase])
+
     useEffect(() => {
-        const init = async () => {
-            if (isUserLoading) return
+        const initWishlist = async () => {
+            if (isUserLoading) {
+                return
+            }
 
             try {
                 if (user) {
                     await syncLocalToDB(user.id)
                     await fetchWishlistFromDB(user.id)
                 } else {
-                    loadWishlistFromLocal()
+                    await loadWishlistFromLocal()
                 }
             } catch (error) {
                 console.error("Error loading wishlist:", error)
-                loadWishlistFromLocal()
+                await loadWishlistFromLocal()
             } finally {
                 setIsLoading(false)
             }
         }
-        init()
-    }, [user, isUserLoading])
 
-    const loadWishlistFromLocal = async () => {
-        const saved = localStorage.getItem("rssa_wishlist")
-        if (saved) {
-            try {
-                const localItems: WishlistItem[] = JSON.parse(saved)
-                // Extract IDs to fetch fresh data
-                const productIds = localItems.map(i => i.id)
+        void initWishlist()
+    }, [fetchWishlistFromDB, isUserLoading, loadWishlistFromLocal, syncLocalToDB, user])
 
-                if (productIds.length > 0) {
-                    const { data, error } = await supabase
-                        .from('products')
-                        .select('id, name, price, image_url, stock_level, category')
-                        .in('id', productIds)
+    const isInWishlist = useCallback((productId: string) => {
+        return items.some((item) => item.id === productId)
+    }, [items])
 
-                    if (!error && data) {
-                        // Merge fresh data with local data (to keep any extra fields if any, though mostly we replace)
-                        const refreshedItems: WishlistItem[] = data.map((prod: any) => ({
-                            id: prod.id,
-                            name: prod.name,
-                            price: prod.price,
-                            image: prod.image_url,
-                            status: (prod.stock_level ?? 0) > 0 ? "In Stock" : "Out of Stock",
-                            category: prod.category
-                        }))
-                        setItems(refreshedItems)
-                        // Optionally update local storage with fresh data
-                        localStorage.setItem("rssa_wishlist", JSON.stringify(refreshedItems))
-                        return
-                    }
-                }
+    const toggleWishlist = useCallback(async (product: WishlistProductInput) => {
+        const nextItem = buildWishlistItemFromInput(product)
+        const existingItem = items.find((item) => item.id === product.id)
+        const nextItems = existingItem
+            ? items.filter((item) => item.id !== product.id)
+            : [...items, nextItem]
 
-                // Fallback if fetch fails or no items
-                setItems(localItems)
-            } catch (e) {
-                console.error("Failed to parse wishlist", e)
-            }
+        setItems(nextItems)
+        toast[existingItem ? "info" : "success"](
+            existingItem ? "Removed from wishlist" : "Added to wishlist"
+        )
+
+        if (!user) {
+            persistLocalWishlist(nextItems)
+            return
         }
-    }
 
-    const fetchWishlistFromDB = async (userId: string) => {
         try {
-            const { data, error } = await supabase
-                .from('wishlists')
-                .select(`
-                    product_id,
-                    products (
-                        id,
-                        name,
-                        price,
-                        image_url,
-                        stock_level,
-                        category
+            if (existingItem) {
+                const { error } = await supabase
+                    .from("wishlists")
+                    .delete()
+                    .match({ product_id: product.id, user_id: user.id })
+
+                if (error) {
+                    throw error
+                }
+            } else {
+                const { error } = await supabase
+                    .from("wishlists")
+                    .upsert(
+                        { product_id: product.id, user_id: user.id },
+                        {
+                            ignoreDuplicates: true,
+                            onConflict: "user_id,product_id",
+                        }
                     )
-                `)
-                .eq('user_id', userId)
 
-            if (error) throw error
-
-            if (data) {
-                const formattedItems: WishlistItem[] = data.map((item: any) => ({
-                    id: item.products.id,
-                    name: item.products.name,
-                    price: item.products.price,
-                    image: item.products.image_url,
-                    status: item.products.stock_level > 0 ? "In Stock" : "Out of Stock",
-                    category: item.products.category
-                }))
-                setItems(formattedItems)
-            }
-        } catch (err) {
-            console.error("Error fetching wishlist:", err)
-        }
-    }
-
-    const syncLocalToDB = async (userId: string) => {
-        const local = localStorage.getItem("rssa_wishlist")
-        if (!local) return
-
-        try {
-            const localItems: WishlistItem[] = JSON.parse(local)
-            // Upsert all local items to DB
-            // Note: This is a bit naive, ideally we check duplicates, but DB constraint handles unique(user_id, product_id)
-            // We loop for simplicity or use upsert
-            for (const item of localItems) {
-                await supabase
-                    .from('wishlists')
-                    .insert({ user_id: userId, product_id: item.id })
-                    .select() // ignore error if exists
-                    .maybeSingle()
-            }
-            // Clear local
-            localStorage.removeItem("rssa_wishlist")
-        } catch (e) {
-            console.error("Sync error", e)
-        }
-    }
-
-    const isInWishlist = (productId: string) => {
-        return items.some(item => item.id === productId)
-    }
-
-    const toggleWishlist = async (product: any) => {
-        const exists = isInWishlist(product.id)
-
-        // Optimistic UI update
-        if (exists) {
-            setItems(prev => prev.filter(item => item.id !== product.id))
-            toast.info("Removed from wishlist")
-        } else {
-            const newItem: WishlistItem = {
-                id: product.id,
-                name: product.name,
-                price: product.price,
-                image: product.imageUrl || product.image,
-                status: (product.stock_level ?? 1) > 0 ? "In Stock" : "Out of Stock", // Default to In Stock if unknown
-                category: product.category
-            }
-            setItems(prev => [...prev, newItem])
-            toast.success("Added to wishlist")
-        }
-
-        // Persist
-        if (user) {
-            try {
-                if (exists) {
-                    await supabase
-                        .from('wishlists')
-                        .delete()
-                        .match({ user_id: user.id, product_id: product.id })
-                } else {
-                    await supabase
-                        .from('wishlists')
-                        .insert({ user_id: user.id, product_id: product.id })
+                if (error) {
+                    throw error
                 }
-            } catch (err) {
-                console.error("DB update failed, reverting", err)
-                // Revert state if needed (skip for brevity, but good practice)
-                toast.error("Failed to update wishlist server")
             }
-        } else {
-            // LocalStorage
-            const current = exists
-                ? items.filter(i => i.id !== product.id)
-                : [...items, {
-                    id: product.id,
-                    name: product.name,
-                    price: product.price,
-                    image: product.imageUrl || product.image,
-                    status: (product.stock_level ?? 1) > 0 ? "In Stock" : "Out of Stock",
-                    category: product.category
-                }]
-            localStorage.setItem("rssa_wishlist", JSON.stringify(current))
+        } catch (error) {
+            console.error("Wishlist update failed, reverting:", error)
+            setItems(items)
+            toast.error("Failed to update wishlist")
         }
-    }
+    }, [items, persistLocalWishlist, supabase, user])
 
     return (
         <WishlistContext.Provider value={{ items, isInWishlist, toggleWishlist, isLoading }}>
@@ -216,8 +305,10 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
 
 export function useWishlist() {
     const context = useContext(WishlistContext)
+
     if (context === undefined) {
         throw new Error("useWishlist must be used within a WishlistProvider")
     }
+
     return context
 }

@@ -38,6 +38,7 @@ const agentSlides = [
 export default function AgentRegisterPage() {
     const [loading, setLoading] = useState(false)
     const [success, setSuccess] = useState(false)
+    const [authReady, setAuthReady] = useState(false)
     const router = useRouter()
 
     useEffect(() => {
@@ -45,20 +46,37 @@ export default function AgentRegisterPage() {
             const supabase = createClient()
             const { data: { user } } = await supabase.auth.getUser()
 
-            if (user) {
-                const { data: roles } = await supabase
-                    .from("user_roles")
-                    .select("role")
-                    .eq("user_id", user.id)
+            if (!user) {
+                router.replace("/login?next=%2Fjoin%2Fagent%2Fregister")
+                return
+            }
 
-                if (roles && roles.length > 0) {
-                    const roleNames = roles.map((r: { role: string }) => r.role)
-                    if (roleNames.includes("agent")) router.push("/agent")
+            const { data: roles } = await supabase
+                .from("user_roles")
+                .select("role")
+                .eq("user_id", user.id)
+
+            if (roles && roles.length > 0) {
+                const roleNames = roles.map((r: { role: string }) => r.role)
+                if (roleNames.includes("agent")) {
+                    router.replace("/agent")
+                    return
                 }
             }
+
+            setAuthReady(true)
         }
-        checkRole()
+
+        void checkRole()
     }, [router])
+
+    if (!authReady && !success) {
+        return (
+            <div className="flex min-h-screen items-center justify-center bg-background">
+                <Loader2 className="h-8 w-8 animate-spin text-[#F58220]" />
+            </div>
+        )
+    }
 
     async function handleSubmit(formData: FormData) {
         setLoading(true)
@@ -73,8 +91,9 @@ export default function AgentRegisterPage() {
             } else {
                 alert("Registration failed: " + result.error)
             }
-        } catch (e: any) {
-            alert("An unexpected error occurred: " + e.message)
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error"
+            alert("An unexpected error occurred: " + errorMessage)
         } finally {
             setLoading(false)
         }
@@ -89,7 +108,7 @@ export default function AgentRegisterPage() {
                     </div>
                     <h1 className="text-3xl font-extrabold text-foreground mb-4">Application Submitted!</h1>
                     <p className="text-muted-foreground mb-8 leading-relaxed">
-                        We've received your agent application. Our team will review your details and get back to you shortly.
+                        We&apos;ve received your agent application. Our team will review your details and get back to you shortly.
                     </p>
                     <div className="flex items-center justify-center gap-2 text-[#F58220] font-bold">
                         <Loader2 className="h-5 w-5 animate-spin" /> Redirecting to your dashboard...

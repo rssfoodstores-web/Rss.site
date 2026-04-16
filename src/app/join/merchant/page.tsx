@@ -6,6 +6,13 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 
+const BENEFIT_ACCENTS = {
+    blue: "bg-blue-50 text-blue-500",
+    green: "bg-green-50 text-green-500",
+    orange: "bg-orange-50 text-orange-500",
+    purple: "bg-purple-50 text-purple-500",
+} as const
+
 export default function MerchantExplanationPage() {
     const router = useRouter()
     const supabase = createClient()
@@ -61,7 +68,7 @@ export default function MerchantExplanationPage() {
                             <span className="text-[#F58220]">as an RSS Merchant.</span>
                         </h1>
                         <p className="text-xl text-gray-500 dark:text-gray-400 mb-10 leading-relaxed max-w-2xl">
-                            Join thousands of successful vendors selling fresh groceries and quality food on Nigeria's fastest-growing food marketplace.
+                            Join thousands of successful vendors selling fresh groceries and quality food on Nigeria&apos;s fastest-growing food marketplace.
                         </p>
                         <div className="flex flex-col sm:flex-row gap-4">
                             <Button onClick={handleRegister} className="bg-[#F58220] hover:bg-[#F58220]/90 text-white font-extrabold px-10 py-7 rounded-2xl text-xl shadow-xl shadow-orange-500/20 w-fit">
@@ -85,7 +92,7 @@ export default function MerchantExplanationPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
                     {benefits.map((benefit, idx) => (
                         <div key={idx} className="p-8 rounded-3xl border border-gray-100 dark:border-zinc-800 hover:shadow-xl transition-all group">
-                            <div className={`h-14 w-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform bg-${benefit.color}-50 text-${benefit.color}-500`}>
+                            <div className={`h-14 w-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform ${BENEFIT_ACCENTS[benefit.color as keyof typeof BENEFIT_ACCENTS]}`}>
                                 <benefit.icon className="h-7 w-7" />
                             </div>
                             <h3 className="text-xl font-bold mb-3">{benefit.title}</h3>
@@ -102,7 +109,7 @@ export default function MerchantExplanationPage() {
                 <div className="container mx-auto px-4">
                     <div className="max-w-5xl mx-auto bg-white dark:bg-zinc-900 rounded-[3rem] p-8 lg:p-16 shadow-2xl border border-gray-100 dark:border-zinc-800 flex flex-col lg:flex-row gap-12 items-center">
                         <div className="flex-1">
-                            <h2 className="text-4xl font-bold mb-8 leading-tight">Ready to get started? <br /> It's as easy as 1-2-3.</h2>
+                            <h2 className="text-4xl font-bold mb-8 leading-tight">Ready to get started? <br /> It&apos;s as easy as 1-2-3.</h2>
                             <div className="space-y-8">
                                 {[
                                     { step: "01", title: "Fill the Form", desc: "Provide your business details and upload required documents." },
@@ -136,7 +143,7 @@ export default function MerchantExplanationPage() {
 
             {/* Footer CTA */}
             <section className="py-20 text-center container mx-auto px-4">
-                <h2 className="text-3xl font-bold mb-8 italic text-gray-400">"Your success is our priority."</h2>
+                <h2 className="text-3xl font-bold mb-8 italic text-gray-400">&ldquo;Your success is our priority.&rdquo;</h2>
                 <div className="flex justify-center gap-4">
                     <Button onClick={handleRegister} className="bg-[#F58220] text-white font-bold h-12 px-8 rounded-xl shadow-lg shadow-orange-500/20">
                         Apply Now

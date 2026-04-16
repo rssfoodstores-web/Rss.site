@@ -3,11 +3,18 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Upload, CheckCircle2, Loader2, FileText, ChevronRight } from "lucide-react"
+import { Upload, CheckCircle2, Loader2 } from "lucide-react"
 import LivePhotoCapture from "./LivePhotoCapture"
 import { submitDeliveryApplication } from "@/app/actions/deliveryActions"
 import { useRouter } from "next/navigation"
-import { motion } from "framer-motion"
+
+function getErrorMessage(error: unknown) {
+    if (error instanceof Error) {
+        return error.message
+    }
+
+    return "Unknown error"
+}
 
 export default function DeliveryRegistrationForm() {
     const [loading, setLoading] = useState(false)
@@ -36,8 +43,8 @@ export default function DeliveryRegistrationForm() {
             } else {
                 alert("Application failed: " + result.error)
             }
-        } catch (e: any) {
-            alert("An unexpected error occurred: " + e.message)
+        } catch (error: unknown) {
+            alert("An unexpected error occurred: " + getErrorMessage(error))
         } finally {
             setLoading(false)
         }

@@ -5,7 +5,6 @@ import { Lock, Copy, CheckCircle2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import { useState } from "react"
-import { cn } from "@/lib/utils"
 
 interface CustomerDeliveryCodeWidgetProps {
     deliveryCode: string | null

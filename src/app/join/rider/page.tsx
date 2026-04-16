@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { FadeInUp, StaggerContainer, StaggerItem, FadeIn } from "@/components/ui/motion-container"
-import { Bike, Clock, Wallet, MapPin, ShieldCheck, Zap, Navigation, Store } from "lucide-react"
+import { Bike, Clock, Wallet, MapPin, ShieldCheck, Navigation, Store } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"

@@ -1087,7 +1087,12 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
 
                         {/* SEO Settings */}
                         <section className="space-y-6 rounded-[2rem] border border-gray-100/50 bg-white p-5 shadow-sm dark:bg-zinc-900 sm:p-8">
-                            <h2 className="text-lg font-bold text-gray-900 dark:text-white uppercase tracking-wider text-xs">SEO Settings</h2>
+                            <div className="space-y-2">
+                                <h2 className="text-lg font-bold text-gray-900 dark:text-white uppercase tracking-wider text-xs">SEO Settings</h2>
+                                <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">
+                                    Leave these blank if you want RSS Foods to generate search titles and descriptions automatically from your product name, description, category, and state.
+                                </p>
+                            </div>
                             <FormField
                                 control={form.control}
                                 name="seo_title"
@@ -1097,6 +1102,7 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
                                         <FormControl>
                                             <Input {...field} placeholder="SEO Title" className="h-10 bg-gray-50/50 border-gray-100 rounded-lg" />
                                         </FormControl>
+                                        <p className="text-xs text-gray-400">Aim for a clear search title around 50 to 60 characters.</p>
                                     </FormItem>
                                 )}
                             />
@@ -1109,6 +1115,7 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
                                         <FormControl>
                                             <Textarea {...field} placeholder="SEO Description" className="min-h-[100px] bg-gray-50/50 border-gray-100 rounded-lg resize-none" />
                                         </FormControl>
+                                        <p className="text-xs text-gray-400">Keep this short, natural, and descriptive so Google can show it cleanly in results.</p>
                                     </FormItem>
                                 )}
                             />

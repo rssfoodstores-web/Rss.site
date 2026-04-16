@@ -2,9 +2,8 @@
 
 import { Button } from "@/components/ui/button"
 import { FadeInUp, StaggerContainer, StaggerItem, FadeIn } from "@/components/ui/motion-container"
-import { Users, Store, TrendingUp, Truck, Smartphone, CreditCard, ChevronRight, CheckCircle, ArrowRight } from "lucide-react"
+import { Users, Store, TrendingUp, Truck, Smartphone, CreditCard, CheckCircle } from "lucide-react"
 import Link from "next/link"
-import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 
@@ -58,7 +57,7 @@ export default function JoinAgentPage() {
                                         </div>
                                         <div>
                                             <p className="font-semibold text-sm">Merchant Onboarded</p>
-                                            <p className="text-xs text-muted-foreground">Mama Nkechi's Store</p>
+                                            <p className="text-xs text-muted-foreground">Mama Nkechi&apos;s Store</p>
                                         </div>
                                         <span className="ml-auto text-green-600 font-bold text-sm">+500 pts</span>
                                     </StaggerItem>
@@ -128,7 +127,7 @@ export default function JoinAgentPage() {
                             </div>
                             <h3 className="text-xl font-bold mb-3">Grow & Earn</h3>
                             <p className="text-muted-foreground leading-relaxed">
-                                The more active merchants you manage and the more orders you facilitate, the more you earn. Track your "Active Merchants" KPI to maximize income.
+                                The more active merchants you manage and the more orders you facilitate, the more you earn. Track your &ldquo;Active Merchants&rdquo; KPI to maximize income.
                             </p>
                         </StaggerItem>
                     </StaggerContainer>
