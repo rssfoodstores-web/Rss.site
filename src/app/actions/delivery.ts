@@ -12,6 +12,18 @@ export async function calculateDeliveryFee(
 ): Promise<{ fee: number; distance: number }> {
     const settings = await getDeliverySettings()
 
+    if (
+        !Number.isFinite(lat)
+        || !Number.isFinite(lng)
+        || !Number.isFinite(settings.originLat)
+        || !Number.isFinite(settings.originLng)
+    ) {
+        return {
+            fee: Math.max(0, settings.baseFareKobo),
+            distance: 0,
+        }
+    }
+
     const distanceKm = haversineDistance(
         settings.originLat,
         settings.originLng,

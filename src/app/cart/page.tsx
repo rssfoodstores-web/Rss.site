@@ -680,134 +680,139 @@ export default function CartPage() {
                                 >
                                     PAY NOW
                                 </Button>
-
-                                <Dialog open={isCheckoutOpen} onOpenChange={setIsCheckoutOpen}>
-                                    <DialogContent className="sm:max-w-[480px] rounded-[2.5rem] overflow-hidden border-none p-0 bg-white dark:bg-zinc-950 shadow-2xl">
-                                        <div className="bg-[#F58220] p-8 text-white relative">
-                                            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl" />
-                                            <div className="w-20 h-20 bg-white/20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 border border-white/30 backdrop-blur-md shadow-lg rotate-12">
-                                                <CreditCard className="h-10 w-10 text-white -rotate-12" />
-                                            </div>
-                                            <DialogHeader>
-                                                <DialogTitle className="text-3xl font-black text-center text-white tracking-tighter mb-2">Checkout Details</DialogTitle>
-                                                <DialogDescription className="text-white/90 text-center font-bold text-base opacity-80">
-                                                    Secure your order with premium payment
-                                                </DialogDescription>
-                                            </DialogHeader>
-                                        </div>
-
-                                        <div className="p-8 space-y-8">
-                                            <div className="flex justify-between items-center p-6 bg-gray-50 dark:bg-zinc-900 rounded-[2rem] border border-gray-100 dark:border-zinc-800">
-                                                <span className="text-gray-500 dark:text-gray-400 font-bold uppercase tracking-widest text-sm">Grand Total</span>
-                                                <span className="text-3xl font-black text-[#F58220] tracking-tighter">{formatKobo(total)}</span>
-                                            </div>
-
-                                            {/* Rewards Section */}
-                                            <div className="rounded-[2rem] border-2 border-emerald-100 bg-emerald-50/50 p-4 xs:p-6 dark:border-emerald-900/30 dark:bg-emerald-950/20 relative overflow-hidden group">
-                                                <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl transition-transform group-hover:scale-150" />
-                                                <div className="flex items-start justify-between gap-4 relative z-10">
-                                                    <div>
-                                                        <h3 className="font-black text-emerald-800 dark:text-emerald-400 text-lg tracking-tight">Reward Points</h3>
-                                                        <p className="mt-1 text-sm text-emerald-700/70 dark:text-emerald-300/60 font-medium">
-                                                            {rewardSummary
-                                                                ? `${rewardSummary.availablePoints.toLocaleString()} available`
-                                                                : "Checking points..."}
-                                                        </p>
-                                                    </div>
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="rounded-xl bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300 font-black"
-                                                        disabled={!rewardSummary?.enabled || rewardSummary.maxRedeemablePoints <= 0}
-                                                        onClick={() => setRewardPointsInput(rewardSummary ? rewardSummary.maxRedeemablePoints.toString() : "")}
-                                                    >
-                                                        USE MAX
-                                                    </Button>
-                                                </div>
-
-                                                {rewardSummary?.enabled ? (
-                                                    <div className="mt-6 flex gap-3 relative z-10">
-                                                        <Input
-                                                            type="number"
-                                                            min={0}
-                                                            max={rewardSummary.maxRedeemablePoints}
-                                                            placeholder="Points to redeem"
-                                                            value={rewardPointsInput}
-                                                            onChange={(event) => setRewardPointsInput(event.target.value)}
-                                                            className="h-14 rounded-2xl bg-white dark:bg-zinc-900 border-emerald-100 dark:border-emerald-900 font-bold focus:ring-emerald-500"
-                                                        />
-                                                    </div>
-                                                ) : null}
-                                            </div>
-
-                                            <div className="grid gap-4">
-                                                {/* Payment Option Components... */}
-                                                <PaymentOption 
-                                                    title="Rss Wallet"
-                                                    subtitle={isLoadingBalance ? "Checking..." : `Balance: ${formatKobo(walletBalance ?? 0)}`}
-                                                    icon={<Wallet className="h-6 w-6" />}
-                                                    isSelected={paymentMethod === 'wallet'}
-                                                    isDisabled={walletBalance === null || walletBalance < total}
-                                                    onClick={() => setPaymentMethod('wallet')}
-                                                    color="orange"
-                                                />
-                                                <PaymentOption 
-                                                    title="Gift Card"
-                                                    subtitle={
-                                                        isLoadingBalance
-                                                            ? "Checking..."
-                                                            : `Balance: ${formatKobo(giftCardBalance ?? 0)} | ${giftCardCount} active`
-                                                    }
-                                                    icon={<Gift className="h-6 w-6" />}
-                                                    isSelected={paymentMethod === 'giftCard'}
-                                                    isDisabled={giftCardBalance === null || giftCardBalance < total}
-                                                    onClick={() => setPaymentMethod('giftCard')}
-                                                    color="violet"
-                                                />
-                                                <PaymentOption 
-                                                    title="Secure Pay"
-                                                    subtitle="Cards, Bank, Transfer, USSD"
-                                                    icon={<CreditCard className="h-6 w-6" />}
-                                                    isSelected={paymentMethod === 'direct'}
-                                                    isDisabled={total <= 0}
-                                                    onClick={() => setPaymentMethod('direct')}
-                                                    color="orange"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="p-6 md:p-8 bg-gray-50 dark:bg-zinc-900/50 flex flex-col items-center">
-                                            <Button
-                                                disabled={!paymentMethod || isProcessing}
-                                                onClick={
-                                                    paymentMethod === 'wallet'
-                                                        ? handleWalletPayment
-                                                        : paymentMethod === 'giftCard'
-                                                            ? handleGiftCardPayment
-                                                            : handleDirectPayment
-                                                }
-                                                className="w-full rounded-[2rem] bg-[#F58220] hover:bg-[#F58220]/90 text-white font-black h-16 text-xl shadow-2xl shadow-orange-500/20 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100"
-                                            >
-                                                {isProcessing ? (
-                                                    <Loader2 className="h-8 w-8 animate-spin" />
-                                                ) : (
-                                                    `COMPLETE ORDER`
-                                                )}
-                                            </Button>
-                                            <div className="mt-6 flex items-center gap-2 opacity-40">
-                                                <div className="h-px w-8 bg-current" />
-                                                <span className="text-[10px] font-black uppercase tracking-[0.2em]">Verified Secure</span>
-                                                <div className="h-px w-8 bg-current" />
-                                            </div>
-                                        </div>
-                                    </DialogContent>
-                                </Dialog>
                                 <p className="text-xs text-center text-gray-400 font-bold opacity-60">100% Secure Checkout · SSL Encrypted</p>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                {/* Checkout Dialog - rendered outside the layout grid to avoid sticky/overflow issues */}
+                <Dialog open={isCheckoutOpen} onOpenChange={setIsCheckoutOpen}>
+                    <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] max-w-[480px] flex-col overflow-hidden rounded-2xl border-none bg-white p-0 shadow-2xl dark:bg-zinc-950 sm:w-full sm:rounded-[2rem]">
+                        {/* Compact Header */}
+                        <div className="relative bg-[#F58220] px-4 py-3 text-white sm:px-6 sm:py-4 flex-shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/30 bg-white/20 backdrop-blur-md sm:h-12 sm:w-12 sm:rounded-2xl">
+                                    <CreditCard className="h-5 w-5 text-white sm:h-6 sm:w-6" />
+                                </div>
+                                <DialogHeader className="flex-1 space-y-0">
+                                    <DialogTitle className="text-left text-lg font-black tracking-tight text-white sm:text-xl">Checkout</DialogTitle>
+                                    <DialogDescription className="text-left text-xs font-medium text-white/80 sm:text-sm">
+                                        Select a payment method
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <span className="text-lg font-black tracking-tighter sm:text-xl">{formatKobo(total)}</span>
+                            </div>
+                        </div>
+
+                        {/* Scrollable Content */}
+                        <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-6 sm:py-4">
+                            <div className="space-y-3 sm:space-y-4">
+                                {/* Rewards Section - Collapsible-style */}
+                                <div className="group relative overflow-hidden rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 dark:border-emerald-900/30 dark:bg-emerald-950/20 sm:p-4">
+                                    <div className="relative z-10 flex items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <h3 className="font-bold text-emerald-800 dark:text-emerald-400 text-sm tracking-tight">Reward Points</h3>
+                                            <p className="text-xs text-emerald-700/70 dark:text-emerald-300/60 font-medium">
+                                                {rewardSummary
+                                                    ? `${rewardSummary.availablePoints.toLocaleString()} available`
+                                                    : "Checking..."}
+                                            </p>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 rounded-lg bg-emerald-500/10 px-2 text-xs font-black text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300"
+                                            disabled={!rewardSummary?.enabled || rewardSummary.maxRedeemablePoints <= 0}
+                                            onClick={() => setRewardPointsInput(rewardSummary ? rewardSummary.maxRedeemablePoints.toString() : "")}
+                                        >
+                                            USE MAX
+                                        </Button>
+                                    </div>
+
+                                    {rewardSummary?.enabled ? (
+                                        <div className="relative z-10 mt-2">
+                                            <Input
+                                                type="number"
+                                                min={0}
+                                                max={rewardSummary.maxRedeemablePoints}
+                                                placeholder="Points to redeem"
+                                                value={rewardPointsInput}
+                                                onChange={(event) => setRewardPointsInput(event.target.value)}
+                                                className="h-9 rounded-lg bg-white dark:bg-zinc-900 border-emerald-100 dark:border-emerald-900 text-sm font-bold focus:ring-emerald-500"
+                                            />
+                                        </div>
+                                    ) : null}
+                                </div>
+
+                                {/* Payment Methods Label */}
+                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-1">Choose payment</p>
+
+                                {/* Payment Options - Compact */}
+                                <div className="grid gap-2">
+                                    <PaymentOption 
+                                        title="Rss Wallet"
+                                        subtitle={isLoadingBalance ? "Checking..." : `Balance: ${formatKobo(walletBalance ?? 0)}`}
+                                        icon={<Wallet className="h-5 w-5" />}
+                                        isSelected={paymentMethod === 'wallet'}
+                                        isDisabled={walletBalance === null || walletBalance < total}
+                                        onClick={() => setPaymentMethod('wallet')}
+                                        color="orange"
+                                    />
+                                    <PaymentOption 
+                                        title="Gift Card"
+                                        subtitle={
+                                            isLoadingBalance
+                                                ? "Checking..."
+                                                : `Balance: ${formatKobo(giftCardBalance ?? 0)} | ${giftCardCount} active`
+                                        }
+                                        icon={<Gift className="h-5 w-5" />}
+                                        isSelected={paymentMethod === 'giftCard'}
+                                        isDisabled={giftCardBalance === null || giftCardBalance < total}
+                                        onClick={() => setPaymentMethod('giftCard')}
+                                        color="violet"
+                                    />
+                                    <PaymentOption 
+                                        title="Secure Pay"
+                                        subtitle="Cards, Bank, Transfer, USSD"
+                                        icon={<CreditCard className="h-5 w-5" />}
+                                        isSelected={paymentMethod === 'direct'}
+                                        isDisabled={total <= 0}
+                                        onClick={() => setPaymentMethod('direct')}
+                                        color="orange"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Sticky Footer */}
+                        <div className="border-t border-gray-100 bg-gray-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/50 sm:px-6 sm:py-4 flex-shrink-0">
+                            <Button
+                                disabled={!paymentMethod || isProcessing}
+                                onClick={
+                                    paymentMethod === 'wallet'
+                                        ? handleWalletPayment
+                                        : paymentMethod === 'giftCard'
+                                            ? handleGiftCardPayment
+                                            : handleDirectPayment
+                                }
+                                className="w-full rounded-xl bg-[#F58220] hover:bg-[#F58220]/90 text-white font-black h-12 text-base shadow-xl shadow-orange-500/20 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100"
+                            >
+                                {isProcessing ? (
+                                    <Loader2 className="h-6 w-6 animate-spin" />
+                                ) : (
+                                    `COMPLETE ORDER`
+                                )}
+                            </Button>
+                            <div className="mt-2 flex items-center justify-center gap-2 opacity-40">
+                                <div className="h-px w-6 bg-current" />
+                                <span className="text-[9px] font-black uppercase tracking-[0.2em]">Verified Secure</span>
+                                <div className="h-px w-6 bg-current" />
+                            </div>
+                        </div>
+                    </DialogContent>
+                </Dialog>
             </div>
         </>
     )
@@ -820,25 +825,25 @@ function PaymentOption({ title, subtitle, icon, isSelected, isDisabled, onClick,
     }
 
     const iconBg = {
-        orange: isSelected ? "bg-[#F58220] text-white shadow-lg shadow-orange-500/30" : "bg-gray-100 dark:bg-zinc-800 text-gray-400",
-        violet: isSelected ? "bg-violet-600 text-white shadow-lg shadow-violet-500/30" : "bg-gray-100 dark:bg-zinc-800 text-gray-400",
+        orange: isSelected ? "bg-[#F58220] text-white shadow-md shadow-orange-500/30" : "bg-gray-100 dark:bg-zinc-800 text-gray-400",
+        violet: isSelected ? "bg-violet-600 text-white shadow-md shadow-violet-500/30" : "bg-gray-100 dark:bg-zinc-800 text-gray-400",
     }
 
     return (
         <div
             onClick={() => !isDisabled && onClick()}
-            className={`flex items-center gap-3 md:gap-4 p-4 md:p-5 rounded-[2rem] border-2 transition-all cursor-pointer group relative overflow-hidden ${colorClasses[color]} ${isDisabled ? "opacity-40 grayscale-[0.5] cursor-not-allowed" : "active:scale-[0.98]"}`}
+            className={`flex items-center gap-3 p-2.5 sm:p-3 rounded-xl border-2 transition-all cursor-pointer group relative overflow-hidden ${colorClasses[color]} ${isDisabled ? "opacity-40 grayscale-[0.5] cursor-not-allowed" : "active:scale-[0.98]"}`}
         >
-            <div className={`p-3 md:p-4 rounded-2xl transition-all duration-300 ${iconBg[color]}`}>
+            <div className={`p-2 sm:p-2.5 rounded-lg sm:rounded-xl transition-all duration-300 ${iconBg[color]}`}>
                 {icon}
             </div>
-            <div className="flex-1">
-                <h3 className="font-black text-lg tracking-tight">{title}</h3>
-                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{subtitle}</p>
+            <div className="flex-1 min-w-0">
+                <h3 className="font-black text-sm sm:text-base tracking-tight">{title}</h3>
+                <p className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wider truncate">{subtitle}</p>
             </div>
             {isSelected && (
-                <div className={`h-8 w-8 rounded-full flex items-center justify-center border-4 border-white dark:border-zinc-950 shadow-md ${color === "orange" ? "bg-[#F58220]" : "bg-violet-600"}`}>
-                    <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                <div className={`h-6 w-6 rounded-full flex items-center justify-center border-2 border-white dark:border-zinc-950 shadow-md flex-shrink-0 ${color === "orange" ? "bg-[#F58220]" : "bg-violet-600"}`}>
+                    <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
                 </div>
             )}
         </div>

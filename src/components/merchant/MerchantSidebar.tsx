@@ -10,7 +10,6 @@ import {
     ShoppingCart,
     ClipboardList,
     Coins,
-    Settings,
     LogOut,
     ChevronLeft,
     MapPin
@@ -27,7 +26,6 @@ const navItems = [
     { label: "Transactions", href: "/merchant/transactions", icon: ClipboardList },
     { label: "Refer & Earn", href: "/account/referrals", icon: Coins },
     { label: "Location", href: "/merchant/verify-location", icon: MapPin },
-    { label: "Settings", href: "/merchant/settings", icon: Settings },
 ]
 
 export function MerchantSidebar({

@@ -18,7 +18,6 @@ import {
     Menu,
     MessageSquare,
     RefreshCcw,
-    Settings,
     ShoppingBag,
     ShoppingCart,
     Trophy,
@@ -84,7 +83,6 @@ const workspaceItems: Record<WorkspaceRole, NavItem[]> = {
         { label: "Orders", href: "/merchant/orders", icon: ShoppingCart },
         { label: "Transactions", href: "/merchant/transactions", icon: Wallet },
         { label: "Location", href: "/merchant/verify-location", icon: MapPin },
-        { label: "Settings", href: "/merchant/settings", icon: Settings },
     ],
     agent: [
         { label: "Agent Overview", href: "/agent", icon: LayoutDashboard },

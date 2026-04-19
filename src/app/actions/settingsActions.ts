@@ -22,6 +22,16 @@ const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
     corporateDeliveryShareBps: 2_000,
 }
 
+function safeNumber(value: unknown, fallback: number) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function safeString(value: unknown, fallback: string) {
+    const parsed = typeof value === "string" ? value.trim() : ""
+    return parsed || fallback
+}
+
 export async function getDeliverySettings(): Promise<DeliverySettings> {
     const supabase = await createClient()
 
@@ -29,7 +39,7 @@ export async function getDeliverySettings(): Promise<DeliverySettings> {
         .from("app_settings")
         .select("value")
         .eq("key", "delivery_settings")
-        .single()
+        .maybeSingle()
 
     if (error || !data?.value || typeof data.value !== "object") {
         if (error) {
@@ -42,16 +52,27 @@ export async function getDeliverySettings(): Promise<DeliverySettings> {
     const rawSettings = data.value as Record<string, unknown>
 
     return {
-        baseFareKobo: Number(rawSettings.base_fare_kobo ?? DEFAULT_DELIVERY_SETTINGS.baseFareKobo),
-        distanceRateKoboPerKm: Number(
-            rawSettings.distance_rate_kobo_per_km ?? DEFAULT_DELIVERY_SETTINGS.distanceRateKoboPerKm
-        ),
-        originState: String(rawSettings.origin_state ?? DEFAULT_DELIVERY_SETTINGS.originState),
-        originLat: Number(rawSettings.origin_lat ?? DEFAULT_DELIVERY_SETTINGS.originLat),
-        originLng: Number(rawSettings.origin_lng ?? DEFAULT_DELIVERY_SETTINGS.originLng),
-        riderShareBps: Number(rawSettings.rider_share_bps ?? DEFAULT_DELIVERY_SETTINGS.riderShareBps),
-        corporateDeliveryShareBps: Number(
-            rawSettings.corporate_delivery_share_bps ?? DEFAULT_DELIVERY_SETTINGS.corporateDeliveryShareBps
+        baseFareKobo: Math.max(0, safeNumber(rawSettings.base_fare_kobo, DEFAULT_DELIVERY_SETTINGS.baseFareKobo)),
+        distanceRateKoboPerKm: Math.max(0, safeNumber(
+            rawSettings.distance_rate_kobo_per_km,
+            DEFAULT_DELIVERY_SETTINGS.distanceRateKoboPerKm
+        )),
+        originState: safeString(rawSettings.origin_state, DEFAULT_DELIVERY_SETTINGS.originState),
+        originLat: safeNumber(rawSettings.origin_lat, DEFAULT_DELIVERY_SETTINGS.originLat),
+        originLng: safeNumber(rawSettings.origin_lng, DEFAULT_DELIVERY_SETTINGS.originLng),
+        riderShareBps: Math.max(0, Math.min(10_000, safeNumber(
+            rawSettings.rider_share_bps,
+            DEFAULT_DELIVERY_SETTINGS.riderShareBps
+        ))),
+        corporateDeliveryShareBps: Math.max(
+            0,
+            Math.min(
+                10_000,
+                safeNumber(
+                    rawSettings.corporate_delivery_share_bps,
+                    DEFAULT_DELIVERY_SETTINGS.corporateDeliveryShareBps
+                )
+            )
         ),
     }
 }
