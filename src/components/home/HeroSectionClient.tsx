@@ -19,6 +19,7 @@ export interface HeroSlide {
     bodyText: string | null
     buttonText: string | null
     buttonUrl: string | null
+    displayDurationSeconds: number
     eyebrowText: string | null
     highlightText: string | null
     id: string
@@ -81,20 +82,28 @@ export function HeroSectionClient({ slides }: { slides: HeroSlide[] }) {
     const searchParams = useSearchParams()
     const currentCategory = getActiveStorefrontCategory(pathname, searchParams)
     const [currentSlide, setCurrentSlide] = React.useState(0)
+    const activeSlide = slides[currentSlide] ?? slides[0]
+
+    React.useEffect(() => {
+        if (currentSlide < slides.length) {
+            return
+        }
+
+        setCurrentSlide(0)
+    }, [currentSlide, slides.length])
 
     React.useEffect(() => {
         if (slides.length <= 1) {
             return
         }
 
-        const timer = window.setInterval(() => {
+        const timer = window.setTimeout(() => {
             setCurrentSlide((previous) => (previous + 1) % slides.length)
-        }, 7000)
+        }, Math.max(activeSlide?.displayDurationSeconds ?? 7, 2) * 1000)
 
-        return () => window.clearInterval(timer)
-    }, [slides.length])
+        return () => window.clearTimeout(timer)
+    }, [activeSlide?.displayDurationSeconds, currentSlide, slides.length])
 
-    const activeSlide = slides[currentSlide] ?? slides[0]
     const cta = getCallToAction(activeSlide)
 
     return (

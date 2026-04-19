@@ -8,6 +8,7 @@ export const DEFAULT_STOREFRONT_HERO_SLIDE: HeroSlide = {
     bodyText: "Premium groceries, fresh produce, and household staples delivered with speed across Nigeria.",
     buttonText: "Shop now",
     buttonUrl: "/retail",
+    displayDurationSeconds: 7,
     eyebrowText: "Sale up to 48% off",
     highlightText: "Organic Food",
     id: "fallback-hero-slide",
@@ -34,6 +35,9 @@ export function resolveStorefrontHeroDefaultSlide(value: unknown): HeroSlide {
         bodyText: readString(record, "body_text", DEFAULT_STOREFRONT_HERO_SLIDE.bodyText),
         buttonText: readString(record, "button_text", DEFAULT_STOREFRONT_HERO_SLIDE.buttonText),
         buttonUrl: readString(record, "button_url", DEFAULT_STOREFRONT_HERO_SLIDE.buttonUrl),
+        displayDurationSeconds: typeof record.display_duration_seconds === "number"
+            ? Math.min(Math.max(Math.trunc(record.display_duration_seconds), 2), 60)
+            : DEFAULT_STOREFRONT_HERO_SLIDE.displayDurationSeconds,
         eyebrowText: readString(record, "eyebrow_text", DEFAULT_STOREFRONT_HERO_SLIDE.eyebrowText),
         highlightText: readString(record, "highlight_text", DEFAULT_STOREFRONT_HERO_SLIDE.highlightText),
         id: "fallback-hero-slide",

@@ -31,11 +31,16 @@ export function SocialMediaFooter() {
     useEffect(() => {
         // 1. Initial Fetch
         const fetchLinks = async () => {
-            const { data } = await supabase
+            const { data, error } = await supabase
                 .from('social_media_links')
-                .select('*')
+                .select('id, platform, url, is_active')
                 .eq('is_active', true)
                 .order('id', { ascending: true }) // Order by ID or maybe add a specific order column later if needed
+
+            if (error) {
+                console.error("Unable to load social media links:", error)
+                return
+            }
 
             if (data) setLinks(data)
         }

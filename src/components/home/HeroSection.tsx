@@ -11,7 +11,7 @@ export async function HeroSection() {
     const [{ data: slidesData }, { data: defaultSlideSetting }] = await Promise.all([
         supabase
             .from("hero_carousel_slides")
-            .select("id, marketing_mode, eyebrow_text, title, highlight_text, body_text, button_text, button_url, media_type, media_url")
+            .select("id, marketing_mode, eyebrow_text, title, highlight_text, body_text, button_text, button_url, display_duration_seconds, media_type, media_url")
             .eq("placement", "storefront")
             .eq("is_active", true)
             .order("sort_order", { ascending: true })
@@ -28,6 +28,7 @@ export async function HeroSection() {
             bodyText: slide.body_text ?? null,
             buttonText: slide.button_text ?? null,
             buttonUrl: slide.button_url ?? null,
+            displayDurationSeconds: slide.display_duration_seconds ?? 7,
             eyebrowText: slide.eyebrow_text ?? null,
             highlightText: slide.highlight_text ?? null,
             id: slide.id,
