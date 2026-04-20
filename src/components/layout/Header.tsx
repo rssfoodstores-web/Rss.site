@@ -38,6 +38,7 @@ export function Header() {
     const { items: wishlistItems } = useWishlist()
     const contactContent = usePublicContactPageContent()
     const [isSigningOut, setIsSigningOut] = useState(false)
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
     const supabase = createClient()
 
     const { isMerchant, isRider } = roles
@@ -310,7 +311,7 @@ export function Header() {
                                 {/* Simplified Mobile Search */}
                             </div>
 
-                            <Sheet>
+                            <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
                                 <SheetTrigger asChild>
                                     <Button variant="ghost" size="icon" suppressHydrationWarning>
                                         <Menu className="h-6 w-6" />
@@ -324,17 +325,17 @@ export function Header() {
                                         </div>
 
                                         <nav className="flex flex-col gap-4">
-                                            <Link href="/" className={`text-lg font-medium transition-colors ${pathname === "/" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>Home</Link>
+                                            <Link href="/" onClick={() => setIsMobileMenuOpen(false)} className={`text-lg font-medium transition-colors ${pathname === "/" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>Home</Link>
                                             {isMerchant && (
-                                                <Link href="/merchant" className={`text-lg font-bold transition-colors flex items-center gap-2 ${pathname === "/merchant" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>
+                                                <Link href="/merchant" onClick={() => setIsMobileMenuOpen(false)} className={`text-lg font-bold transition-colors flex items-center gap-2 ${pathname === "/merchant" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>
                                                     <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                                                     Merchant Dashboard
                                                 </Link>
                                             )}
-                                            <Link href="/retail" className={`text-lg font-medium transition-colors ${pathname === "/retail" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>RSS Retail</Link>
-                                            <Link href="/wholesale" className={`text-lg font-medium transition-colors ${pathname === "/wholesale" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>RSS Wholesale</Link>
-                                            <Link href="/about" className={`text-lg font-medium transition-colors ${pathname === "/about" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>About RSS</Link>
-                                            <Link href="/contact" className={`text-lg font-medium transition-colors ${pathname === "/contact" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>Contact</Link>
+                                            <Link href="/retail" onClick={() => setIsMobileMenuOpen(false)} className={`text-lg font-medium transition-colors ${pathname === "/retail" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>RSS Retail</Link>
+                                            <Link href="/wholesale" onClick={() => setIsMobileMenuOpen(false)} className={`text-lg font-medium transition-colors ${pathname === "/wholesale" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>RSS Wholesale</Link>
+                                            <Link href="/about" onClick={() => setIsMobileMenuOpen(false)} className={`text-lg font-medium transition-colors ${pathname === "/about" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>About RSS</Link>
+                                            <Link href="/contact" onClick={() => setIsMobileMenuOpen(false)} className={`text-lg font-medium transition-colors ${pathname === "/contact" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>Contact</Link>
                                         </nav>
                                     </div>
                                 </SheetContent>
