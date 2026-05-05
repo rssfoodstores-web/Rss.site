@@ -184,19 +184,20 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
         setUploadingState: React.Dispatch<React.SetStateAction<boolean>>,
         successMessage: string
     ) => {
-        const file = e.target.files?.[0]
-        if (!file) return
+        const files = Array.from(e.target.files ?? [])
+        if (!files.length) return
 
-        if (file.size > 10 * 1024 * 1024) {
-            toast.error("File is too large. Maximum size is 10MB.")
+        const oversizedFile = files.find((file) => file.size > 10 * 1024 * 1024)
+        if (oversizedFile) {
+            toast.error(`${oversizedFile.name} is too large. Maximum size is 10MB.`)
             return
         }
 
         setUploadingState(true)
         try {
-            const url = await uploadProductImage(file)
-            setImageState(prev => [...prev, url])
-            toast.success(successMessage)
+            const uploadedUrls = await Promise.all(files.map((file) => uploadProductImage(file)))
+            setImageState(prev => [...prev, ...uploadedUrls])
+            toast.success(files.length === 1 ? successMessage : `${files.length} images uploaded`)
         } catch (error) {
             console.error("Upload error:", error)
             const message = error instanceof Error ? error.message : "Upload failed"
@@ -477,13 +478,23 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
                                     bullets={[
                                         "Upload the actual product, not a random sample image.",
                                         "Make sure the image matches the product name and description.",
-                                        "At least one image is required before submission.",
+                                        "Upload multiple angles when available. The first image becomes the main product image.",
                                     ]}
                                 />
                             </div>
+                            {images.length > 0 ? (
+                                <p className="text-sm text-gray-500">
+                                    The first image is used as the main image. Customers can switch through all uploaded images on the product page.
+                                </p>
+                            ) : null}
                             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 md:gap-4">
                                 {images.map((img, idx) => (
                                     <div key={idx} className="aspect-square rounded-2xl overflow-hidden relative group border border-gray-100">
+                                        {idx === 0 ? (
+                                            <div className="absolute left-2 top-2 z-10 rounded-full bg-[#F58220] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white shadow-sm">
+                                                Main
+                                            </div>
+                                        ) : null}
                                         <Image
                                             src={img}
                                             alt={`Product image ${idx + 1}`}
@@ -495,6 +506,7 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
                                             type="button"
                                             onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
                                             className="absolute top-2 right-2 h-8 w-8 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                                            aria-label={`Remove product image ${idx + 1}`}
                                         >
                                             <X className="h-4 w-4" />
                                         </button>
@@ -515,12 +527,13 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
                                             )}
                                         </div>
                                         <p className="text-sm text-gray-500 mb-2">
-                                            {isUploading ? "Uploading image..." : "Or drag and drop files"}
+                                            {isUploading ? "Uploading images..." : "Select one or more product images"}
                                         </p>
                                         <Button type="button" variant="outline" className="h-10 px-8 rounded-lg border-gray-100 relative overflow-hidden" disabled={isUploading}>
-                                            {isUploading ? "Please wait..." : "Add File"}
+                                            {isUploading ? "Please wait..." : "Add Images"}
                                             <input
                                                 type="file"
+                                                multiple
                                                 className="absolute inset-0 opacity-0 cursor-pointer"
                                                 onChange={(event) => handleImageUpload(event, setImages, setIsUploading, "Image uploaded")}
                                                 disabled={isUploading}
