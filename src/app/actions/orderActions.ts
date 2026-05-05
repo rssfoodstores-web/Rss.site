@@ -10,6 +10,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js"
 import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
 import { koboToNaira } from "@/lib/money"
+import { calculateOrderDeliveryFee } from "@/app/actions/delivery"
 
 interface OrderItemInput {
     product_id: string
@@ -200,10 +201,33 @@ async function cancelPendingOrderReservation(
     }
 }
 
+async function getVerifiedCheckoutPayload({
+    items,
+    deliveryLocation,
+}: {
+    items: OrderItemInput[]
+    deliveryLocation: BaseOrderParams["deliveryLocation"]
+}) {
+    const sanitizedItems = sanitizeItems(items)
+    const deliveryFee = await calculateOrderDeliveryFee(sanitizedItems, deliveryLocation)
+
+    if (deliveryFee.error) {
+        return {
+            error: deliveryFee.error,
+            sanitizedItems,
+            deliveryFeeKobo: 0,
+        }
+    }
+
+    return {
+        sanitizedItems,
+        deliveryFeeKobo: Math.max(0, deliveryFee.fee),
+    }
+}
+
 export async function processWalletPayment({
     items,
     deliveryLocation,
-    deliveryFeeKobo,
     contactNumbers,
     rewardPointsToRedeem,
 }: BaseOrderParams): Promise<OrderActionResult> {
@@ -215,11 +239,16 @@ export async function processWalletPayment({
         return { error: "Authentication required." }
     }
 
+    const verifiedPayload = await getVerifiedCheckoutPayload({ items, deliveryLocation })
+    if (verifiedPayload.error) {
+        return { error: verifiedPayload.error }
+    }
+
     const { data, error } = await supabase.rpc("create_paid_order", {
         p_user_id: authenticatedUserId,
-        p_items: sanitizeItems(items),
+        p_items: verifiedPayload.sanitizedItems,
         p_delivery_location: deliveryLocation,
-        p_delivery_fee_kobo: Math.max(0, deliveryFeeKobo),
+        p_delivery_fee_kobo: verifiedPayload.deliveryFeeKobo,
         p_contact_numbers: sanitizeContactNumbers(contactNumbers),
         p_payment_reference: null,
         p_points_to_redeem: sanitizeRewardPoints(rewardPointsToRedeem),
@@ -250,7 +279,6 @@ export async function processWalletPayment({
 export async function processGiftCardPayment({
     items,
     deliveryLocation,
-    deliveryFeeKobo,
     contactNumbers,
     rewardPointsToRedeem,
 }: BaseOrderParams): Promise<OrderActionResult> {
@@ -262,11 +290,16 @@ export async function processGiftCardPayment({
         return { error: "Authentication required." }
     }
 
+    const verifiedPayload = await getVerifiedCheckoutPayload({ items, deliveryLocation })
+    if (verifiedPayload.error) {
+        return { error: verifiedPayload.error }
+    }
+
     const { data, error } = await supabase.rpc("create_paid_order_with_gift_card", {
         p_user_id: authenticatedUserId,
-        p_items: sanitizeItems(items),
+        p_items: verifiedPayload.sanitizedItems,
         p_delivery_location: deliveryLocation,
-        p_delivery_fee_kobo: Math.max(0, deliveryFeeKobo),
+        p_delivery_fee_kobo: verifiedPayload.deliveryFeeKobo,
         p_contact_numbers: sanitizeContactNumbers(contactNumbers),
         p_payment_reference: null,
         p_points_to_redeem: sanitizeRewardPoints(rewardPointsToRedeem),
@@ -298,7 +331,6 @@ export async function processGiftCardPayment({
 export async function initiateDirectPayment({
     items,
     deliveryLocation,
-    deliveryFeeKobo,
     contactNumbers,
     rewardPointsToRedeem,
 }: BaseOrderParams): Promise<OrderActionResult> {
@@ -311,12 +343,16 @@ export async function initiateDirectPayment({
     }
 
     const paymentReference = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+    const verifiedPayload = await getVerifiedCheckoutPayload({ items, deliveryLocation })
+    if (verifiedPayload.error) {
+        return { error: verifiedPayload.error }
+    }
 
     const pendingOrder = await supabase.rpc("create_pending_order", {
         p_user_id: authenticatedUserId,
-        p_items: sanitizeItems(items),
+        p_items: verifiedPayload.sanitizedItems,
         p_delivery_location: deliveryLocation,
-        p_delivery_fee_kobo: Math.max(0, deliveryFeeKobo),
+        p_delivery_fee_kobo: verifiedPayload.deliveryFeeKobo,
         p_contact_numbers: sanitizeContactNumbers(contactNumbers),
         p_payment_reference: paymentReference,
         p_points_to_redeem: sanitizeRewardPoints(rewardPointsToRedeem),

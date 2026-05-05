@@ -75,7 +75,7 @@ function normalizeContactNumbers(numbers: string[] | undefined) {
 }
 
 export default function CartPage() {
-    const { items: cartItems, removeFromCart, updateQuantity, cartTotal, clearCart } = useCart()
+    const { items: cartItems, cartMerchantId, removeFromCart, updateQuantity, cartTotal, clearCart } = useCart()
     const { user } = useUser()
     const router = useRouter()
     const [mapLoaded, setMapLoaded] = useState(false)
@@ -90,6 +90,7 @@ export default function CartPage() {
     const [isCalculatingFee, setIsCalculatingFee] = useState(false)
     const [deliverySettings, setDeliverySettings] = useState<DeliverySettings | null>(null)
     const [distanceKm, setDistanceKm] = useState<number>(0)
+    const [deliveryFeeError, setDeliveryFeeError] = useState<string | null>(null)
     const [contactNumbers, setContactNumbers] = useState<string[]>(EMPTY_CONTACT_NUMBERS)
 
     // Checkout State
@@ -183,25 +184,37 @@ export default function CartPage() {
     // Calculate Delivery Fee
     useEffect(() => {
         const getFee = async () => {
-            if (userLocation && deliverySettings) {
+            if (userLocation && deliverySettings && cartMerchantId) {
                 setIsCalculatingFee(true)
+                setDeliveryFeeError(null)
                 try {
-                    const result = await calculateDeliveryFee(userLocation.lat, userLocation.lng)
+                    const result = await calculateDeliveryFee(userLocation.lat, userLocation.lng, cartMerchantId)
+
+                    if (result.error) {
+                        setDeliveryFeeKobo(0)
+                        setDistanceKm(0)
+                        setDeliveryFeeError(result.error)
+                        toast.error(result.error)
+                        return
+                    }
+
                     setDeliveryFeeKobo(result.fee)
                     setDistanceKm(Number(result.distance.toFixed(2)))
                 } catch (error) {
                     console.error("Error calculating fee:", error)
-                    toast.error("Could not calculate delivery fee")
+                    setDeliveryFeeError("Could not calculate delivery fee.")
+                    toast.error("Could not calculate delivery fee.")
                 } finally {
                     setIsCalculatingFee(false)
                 }
             } else {
                 setDeliveryFeeKobo(0)
                 setDistanceKm(0)
+                setDeliveryFeeError(null)
             }
         }
         void getFee()
-    }, [userLocation, deliverySettings])
+    }, [cartMerchantId, userLocation, deliverySettings])
 
     // Leaflet Map Initialization
     useEffect(() => {
@@ -244,6 +257,10 @@ export default function CartPage() {
         }
         if (!userLocation) {
             toast.error("Please set your delivery location in your profile")
+            return
+        }
+        if (deliveryFeeError) {
+            toast.error(deliveryFeeError)
             return
         }
         setIsCheckoutOpen(true)
@@ -588,7 +605,7 @@ export default function CartPage() {
                                                     <div className="flex flex-wrap items-center gap-3 md:gap-4 text-xs md:text-sm font-bold text-gray-500">
                                                         <span className="flex items-center gap-1.5 whitespace-nowrap">
                                                             <div className="w-1.5 h-1.5 bg-[#F58220] rounded-full" />
-                                                            Distance: {distanceKm} km
+                                                            Pickup distance: {distanceKm} km
                                                         </span>
                                                         <span className="flex items-center gap-1.5 whitespace-nowrap">
                                                             <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
@@ -609,6 +626,15 @@ export default function CartPage() {
                                                     </p>
                                                 </div>
                                             </div>
+
+                                            {deliveryFeeError ? (
+                                                <div className="rounded-2xl border-2 border-red-200/70 bg-red-50/70 px-5 py-4 text-sm text-red-900 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-100">
+                                                    <div className="flex gap-3">
+                                                        <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+                                                        <p className="font-medium">{deliveryFeeError}</p>
+                                                    </div>
+                                                </div>
+                                            ) : null}
 
                                             {/* Map Container */}
                                             <div className="h-72 w-full rounded-2xl overflow-hidden border-4 border-white dark:border-zinc-800 shadow-xl relative z-0">
@@ -661,6 +687,8 @@ export default function CartPage() {
                                                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
                                                 CALCULATING
                                             </span>
+                                        ) : deliveryFeeError ? (
+                                            <span className="font-black text-red-600 dark:text-red-400">UNAVAILABLE</span>
                                         ) : (
                                             <span className={`font-black ${deliveryFeeKobo > 0 ? "text-gray-900 dark:text-white" : "text-emerald-500"}`}>
                                                 {deliveryFeeKobo > 0 ? formatKobo(deliveryFeeKobo) : "FREE"}
@@ -675,7 +703,7 @@ export default function CartPage() {
 
                                 <Button
                                     onClick={handleProceedToCheckout}
-                                    disabled={!userLocation || !deliverySettings}
+                                    disabled={!userLocation || !deliverySettings || isCalculatingFee || Boolean(deliveryFeeError)}
                                     className="w-full rounded-2xl bg-[#F58220] hover:bg-[#F58220]/90 text-white font-black py-6 md:py-8 text-lg md:text-xl shadow-2xl shadow-orange-500/30 mb-6 transition-all hover:scale-[1.03] active:scale-95 disabled:opacity-50 disabled:scale-100 h-auto"
                                 >
                                     PAY NOW

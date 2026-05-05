@@ -6,6 +6,9 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import {
     ArrowLeft,
+    ChevronLeft,
+    ChevronRight,
+    Expand,
     Heart,
     Home,
     MapPin,
@@ -16,6 +19,12 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogTitle,
+} from "@/components/ui/dialog"
 import { ProductCard, type Product as ProductCardProduct } from "@/components/home/ProductCard"
 import { ReviewStars } from "@/components/ui/ReviewStars"
 import { useCart } from "@/context/CartContext"
@@ -88,6 +97,7 @@ export function ProductDetailsClient({
     )
     const [activeTab, setActiveTab] = useState<"description" | "reviews">("description")
     const [quantity, setQuantity] = useState(1)
+    const [isImageViewerOpen, setIsImageViewerOpen] = useState(false)
 
     const categoryLabel = getStorefrontCategoryLabel(product.category)
     const salesPath = product.sales_type === "wholesale" ? "/wholesale" : "/retail"
@@ -97,6 +107,8 @@ export function ProductDetailsClient({
     const effectivePriceKobo = getEffectivePriceKobo(product.price, product.discount_price)
     const hasDiscount = effectivePriceKobo !== Number(product.price ?? 0)
     const primaryImage = selectedImage ?? galleryImages[0] ?? null
+    const selectedImageIndex = Math.max(0, galleryImages.findIndex((image) => image === primaryImage))
+    const hasMultipleImages = galleryImages.length > 1
     const facts = getDisplayFacts(product)
     const isWishlisted = isInWishlist(product.id)
     const maxQuantity = Math.max(1, product.stock_level || 1)
@@ -129,6 +141,20 @@ export function ProductDetailsClient({
             price: effectivePriceKobo,
             stock_level: product.stock_level,
         })
+    }
+
+    const showPreviousImage = () => {
+        if (!galleryImages.length) return
+
+        const nextIndex = selectedImageIndex <= 0 ? galleryImages.length - 1 : selectedImageIndex - 1
+        setSelectedImage(galleryImages[nextIndex])
+    }
+
+    const showNextImage = () => {
+        if (!galleryImages.length) return
+
+        const nextIndex = selectedImageIndex >= galleryImages.length - 1 ? 0 : selectedImageIndex + 1
+        setSelectedImage(galleryImages[nextIndex])
     }
 
     return (
@@ -169,8 +195,13 @@ export function ProductDetailsClient({
                 <section className="rounded-[2rem] border border-gray-100 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/70 sm:p-6 lg:p-8">
                     <div className="grid gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
                         <div className="space-y-4">
-                            <div className="grid gap-4 md:grid-cols-[84px_minmax(0,1fr)]">
-                                {galleryImages.length > 1 ? (
+                            <div
+                                className={cn(
+                                    "grid gap-4",
+                                    hasMultipleImages && "md:grid-cols-[84px_minmax(0,1fr)]"
+                                )}
+                            >
+                                {hasMultipleImages ? (
                                     <div className="order-2 flex gap-3 overflow-x-auto pb-1 md:order-1 md:flex-col md:overflow-visible">
                                         {galleryImages.map((image) => (
                                             <button
@@ -196,23 +227,34 @@ export function ProductDetailsClient({
                                 ) : null}
 
                                 <div className="order-1 overflow-hidden rounded-[1.75rem] border border-gray-100 bg-gray-50 dark:border-zinc-800 dark:bg-zinc-900">
-                                    <div className="relative aspect-[4/4.2]">
+                                    <button
+                                        type="button"
+                                        onClick={() => primaryImage && setIsImageViewerOpen(true)}
+                                        disabled={!primaryImage}
+                                        className="group relative flex h-[360px] w-full items-center justify-center overflow-hidden bg-white disabled:cursor-default dark:bg-zinc-950 sm:h-[480px] lg:h-[560px]"
+                                        aria-label={primaryImage ? `View ${product.name} image full size` : undefined}
+                                    >
                                         {primaryImage ? (
-                                            <Image
-                                                src={primaryImageSrc}
-                                                alt={product.name}
-                                                fill
-                                                priority
-                                                sizes="(max-width: 1024px) 100vw, 50vw"
-                                                className="object-cover"
-                                                unoptimized={bypassPrimaryImageOptimizer}
-                                            />
+                                            <>
+                                                <Image
+                                                    src={primaryImageSrc}
+                                                    alt={product.name}
+                                                    fill
+                                                    priority
+                                                    sizes="(max-width: 1024px) 100vw, 50vw"
+                                                    className="object-contain p-4 transition-transform duration-300 group-hover:scale-[1.02] sm:p-6"
+                                                    unoptimized={bypassPrimaryImageOptimizer}
+                                                />
+                                                <span className="absolute right-4 top-4 rounded-full bg-black/55 p-2 text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                                                    <Expand className="h-4 w-4" />
+                                                </span>
+                                            </>
                                         ) : (
                                             <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-gray-400">
                                                 Product image unavailable.
                                             </div>
                                         )}
-                                    </div>
+                                    </button>
                                 </div>
                             </div>
 
@@ -416,6 +458,75 @@ export function ProductDetailsClient({
                     )}
                 </section>
             </div>
+
+            <Dialog open={isImageViewerOpen} onOpenChange={setIsImageViewerOpen}>
+                <DialogContent className="h-[92vh] max-w-[96vw] border-white/10 bg-black p-0 text-white sm:rounded-2xl">
+                    <DialogTitle className="sr-only">{product.name} product images</DialogTitle>
+                    <DialogDescription className="sr-only">
+                        Large product image viewer. Use the next and previous buttons to browse uploaded product images.
+                    </DialogDescription>
+                    <div className="relative flex h-full w-full items-center justify-center">
+                        {primaryImage ? (
+                            <Image
+                                src={buildOptimizedImageUrl(primaryImage, { width: 2200 })}
+                                alt={product.name}
+                                fill
+                                sizes="96vw"
+                                className="object-contain p-4 sm:p-8"
+                                unoptimized={bypassPrimaryImageOptimizer}
+                            />
+                        ) : null}
+
+                        {hasMultipleImages ? (
+                            <>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={showPreviousImage}
+                                    className="absolute left-3 top-1/2 h-11 w-11 -translate-y-1/2 rounded-full bg-white/10 text-white backdrop-blur hover:bg-white/20 hover:text-white"
+                                    aria-label="Previous product image"
+                                >
+                                    <ChevronLeft className="h-5 w-5" />
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={showNextImage}
+                                    className="absolute right-3 top-1/2 h-11 w-11 -translate-y-1/2 rounded-full bg-white/10 text-white backdrop-blur hover:bg-white/20 hover:text-white"
+                                    aria-label="Next product image"
+                                >
+                                    <ChevronRight className="h-5 w-5" />
+                                </Button>
+                                <div className="absolute bottom-4 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 gap-2 overflow-x-auto rounded-full bg-black/50 p-2 backdrop-blur">
+                                    {galleryImages.map((image, index) => (
+                                        <button
+                                            key={image}
+                                            type="button"
+                                            onClick={() => setSelectedImage(image)}
+                                            className={cn(
+                                                "relative h-12 w-12 shrink-0 overflow-hidden rounded-full border transition-all",
+                                                index === selectedImageIndex ? "border-[#F58220]" : "border-white/30 opacity-70 hover:opacity-100"
+                                            )}
+                                            aria-label={`View product image ${index + 1}`}
+                                        >
+                                            <Image
+                                                src={buildOptimizedImageUrl(image, { width: 160, height: 160 })}
+                                                alt=""
+                                                fill
+                                                sizes="48px"
+                                                className="object-cover"
+                                                unoptimized={shouldBypassNextImageOptimizer(image)}
+                                            />
+                                        </button>
+                                    ))}
+                                </div>
+                            </>
+                        ) : null}
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-gray-100 bg-white/90 p-3 backdrop-blur-xl dark:border-zinc-800 dark:bg-black/85 lg:hidden">
                 <div className="mx-auto flex max-w-[1280px] items-center gap-3">
