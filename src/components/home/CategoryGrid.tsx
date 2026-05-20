@@ -39,6 +39,7 @@ export function CategoryGrid() {
                         searchParams,
                         patch: {
                             category: category.slug,
+                            page: null,
                         },
                         hash: "product-grid",
                     })

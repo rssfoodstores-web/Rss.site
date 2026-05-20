@@ -119,6 +119,7 @@ export function HeroSectionClient({ slides }: { slides: HeroSlide[] }) {
                                     searchParams,
                                     patch: {
                                         category: category.slug,
+                                        page: null,
                                     },
                                     hash: "product-grid",
                                 })

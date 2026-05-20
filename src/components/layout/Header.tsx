@@ -69,6 +69,7 @@ export function Header() {
             searchParams: isStorefrontPage ? searchParams : undefined,
             patch: {
                 q: nextQuery,
+                page: null,
             },
             hash: "product-grid",
         })

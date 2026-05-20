@@ -128,6 +128,7 @@ export function Footer() {
                                                     pathname,
                                                     patch: {
                                                         category: category.slug,
+                                                        page: null,
                                                     },
                                                     hash: "product-grid",
                                                 })}

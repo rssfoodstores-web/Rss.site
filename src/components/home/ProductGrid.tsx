@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { createPublicStorefrontClient } from "@/lib/supabase/client"
 import { ProductCard, type Product } from "@/components/home/ProductCard"
 import { Skeleton } from "@/components/ui/skeleton"
-import { AlertCircle, Filter, MapPin, Search, X } from "lucide-react"
+import { AlertCircle, ChevronLeft, ChevronRight, Filter, MapPin, Search, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { groupProductReviewsByProduct, type ProductReviewRow } from "@/lib/productReviews"
 import {
@@ -42,6 +42,8 @@ interface ProductReviewQueryRow extends ProductReviewRow {
         full_name: string | null
     } | null
 }
+
+const PRODUCTS_PER_PAGE = 20
 
 function isAbortLikeError(error: unknown) {
     if (!error) return false
@@ -81,6 +83,37 @@ function getErrorMessage(error: unknown) {
     return String(error)
 }
 
+function getPageFromSearchParams(searchParams: { get(name: string): string | null }) {
+    const rawPage = Number.parseInt(searchParams.get("page") ?? "1", 10)
+
+    return Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1
+}
+
+function getVisiblePaginationItems(currentPage: number, totalPages: number) {
+    const pages = new Set<number>([1, totalPages])
+
+    for (let page = currentPage - 1; page <= currentPage + 1; page += 1) {
+        if (page > 1 && page < totalPages) {
+            pages.add(page)
+        }
+    }
+
+    const orderedPages = Array.from(pages).sort((a, b) => a - b)
+    const items: Array<number | "ellipsis"> = []
+
+    orderedPages.forEach((page, index) => {
+        const previousPage = orderedPages[index - 1]
+
+        if (previousPage && page - previousPage > 1) {
+            items.push("ellipsis")
+        }
+
+        items.push(page)
+    })
+
+    return items
+}
+
 export function ProductGrid({ forcedCategory = null, salesType, title }: ProductGridProps) {
     const pathname = usePathname()
     const router = useRouter()
@@ -90,9 +123,11 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
     const categoryFilter = activeCategory
     const searchQuery = searchParams.get("q")?.trim() ?? ""
     const locationFilter = searchParams.get("state")?.trim() ?? "all"
+    const currentPage = getPageFromSearchParams(searchParams)
     const hasCanonicalCategoryRoute = Boolean(forcedCategory ?? routeCategory)
 
     const [products, setProducts] = useState<Product[]>([])
+    const [totalProducts, setTotalProducts] = useState(0)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [retryCount, setRetryCount] = useState(0)
@@ -110,11 +145,11 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
 
             let query = supabase
                 .from("products")
-                .select("*")
+                .select("*", { count: "exact" })
                 .eq("status", "approved")
                 .not("active_pricing_id", "is", null)
                 .order("created_at", { ascending: false })
-                .limit(20)
+                .range((currentPage - 1) * PRODUCTS_PER_PAGE, currentPage * PRODUCTS_PER_PAGE - 1)
 
             if (salesType) {
                 query = query.eq("sales_type", salesType)
@@ -135,13 +170,30 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                 query = query.in("state", getNigerianStateFilterCandidates(locationFilter))
             }
 
-            const { data, error } = await query
+            const { data, error, count } = await query
 
             if (!isMountedRef.current || requestId !== requestIdRef.current) return
 
             if (error) {
                 throw error
             }
+
+            const nextTotalProducts = count ?? 0
+            const nextTotalPages = Math.max(1, Math.ceil(nextTotalProducts / PRODUCTS_PER_PAGE))
+
+            if (nextTotalProducts > 0 && currentPage > nextTotalPages) {
+                router.replace(createStorefrontHref({
+                    pathname,
+                    searchParams,
+                    patch: {
+                        page: nextTotalPages === 1 ? null : String(nextTotalPages),
+                    },
+                    hash: "product-grid",
+                }))
+                return
+            }
+
+            setTotalProducts(nextTotalProducts)
 
             if (data) {
                 const productRows = data as unknown as ProductRow[]
@@ -174,6 +226,8 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                     merchantId: item.merchant_id,
                     reviewSummary: reviewSummaryByProduct[item.id] ?? null,
                 })))
+            } else {
+                setProducts([])
             }
         } catch (err) {
             if (!isMountedRef.current || requestId !== requestIdRef.current) return
@@ -192,7 +246,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                 setLoading(false)
             }
         }
-    }, [categoryFilter, locationFilter, salesType, searchQuery, supabase])
+    }, [categoryFilter, currentPage, locationFilter, pathname, router, salesType, searchParams, searchQuery, supabase])
 
     useEffect(() => {
         isMountedRef.current = true
@@ -217,6 +271,10 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
             : salesType === "wholesale"
                 ? "Browse bulk-ready listings, organized for fast wholesale ordering."
                 : "Browse approved products across fresh, packaged, and specialty categories."
+    const totalPages = Math.max(1, Math.ceil(totalProducts / PRODUCTS_PER_PAGE))
+    const firstVisibleProduct = products.length > 0 ? (currentPage - 1) * PRODUCTS_PER_PAGE + 1 : 0
+    const lastVisibleProduct = products.length > 0 ? firstVisibleProduct + products.length - 1 : 0
+    const paginationItems = getVisiblePaginationItems(currentPage, totalPages)
 
     const clearFiltersHref = createStorefrontHref({
         pathname,
@@ -225,6 +283,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
             category: hasCanonicalCategoryRoute ? undefined : null,
             q: null,
             state: null,
+            page: null,
         },
         hash: "product-grid",
     })
@@ -235,10 +294,20 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
             searchParams,
             patch: {
                 state: nextValue,
+                page: null,
             },
             hash: "product-grid",
         }))
     }
+
+    const createPaginationHref = (page: number) => createStorefrontHref({
+        pathname,
+        searchParams,
+        patch: {
+            page: page <= 1 ? null : String(page),
+        },
+        hash: "product-grid",
+    })
 
     const activeFilters = [
         searchQuery
@@ -278,7 +347,11 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div>
                             <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#F58220]">
-                                {products.length} product{products.length === 1 ? "" : "s"} loaded
+                                {loading
+                                    ? "Loading products"
+                                    : totalProducts > 0
+                                        ? `Showing ${firstVisibleProduct}-${lastVisibleProduct} of ${totalProducts} products`
+                                        : "0 products loaded"}
                             </p>
                             <h2 className="mt-2 text-2xl font-bold text-[#002603] dark:text-white md:text-3xl">
                                 {displayTitle}
@@ -325,6 +398,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                                 searchParams,
                                 patch: {
                                     category: category.slug,
+                                    page: null,
                                 },
                                 hash: "product-grid",
                             })
@@ -356,6 +430,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                                         searchParams,
                                         patch: {
                                             [filter.key]: null,
+                                            page: null,
                                         },
                                         hash: "product-grid",
                                     })}
@@ -421,6 +496,77 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                                 <ProductCard key={product.id} product={product} />
                             ))}
                         </div>
+                        {totalPages > 1 ? (
+                            <nav
+                                aria-label="Product pages"
+                                className="mt-8 flex flex-col items-center justify-between gap-4 rounded-[28px] border border-gray-100 bg-white px-4 py-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row"
+                            >
+                                <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                                    Showing {firstVisibleProduct}-{lastVisibleProduct} of {totalProducts} products
+                                </p>
+
+                                <div className="flex flex-wrap items-center justify-center gap-2">
+                                    {currentPage > 1 ? (
+                                        <Button asChild variant="outline" size="sm" className="rounded-full">
+                                            <Link href={createPaginationHref(currentPage - 1)} aria-label="Go to previous product page">
+                                                <ChevronLeft className="mr-1 h-4 w-4" />
+                                                Previous
+                                            </Link>
+                                        </Button>
+                                    ) : (
+                                        <Button variant="outline" size="sm" className="rounded-full" disabled>
+                                            <ChevronLeft className="mr-1 h-4 w-4" />
+                                            Previous
+                                        </Button>
+                                    )}
+
+                                    {paginationItems.map((item, index) => item === "ellipsis" ? (
+                                        <span
+                                            key={`ellipsis-${index}`}
+                                            className="flex h-9 min-w-9 items-center justify-center rounded-full px-2 text-sm font-semibold text-gray-400"
+                                        >
+                                            ...
+                                        </span>
+                                    ) : (
+                                        <Button
+                                            key={item}
+                                            asChild={item !== currentPage}
+                                            variant={item === currentPage ? "default" : "outline"}
+                                            size="sm"
+                                            className={cn(
+                                                "h-9 min-w-9 rounded-full px-3",
+                                                item === currentPage
+                                                    ? "bg-[#F58220] text-white hover:bg-[#E57210]"
+                                                    : "border-gray-200 bg-white text-gray-700 hover:border-orange-200 hover:text-[#F58220] dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200"
+                                            )}
+                                            disabled={item === currentPage}
+                                        >
+                                            {item === currentPage ? (
+                                                <span aria-current="page">{item}</span>
+                                            ) : (
+                                                <Link href={createPaginationHref(item)} aria-label={`Go to product page ${item}`}>
+                                                    {item}
+                                                </Link>
+                                            )}
+                                        </Button>
+                                    ))}
+
+                                    {currentPage < totalPages ? (
+                                        <Button asChild variant="outline" size="sm" className="rounded-full">
+                                            <Link href={createPaginationHref(currentPage + 1)} aria-label="Go to next product page">
+                                                Next
+                                                <ChevronRight className="ml-1 h-4 w-4" />
+                                            </Link>
+                                        </Button>
+                                    ) : (
+                                        <Button variant="outline" size="sm" className="rounded-full" disabled>
+                                            Next
+                                            <ChevronRight className="ml-1 h-4 w-4" />
+                                        </Button>
+                                    )}
+                                </div>
+                            </nav>
+                        ) : null}
                     </>
                 ) : (
                     <div className="rounded-[28px] border border-dashed border-gray-200 bg-gray-50 px-6 py-12 text-center dark:border-zinc-800 dark:bg-zinc-900">
