@@ -18,10 +18,26 @@ declare global {
         addTo: (map: LeafletMapInstance) => LeafletMarkerInstance
         bindPopup: (content: string) => { openPopup: () => void }
         setLatLng: (coordinates: [number, number]) => LeafletMarkerInstance
+        remove: () => void
+    }
+
+    interface LeafletPolylineInstance {
+        addTo: (map: LeafletMapInstance) => LeafletPolylineInstance
+        setLatLngs: (coordinates: [number, number][]) => LeafletPolylineInstance
+        remove: () => void
+    }
+
+    interface LeafletCircleMarkerInstance {
+        addTo: (map: LeafletMapInstance) => LeafletCircleMarkerInstance
+        bindPopup: (content: string) => { openPopup: () => void }
+        setLatLng: (coordinates: [number, number]) => LeafletCircleMarkerInstance
+        remove: () => void
     }
 
     interface LeafletMapInstance {
         setView: (coordinates: [number, number], zoom: number) => LeafletMapInstance
+        fitBounds: (coordinates: [number, number][], options?: unknown) => LeafletMapInstance
+        invalidateSize: () => LeafletMapInstance
         remove: () => void
     }
 
@@ -32,6 +48,14 @@ declare global {
             coordinates: [number, number],
             options?: { icon?: LeafletIcon }
         ) => LeafletMarkerInstance
+        circleMarker: (
+            coordinates: [number, number],
+            options?: unknown
+        ) => LeafletCircleMarkerInstance
+        polyline: (
+            coordinates: [number, number][],
+            options?: unknown
+        ) => LeafletPolylineInstance
         icon: (options: LeafletIconOptions) => LeafletIcon
     }
 

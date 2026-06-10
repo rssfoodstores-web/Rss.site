@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { MapPin, Phone, MessageSquare, Box, Truck, Navigation, XCircle } from "lucide-react"
+import { MapPin, Phone, MessageSquare, Box, Truck, XCircle } from "lucide-react"
 import type { Database } from "@/types/database.types"
 import { releaseStalePickup, verifyDelivery } from "@/app/actions/riderActions"
 import { toast } from "sonner"
@@ -14,8 +14,9 @@ import { useState } from "react"
 import { motion } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { formatKobo } from "@/lib/money"
-import { buildNavigationUrl, parseCoordinates, type Coordinates } from "@/lib/directions"
+import { parseCoordinates, type Coordinates } from "@/lib/directions"
 import { formatOrderStatus, getOrderStatusTone } from "@/lib/orders"
+import { RiderRouteMap } from "@/components/rider/dashboard/RiderRouteMap"
 
 type Order = Database["public"]["Tables"]["orders"]["Row"] & {
     order_items: (Database["public"]["Tables"]["order_items"]["Row"] & {
@@ -70,31 +71,7 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
         deliveryAddress = `Lat ${deliveryCoordinates.lat.toFixed(4)}, Lng ${deliveryCoordinates.lng.toFixed(4)}`
     }
 
-    const navigationUrl = buildNavigationUrl({
-        origin: currentLocation,
-        destination: isPickupPhase
-            ? {
-                coordinates: merchantCoordinates,
-                address: merchant?.address && merchant.address !== "Address hidden"
-                    ? merchant.address
-                    : null,
-            }
-            : {
-                coordinates: deliveryCoordinates,
-                address: deliveryCoordinates ? deliveryAddress : null,
-            },
-    })
-
     const callPhone = isPickupPhase ? merchant?.phone ?? null : null
-
-    const handleOpenNavigation = () => {
-        if (!navigationUrl) {
-            toast.error("No destination is available for navigation yet.")
-            return
-        }
-
-        window.open(navigationUrl, "_blank", "noopener,noreferrer")
-    }
 
     const handleCall = () => {
         if (!callPhone) {
@@ -173,16 +150,6 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
                                 size="sm"
                                 variant="outline"
                                 className="h-8 text-xs"
-                                onClick={handleOpenNavigation}
-                                disabled={!navigationUrl}
-                            >
-                                <Navigation className="h-3 w-3 mr-2 text-blue-500" />
-                                Navigation
-                            </Button>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 text-xs"
                                 onClick={handleCall}
                                 disabled={!callPhone}
                             >
@@ -196,6 +163,14 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
                                 </Link>
                             </Button>
                         </div>
+                        <RiderRouteMap
+                            riderLocation={currentLocation}
+                            pickupLocation={merchantCoordinates}
+                            dropoffLocation={deliveryCoordinates}
+                            pickupLabel={merchant?.name ?? "Merchant pickup"}
+                            dropoffLabel="Customer dropoff"
+                            activeStop={isPickupPhase ? "pickup" : "dropoff"}
+                        />
                     </div>
 
                     <Separator className="bg-border" />
