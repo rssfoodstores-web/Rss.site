@@ -11,6 +11,128 @@ interface FaqPageClientProps {
     content: FaqPageContent
 }
 
+type AnswerSegment =
+    | {
+        type: "text"
+        text: string
+    }
+    | {
+        type: "link"
+        href: string
+        text: string
+    }
+
+const answerLinkPattern = /\[([^\]]+)]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<]+)/g
+
+function isHttpUrl(value: string) {
+    try {
+        const url = new URL(value)
+        return url.protocol === "http:" || url.protocol === "https:"
+    } catch {
+        return false
+    }
+}
+
+function splitTrailingPunctuation(value: string) {
+    const match = value.match(/^(.+?)([.,!?;:]+)?$/)
+
+    return {
+        href: match?.[1] ?? value,
+        trailingText: match?.[2] ?? "",
+    }
+}
+
+function parseAnswerSegments(answer: string): AnswerSegment[] {
+    const segments: AnswerSegment[] = []
+    let cursor = 0
+
+    for (const match of answer.matchAll(answerLinkPattern)) {
+        const matchIndex = match.index ?? 0
+        const fullMatch = match[0]
+        const label = match[1]
+        const markdownHref = match[2]
+        const rawHref = match[3]
+
+        if (matchIndex > cursor) {
+            segments.push({
+                type: "text",
+                text: answer.slice(cursor, matchIndex),
+            })
+        }
+
+        if (markdownHref) {
+            if (isHttpUrl(markdownHref)) {
+                segments.push({
+                    type: "link",
+                    href: markdownHref,
+                    text: label,
+                })
+            } else {
+                segments.push({
+                    type: "text",
+                    text: fullMatch,
+                })
+            }
+        } else if (rawHref) {
+            const { href, trailingText } = splitTrailingPunctuation(rawHref)
+
+            if (isHttpUrl(href)) {
+                segments.push({
+                    type: "link",
+                    href,
+                    text: href,
+                })
+                if (trailingText) {
+                    segments.push({
+                        type: "text",
+                        text: trailingText,
+                    })
+                }
+            } else {
+                segments.push({
+                    type: "text",
+                    text: fullMatch,
+                })
+            }
+        }
+
+        cursor = matchIndex + fullMatch.length
+    }
+
+    if (cursor < answer.length) {
+        segments.push({
+            type: "text",
+            text: answer.slice(cursor),
+        })
+    }
+
+    return segments
+}
+
+function FaqAnswer({ answer }: { answer: string }) {
+    return (
+        <>
+            {parseAnswerSegments(answer).map((segment, segmentIndex) => {
+                if (segment.type === "text") {
+                    return <span key={`${segment.type}-${segmentIndex}`}>{segment.text}</span>
+                }
+
+                return (
+                    <a
+                        key={`${segment.href}-${segmentIndex}`}
+                        href={segment.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-[#F58220] underline decoration-[#F58220]/35 underline-offset-4 transition-colors hover:text-orange-600 dark:text-orange-300 dark:hover:text-orange-200"
+                    >
+                        {segment.text}
+                    </a>
+                )
+            })}
+        </>
+    )
+}
+
 export function FaqPageClient({ content }: FaqPageClientProps) {
     const [openIndex, setOpenIndex] = useState<number | null>(0)
 
@@ -75,8 +197,8 @@ export function FaqPageClient({ content }: FaqPageClientProps) {
                                         exit={{ height: 0, opacity: 0 }}
                                         transition={{ duration: 0.2, ease: "easeInOut" }}
                                     >
-                                        <div className="px-6 pb-6 leading-relaxed text-gray-500 dark:text-gray-400">
-                                            {faq.answer}
+                                        <div className="whitespace-pre-line px-6 pb-6 leading-relaxed text-gray-500 dark:text-gray-400">
+                                            <FaqAnswer answer={faq.answer} />
                                         </div>
                                     </motion.div>
                                 ) : null}
