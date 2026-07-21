@@ -248,16 +248,20 @@ export async function updateRewardSettings(input: RewardAdminSettings) {
         points_cover_delivery_fee: false,
     }
 
-    const { error } = await supabase
-        .from("app_settings")
-        .upsert({
-            key: "reward_system_settings",
-            value: settings,
-            description: "Reward points system settings as JSON. Controls earning, redemption, and expiration behavior.",
-        })
+    const { data, error } = await supabase.rpc("update_reward_system_settings", {
+        p_settings: settings,
+    })
 
     if (error) {
         throw new Error(error.message)
+    }
+
+    if (data && typeof data === "object" && "success" in data && data.success === false) {
+        const message = "error" in data && typeof data.error === "string"
+            ? data.error
+            : "Unable to update reward settings."
+
+        throw new Error(message)
     }
 
     revalidatePath("/admin/rewards")

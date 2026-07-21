@@ -65,13 +65,15 @@ export function RewardAdminClient({ initialData }: RewardAdminClientProps) {
     return (
         <div className="space-y-6">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <div className="rounded-3xl bg-[#F58220] p-6 text-white shadow-lg shadow-orange-500/20">
+                <div className={settings.enabled ? "rounded-3xl bg-[#F58220] p-6 text-white shadow-lg shadow-orange-500/20" : "rounded-3xl bg-violet-950 p-6 text-white shadow-lg shadow-violet-950/20"}>
                     <div className="flex items-center gap-2 text-sm text-white/80">
                         <Power className="h-4 w-4" />
                         <span>System status</span>
                     </div>
                     <p className="mt-4 text-3xl font-bold">{settings.enabled ? "Enabled" : "Paused"}</p>
-                    <p className="mt-2 text-sm text-white/80">Admins can stop redemptions and future accruals here at any time.</p>
+                    <p className="mt-2 text-sm text-white/80">
+                        {settings.enabled ? "Rewards are active. Choose Disabled below and save to pause them." : "Rewards are paused. Save changes to keep the system disabled."}
+                    </p>
                 </div>
                 <div className="rounded-3xl border border-gray-100 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
                     <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
@@ -120,7 +122,7 @@ export function RewardAdminClient({ initialData }: RewardAdminClientProps) {
                 <div className="flex flex-col gap-2">
                     <h2 className="text-xl font-bold text-gray-900 dark:text-white">Reward settings</h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Changes here apply immediately to new redemptions and new reward accrual events.
+                        Changes here apply immediately after you save them.
                     </p>
                 </div>
 
@@ -241,7 +243,7 @@ export function RewardAdminClient({ initialData }: RewardAdminClientProps) {
                         onClick={handleSubmit}
                         disabled={isPending}
                     >
-                        {isPending ? "Saving..." : "Save reward settings"}
+                        {isPending ? "Saving..." : settings.enabled ? "Save reward settings" : "Save and pause rewards"}
                     </Button>
                 </div>
             </section>
