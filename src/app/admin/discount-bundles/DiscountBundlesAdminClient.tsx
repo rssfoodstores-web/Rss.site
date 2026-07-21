@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { featurePointsToEditorValue, parseFeaturePointsEditorValue } from "@/lib/discountBundles"
 import { formatKobo, koboToNaira } from "@/lib/money"
 import { uploadSignedCloudinaryAsset } from "@/lib/cloudinaryMediaUpload"
+import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import type {
     DiscountBundleAdminBundle,
@@ -129,6 +130,15 @@ function formatProductLabel(product: DiscountBundleAdminProductOption) {
     return `${product.name} - ${formatKobo(product.priceKobo)} - stock ${product.stockLevel ?? 0}`
 }
 
+async function refreshAdminSession() {
+    const supabase = createClient()
+    const { error } = await supabase.auth.refreshSession()
+
+    if (error) {
+        throw new Error("Please refresh your admin session and try again.")
+    }
+}
+
 export function DiscountBundlesAdminClient({ initialData }: { initialData: DiscountBundlesAdminDashboard }) {
     const router = useRouter()
     const [selectedBundleId, setSelectedBundleId] = useState<string | null>(initialData.bundles[0]?.id ?? null)
@@ -233,6 +243,7 @@ export function DiscountBundlesAdminClient({ initialData }: { initialData: Disco
     async function handleSavePage() {
         setSavingPage(true)
         try {
+            await refreshAdminSession()
             await saveDiscountBundlePageContent({
                 closingBody: pageForm.closingBody,
                 closingCtaText: pageForm.closingCtaText,
@@ -263,6 +274,7 @@ export function DiscountBundlesAdminClient({ initialData }: { initialData: Disco
     async function handleSaveBundle() {
         setSavingBundle(true)
         try {
+            await refreshAdminSession()
             const payload = {
                 badgeText: bundleForm.badgeText,
                 buttonText: bundleForm.buttonText,
@@ -306,6 +318,7 @@ export function DiscountBundlesAdminClient({ initialData }: { initialData: Disco
         }
 
         try {
+            await refreshAdminSession()
             const result = await deleteDiscountBundle(bundleId)
             toast.success(result.archived ? "Bundle archived because it already has orders." : "Bundle deleted.")
             router.refresh()

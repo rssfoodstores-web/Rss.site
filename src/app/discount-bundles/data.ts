@@ -129,6 +129,16 @@ function mapBundle(bundle: DiscountBundleWithProductRow, items: DiscountBundleIt
     }
 }
 
+function isBundleLive(bundle: DiscountBundleRow) {
+    const now = Date.now()
+    const startsAt = bundle.campaign_starts_at ? new Date(bundle.campaign_starts_at).getTime() : null
+    const endsAt = bundle.campaign_ends_at ? new Date(bundle.campaign_ends_at).getTime() : null
+
+    return bundle.status === "active"
+        && (startsAt === null || startsAt <= now)
+        && (endsAt === null || endsAt >= now)
+}
+
 async function loadBundleItems(bundleIds: string[]) {
     if (bundleIds.length === 0) {
         return []
@@ -169,7 +179,7 @@ export async function getDiscountBundlesPageData() {
     if (pageContentError) throw new Error(pageContentError.message)
     if (bundlesError) throw new Error(bundlesError.message)
 
-    const bundles = (bundlesData ?? []) as DiscountBundleWithProductRow[]
+    const bundles = ((bundlesData ?? []) as DiscountBundleWithProductRow[]).filter(isBundleLive)
     const bundleItems = await loadBundleItems(bundles.map((bundle) => bundle.id))
 
     return {
@@ -196,6 +206,11 @@ export async function getDiscountBundleDetail(slug: string) {
     }
 
     const bundle = bundleData as DiscountBundleWithProductRow
+
+    if (!isBundleLive(bundle)) {
+        return null
+    }
+
     const [bundleItems, relatedBundlesResponse] = await Promise.all([
         loadBundleItems([bundle.id]),
         supabase
@@ -212,7 +227,7 @@ export async function getDiscountBundleDetail(slug: string) {
         throw new Error(relatedBundlesResponse.error.message)
     }
 
-    const relatedBundles = (relatedBundlesResponse.data ?? []) as DiscountBundleWithProductRow[]
+    const relatedBundles = ((relatedBundlesResponse.data ?? []) as DiscountBundleWithProductRow[]).filter(isBundleLive)
     const relatedItems = await loadBundleItems(relatedBundles.map((item) => item.id))
 
     return {
