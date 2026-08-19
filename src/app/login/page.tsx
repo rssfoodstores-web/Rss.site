@@ -6,12 +6,17 @@ import { useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Loader2, Eye, EyeOff, Home } from "lucide-react"
+import { Loader2, Eye, EyeOff, Home, Mail, Phone } from "lucide-react"
 import { buildAbsoluteUrl, getClientSiteUrl } from "@/lib/site-url"
 import { getSafeNextPath, resolvePostAuthPath } from "@/lib/auth-redirects"
+import { isValidE164PhoneNumber, normalizePhoneNumber } from "@/lib/phone"
+
+type LoginMethod = "email" | "phone"
 
 export default function LoginPage() {
+    const [loginMethod, setLoginMethod] = useState<LoginMethod>("email")
     const [email, setEmail] = useState("")
+    const [phone, setPhone] = useState("")
     const [password, setPassword] = useState("")
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -26,10 +31,25 @@ export default function LoginPage() {
         setError(null)
 
         try {
-            const { data, error } = await supabase.auth.signInWithPassword({
-                email: email.trim().toLowerCase(),
-                password,
-            })
+            const normalizedPhone = normalizePhoneNumber(phone)
+
+            if (loginMethod === "phone" && !isValidE164PhoneNumber(normalizedPhone)) {
+                setError("Enter a valid phone number.")
+                setLoading(false)
+                return
+            }
+
+            const credentials = loginMethod === "phone"
+                ? {
+                    password,
+                    phone: normalizedPhone,
+                }
+                : {
+                    email: email.trim().toLowerCase(),
+                    password,
+                }
+
+            const { data, error } = await supabase.auth.signInWithPassword(credentials)
 
             if (error) {
                 setError(error.message)
@@ -103,15 +123,45 @@ export default function LoginPage() {
 
                         <form onSubmit={handleLogin} className="space-y-6">
                             <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-zinc-800 dark:bg-zinc-950">
+                                    <button
+                                        type="button"
+                                        onClick={() => setLoginMethod("email")}
+                                        className={`flex h-10 items-center justify-center rounded-md text-sm font-semibold transition-colors ${loginMethod === "email" ? "bg-white text-[#1A1A1A] shadow-sm dark:bg-zinc-800 dark:text-white" : "text-gray-500 hover:text-[#F58220]"}`}
+                                    >
+                                        <Mail className="mr-2 h-4 w-4" />
+                                        Email
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setLoginMethod("phone")}
+                                        className={`flex h-10 items-center justify-center rounded-md text-sm font-semibold transition-colors ${loginMethod === "phone" ? "bg-white text-[#1A1A1A] shadow-sm dark:bg-zinc-800 dark:text-white" : "text-gray-500 hover:text-[#F58220]"}`}
+                                    >
+                                        <Phone className="mr-2 h-4 w-4" />
+                                        Phone
+                                    </button>
+                                </div>
                                 <div className="space-y-2">
-                                    <Input
-                                        type="email"
-                                        placeholder="Email"
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                        required
-                                        className="h-[52px] rounded-lg border-gray-200 bg-white px-4 text-base placeholder:text-gray-400 focus-visible:ring-[#F58220] focus-visible:border-[#F58220]"
-                                    />
+                                    {loginMethod === "phone" ? (
+                                        <Input
+                                            type="tel"
+                                            inputMode="tel"
+                                            placeholder="Phone number"
+                                            value={phone}
+                                            onChange={(e) => setPhone(e.target.value)}
+                                            required
+                                            className="h-[52px] rounded-lg border-gray-200 bg-white px-4 text-base placeholder:text-gray-400 focus-visible:ring-[#F58220] focus-visible:border-[#F58220]"
+                                        />
+                                    ) : (
+                                        <Input
+                                            type="email"
+                                            placeholder="Email"
+                                            value={email}
+                                            onChange={(e) => setEmail(e.target.value)}
+                                            required
+                                            className="h-[52px] rounded-lg border-gray-200 bg-white px-4 text-base placeholder:text-gray-400 focus-visible:ring-[#F58220] focus-visible:border-[#F58220]"
+                                        />
+                                    )}
                                 </div>
                                 <div className="space-y-2 relative">
                                     <Input

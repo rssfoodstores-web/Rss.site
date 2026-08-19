@@ -6,14 +6,19 @@ import { useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Loader2, Eye, EyeOff, Home } from "lucide-react"
+import { Loader2, Eye, EyeOff, Home, Mail, Phone } from "lucide-react"
 import { SuccessModal } from "@/components/ui/SuccessModal"
 import { buildAbsoluteUrl, getClientSiteUrl } from "@/lib/site-url"
 import { resolvePostAuthPath } from "@/lib/auth-redirects"
+import { isValidE164PhoneNumber, normalizePhoneNumber } from "@/lib/phone"
+
+type RegisterMethod = "email" | "phone"
 
 export default function RegisterPage() {
+    const [registerMethod, setRegisterMethod] = useState<RegisterMethod>("email")
     const [fullName, setFullName] = useState("")
     const [email, setEmail] = useState("")
+    const [phone, setPhone] = useState("")
     const [password, setPassword] = useState("")
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -29,8 +34,65 @@ export default function RegisterPage() {
         setError(null)
 
         try {
-            const emailAddress = email.trim().toLowerCase()
             const normalizedName = fullName.trim()
+
+            if (registerMethod === "phone") {
+                const normalizedPhone = normalizePhoneNumber(phone)
+
+                if (!isValidE164PhoneNumber(normalizedPhone)) {
+                    setError("Enter a valid phone number.")
+                    setLoading(false)
+                    return
+                }
+
+                const response = await fetch("/api/auth/phone-register", {
+                    body: JSON.stringify({
+                        fullName: normalizedName,
+                        password,
+                        phone,
+                        referralCode,
+                    }),
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    method: "POST",
+                })
+                const result = await response.json() as {
+                    error?: string
+                    user?: {
+                        phone: string
+                    }
+                }
+
+                if (!response.ok || result.error || !result.user) {
+                    setError(result.error ?? "Unable to create your phone account.")
+                    setLoading(false)
+                    return
+                }
+
+                const { data, error: signInError } = await supabase.auth.signInWithPassword({
+                    password,
+                    phone: result.user.phone,
+                })
+
+                if (signInError) {
+                    setError(signInError.message)
+                    setLoading(false)
+                    return
+                }
+
+                if (data.user) {
+                    const destination = await resolvePostAuthPath(supabase, data.user.id, "/")
+                    window.location.assign(destination)
+                    return
+                }
+
+                setLoading(false)
+                setShowSuccessModal(true)
+                return
+            }
+
+            const emailAddress = email.trim().toLowerCase()
             const emailRedirectTo = buildAbsoluteUrl(getClientSiteUrl(), "/auth/callback", {
                 next: "/",
                 ref: referralCode || undefined,
@@ -130,6 +192,24 @@ export default function RegisterPage() {
 
                         <form onSubmit={handleRegister} className="space-y-6">
                             <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-zinc-800 dark:bg-zinc-950">
+                                    <button
+                                        type="button"
+                                        onClick={() => setRegisterMethod("email")}
+                                        className={`flex h-10 items-center justify-center rounded-md text-sm font-semibold transition-colors ${registerMethod === "email" ? "bg-white text-[#1A1A1A] shadow-sm dark:bg-zinc-800 dark:text-white" : "text-gray-500 hover:text-[#F58220]"}`}
+                                    >
+                                        <Mail className="mr-2 h-4 w-4" />
+                                        Email
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setRegisterMethod("phone")}
+                                        className={`flex h-10 items-center justify-center rounded-md text-sm font-semibold transition-colors ${registerMethod === "phone" ? "bg-white text-[#1A1A1A] shadow-sm dark:bg-zinc-800 dark:text-white" : "text-gray-500 hover:text-[#F58220]"}`}
+                                    >
+                                        <Phone className="mr-2 h-4 w-4" />
+                                        Phone
+                                    </button>
+                                </div>
                                 <div className="space-y-2">
                                     <Input
                                         type="text"
@@ -141,14 +221,26 @@ export default function RegisterPage() {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Input
-                                        type="email"
-                                        placeholder="Email"
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                        required
-                                        className="h-[52px] rounded-lg border-gray-200 bg-white px-4 text-base placeholder:text-gray-400 focus-visible:ring-[#F58220] focus-visible:border-[#F58220]"
-                                    />
+                                    {registerMethod === "phone" ? (
+                                        <Input
+                                            type="tel"
+                                            inputMode="tel"
+                                            placeholder="Phone number"
+                                            value={phone}
+                                            onChange={(e) => setPhone(e.target.value)}
+                                            required
+                                            className="h-[52px] rounded-lg border-gray-200 bg-white px-4 text-base placeholder:text-gray-400 focus-visible:ring-[#F58220] focus-visible:border-[#F58220]"
+                                        />
+                                    ) : (
+                                        <Input
+                                            type="email"
+                                            placeholder="Email"
+                                            value={email}
+                                            onChange={(e) => setEmail(e.target.value)}
+                                            required
+                                            className="h-[52px] rounded-lg border-gray-200 bg-white px-4 text-base placeholder:text-gray-400 focus-visible:ring-[#F58220] focus-visible:border-[#F58220]"
+                                        />
+                                    )}
                                 </div>
                                 <div className="space-y-2 relative">
                                     <Input
@@ -215,7 +307,10 @@ export default function RegisterPage() {
                 isOpen={showSuccessModal}
                 onClose={() => setShowSuccessModal(false)}
                 title="Registration Successful"
-                description="Your account has been created successfully. Please check your email to verify your account before logging in."
+                description={registerMethod === "phone"
+                    ? "Your account has been created successfully. You can now log in with your phone number and password."
+                    : "Your account has been created successfully. Please check your email to verify your account before logging in."
+                }
                 buttonText="Go to Login"
             />
         </div>
