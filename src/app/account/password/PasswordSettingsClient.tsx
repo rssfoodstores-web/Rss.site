@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { ProfileSidebar } from "@/components/account/ProfileSidebar"
-import { Lock, Eye, EyeOff, ShieldCheck, Smartphone, Key, AlertCircle } from "lucide-react"
+import { Lock, Eye, EyeOff, ShieldCheck, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
@@ -112,30 +112,6 @@ export function PasswordSettingsClient() {
                                     {loading ? "Updating..." : "Update Password"}
                                 </Button>
                             </form>
-                        </div>
-
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6">
-                            <div className="flex items-start gap-4 rounded-3xl border border-gray-100 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-500">
-                                    <Smartphone className="h-6 w-6" />
-                                </div>
-                                <div className="flex-1">
-                                    <h4 className="mb-1 font-bold">Two-Factor Authentication</h4>
-                                    <p className="mb-4 text-sm text-gray-500">Add an extra layer of security to your account.</p>
-                                    <Button variant="outline" size="sm" className="h-9 rounded-lg border-gray-200 text-xs font-bold">Set Up 2FA</Button>
-                                </div>
-                            </div>
-
-                            <div className="flex items-start gap-4 rounded-3xl border border-gray-100 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-purple-50 text-purple-500">
-                                    <Key className="h-6 w-6" />
-                                </div>
-                                <div className="flex-1">
-                                    <h4 className="mb-1 font-bold">Login History</h4>
-                                    <p className="mb-4 text-sm text-gray-500">Monitor where and when you&apos;ve logged in.</p>
-                                    <Button variant="outline" size="sm" className="h-9 rounded-lg border-gray-200 text-xs font-bold">View History</Button>
-                                </div>
-                            </div>
                         </div>
                     </main>
                 </div>
