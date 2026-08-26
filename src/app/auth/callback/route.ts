@@ -116,7 +116,7 @@ export async function GET(request: Request) {
 
             return buildErrorRedirect(siteOrigin, {
                 message: error.message,
-                description: 'Session exchange failed in /auth/callback. Make sure you start and finish sign-in on the exact same origin and that this callback URL is allowlisted in Supabase Auth.',
+                description: 'Session exchange failed. Make sure you start and finish sign-in on the same website and browser.',
                 errorCode: 'session_exchange_failed',
             })
         }
@@ -151,6 +151,6 @@ export async function GET(request: Request) {
 
     return buildErrorRedirect(siteOrigin, {
         message: 'Missing auth code',
-        description: 'Supabase did not return an authorization code or verification token.',
+        description: 'The identity service did not return an authorization code or verification token.',
     })
 }

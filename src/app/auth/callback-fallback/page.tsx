@@ -46,7 +46,7 @@ export default function AuthCallbackFallbackPage() {
                 window.location.assign(
                     buildAuthErrorUrl(
                         "Missing auth code",
-                        "Supabase did not return an authorization code."
+                        "The identity service did not return an authorization code."
                     )
                 )
                 return

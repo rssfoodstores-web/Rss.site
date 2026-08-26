@@ -134,11 +134,11 @@ async function getEdgeFunctionErrorMessage(error: unknown) {
     }
 
     if (error instanceof FunctionsRelayError) {
-        return "Supabase relay could not reach the Edge Function."
+        return "The payment service could not be reached."
     }
 
     if (error instanceof FunctionsFetchError) {
-        return "Unable to reach Supabase Edge Functions."
+        return "Unable to reach the payment service."
     }
 
     if (error instanceof Error) {

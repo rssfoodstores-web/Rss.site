@@ -67,8 +67,9 @@ export async function POST(request: Request) {
     try {
         adminSupabase = createAdminClient()
     } catch (error) {
+        console.error("Phone registration service configuration error:", error)
         return json({
-            error: error instanceof Error ? error.message : "Supabase admin credentials are not configured.",
+            error: "Phone registration is temporarily unavailable.",
         }, 500)
     }
 
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
 
     if (createError || !created.user) {
         return json({
-            error: createError?.message ?? "Supabase did not return the created user.",
+            error: createError?.message ?? "The account service did not return the created user.",
         }, 400)
     }
 

@@ -7,9 +7,9 @@ import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loader2, Eye, EyeOff, Home, Mail, Phone } from "lucide-react"
-import { buildAbsoluteUrl, getClientSiteUrl } from "@/lib/site-url"
-import { getSafeNextPath, resolvePostAuthPath } from "@/lib/auth-redirects"
+import { resolvePostAuthPath } from "@/lib/auth-redirects"
 import { isValidE164PhoneNumber, normalizePhoneNumber } from "@/lib/phone"
+import { GoogleIdentityButton } from "@/components/auth/GoogleIdentityButton"
 
 type LoginMethod = "email" | "phone"
 
@@ -74,31 +74,11 @@ export default function LoginPage() {
         }
     }
 
-    const handleGoogleLogin = async () => {
-        setLoading(true)
+    const handleGoogleAuthenticated = async (userId: string) => {
         setError(null)
+        const destination = await resolvePostAuthPath(supabase, userId, searchParams.get("next"))
 
-        try {
-            const callbackUrl = buildAbsoluteUrl(getClientSiteUrl(), "/auth/callback", {
-                next: getSafeNextPath(searchParams.get("next")) ?? "/",
-            })
-
-            const { error } = await supabase.auth.signInWithOAuth({
-                provider: 'google',
-                options: {
-                    redirectTo: callbackUrl
-                }
-            })
-
-            if (error) {
-                setError(error.message)
-                setLoading(false)
-            }
-        } catch (authError) {
-            console.error("Unexpected Google login failure:", authError)
-            setError("Unable to start Google sign in right now. Please try again.")
-            setLoading(false)
-        }
+        window.location.assign(destination)
     }
 
     return (
@@ -225,21 +205,11 @@ export default function LoginPage() {
                                     </div>
                                 </div>
 
-                                <Button
-                                    variant="outline"
-                                    type="button"
+                                <GoogleIdentityButton
                                     disabled={loading}
-                                    className="w-full h-[52px] rounded-full border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-700 text-[#1A1A1A] dark:text-white font-medium text-base relative"
-                                    onClick={handleGoogleLogin}
-                                >
-                                    <span
-                                        aria-hidden="true"
-                                        className="absolute left-6 flex h-5 w-5 items-center justify-center rounded-full bg-white text-xs font-bold text-[#4285F4] shadow-sm"
-                                    >
-                                        G
-                                    </span>
-                                    Sign in with Google
-                                </Button>
+                                    onAuthenticated={handleGoogleAuthenticated}
+                                    onError={setError}
+                                />
                             </div>
 
                             <div className="text-center pt-2">

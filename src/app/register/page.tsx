@@ -11,6 +11,8 @@ import { SuccessModal } from "@/components/ui/SuccessModal"
 import { buildAbsoluteUrl, getClientSiteUrl } from "@/lib/site-url"
 import { resolvePostAuthPath } from "@/lib/auth-redirects"
 import { isValidE164PhoneNumber, normalizePhoneNumber } from "@/lib/phone"
+import { GoogleIdentityButton } from "@/components/auth/GoogleIdentityButton"
+import { applyReferralCodeIfNeeded } from "@/lib/auth-callback"
 
 type RegisterMethod = "email" | "phone"
 
@@ -137,32 +139,12 @@ export default function RegisterPage() {
         }
     }
 
-    const handleGoogleSignUp = async () => {
-        setLoading(true)
+    const handleGoogleAuthenticated = async (userId: string) => {
         setError(null)
+        await applyReferralCodeIfNeeded(supabase, referralCode || null)
+        const destination = await resolvePostAuthPath(supabase, userId, "/")
 
-        try {
-            const redirectUrl = buildAbsoluteUrl(getClientSiteUrl(), "/auth/callback", {
-                next: "/",
-                ref: referralCode || undefined,
-            })
-
-            const { error } = await supabase.auth.signInWithOAuth({
-                provider: "google",
-                options: {
-                    redirectTo: redirectUrl,
-                },
-            })
-
-            if (error) {
-                setError(error.message)
-                setLoading(false)
-            }
-        } catch (authError) {
-            console.error("Unexpected Google sign-up failure:", authError)
-            setError("Unable to start Google sign up right now. Please try again.")
-            setLoading(false)
-        }
+        window.location.assign(destination)
     }
 
     return (
@@ -279,16 +261,12 @@ export default function RegisterPage() {
                                     </div>
                                 </div>
 
-                                <Button
-                                    variant="outline"
-                                    type="button"
+                                <GoogleIdentityButton
                                     disabled={loading}
-                                    className="w-full h-[52px] rounded-full border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-gray-50 dark:hover:bg-zinc-700 text-[#1A1A1A] dark:text-white font-medium text-base relative"
-                                    onClick={handleGoogleSignUp}
-                                >
-                                    <img src="https://www.google.com/favicon.ico" alt="Google" className="absolute left-6 h-5 w-5" />
-                                    Sign up with Google
-                                </Button>
+                                    onAuthenticated={handleGoogleAuthenticated}
+                                    onError={setError}
+                                    text="signup_with"
+                                />
                             </div>
 
                             <div className="text-center pt-2">

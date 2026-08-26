@@ -20,5 +20,7 @@ export function getPrimaryAuthProvider(user: AuthUserLike) {
 }
 
 export function canUpdateAccountPassword(user: AuthUserLike) {
-    return getPrimaryAuthProvider(user) === "email"
+    const provider = getPrimaryAuthProvider(user)
+
+    return provider === "email" || provider === "phone"
 }
