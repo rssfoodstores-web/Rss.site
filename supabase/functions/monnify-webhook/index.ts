@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
 const SECRET_KEY = Deno.env.get("MONNIFY_SECRET_KEY") ?? ""
+const API_KEY = Deno.env.get("MONNIFY_API_KEY") ?? ""
+const MONNIFY_API_URL = Deno.env.get("MONNIFY_API_URL") ?? "https://sandbox.monnify.com"
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? ""
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
 
@@ -24,6 +26,41 @@ async function computeSignature(payload: string, secret: string) {
     return Array.from(new Uint8Array(signature))
         .map((value) => value.toString(16).padStart(2, "0"))
         .join("")
+}
+
+async function getAccessToken() {
+    const encoded = btoa(`${API_KEY}:${SECRET_KEY}`)
+    const response = await fetch(`${MONNIFY_API_URL}/api/v1/auth/login`, {
+        method: "POST",
+        headers: { "Authorization": `Basic ${encoded}` },
+    })
+    const data = await response.json()
+
+    if (!response.ok || !data?.requestSuccessful || !data?.responseBody?.accessToken) {
+        throw new Error("Unable to authenticate payment verification.")
+    }
+
+    return data.responseBody.accessToken as string
+}
+
+async function verifyTransaction(paymentReference: string) {
+    const accessToken = await getAccessToken()
+    const url = new URL(`${MONNIFY_API_URL}/api/v2/merchant/transactions/query`)
+    url.searchParams.set("paymentReference", paymentReference)
+    const response = await fetch(url, {
+        headers: { "Authorization": `Bearer ${accessToken}` },
+    })
+    const data = await response.json()
+
+    if (!response.ok || !data?.requestSuccessful || !data?.responseBody) {
+        throw new Error("Unable to verify transaction with Monnify.")
+    }
+
+    return data.responseBody as {
+        paymentReference?: string
+        paymentStatus?: string
+        amountPaid?: number | string
+    }
 }
 
 serve(async (request) => {
@@ -74,6 +111,60 @@ serve(async (request) => {
         }
 
         if (metaData?.type === "order_payment" && metaData?.order_id) {
+            const { data: order, error: orderError } = await supabase
+                .from("orders")
+                .select("id, total_amount, payment_ref, status, payment_status")
+                .eq("id", metaData.order_id)
+                .single()
+
+            if (orderError || !order || !paymentReference || order.payment_ref !== paymentReference) {
+                console.error("Order payment reference mismatch", orderError)
+                return new Response("Order payment validation failed", { status: 400, headers: corsHeaders })
+            }
+
+            const verified = await verifyTransaction(paymentReference)
+            const verifiedAmountKobo = Math.round(Number(verified.amountPaid ?? 0) * 100)
+            const webhookAmountKobo = Math.round(amountPaid * 100)
+
+            if (
+                verified.paymentReference !== order.payment_ref ||
+                verified.paymentStatus !== "PAID" ||
+                verifiedAmountKobo !== order.total_amount ||
+                webhookAmountKobo !== order.total_amount
+            ) {
+                console.error("Order payment amount or status mismatch", {
+                    orderId: order.id,
+                    expectedAmountKobo: order.total_amount,
+                    verifiedAmountKobo,
+                    webhookAmountKobo,
+                    verifiedStatus: verified.paymentStatus,
+                })
+                return new Response("Order payment validation failed", { status: 400, headers: corsHeaders })
+            }
+
+            // A customer can close or cancel an order while the external payment
+            // is still completing. Preserve the verified funds exactly once by
+            // crediting their site wallet instead of losing the late payment.
+            if (
+                order.status === "cancelled" ||
+                order.status === "refunded" ||
+                order.payment_status === "failed" ||
+                order.payment_status === "refunded"
+            ) {
+                const { data, error } = await supabase.rpc("handle_late_order_payment", {
+                    p_order_id: order.id,
+                    p_payment_reference: paymentReference,
+                    p_amount_kobo: verifiedAmountKobo,
+                })
+
+                if (error || !data?.success) {
+                    console.error("Late order payment recovery failed:", error ?? data)
+                    return new Response("Late payment recovery failed", { status: 500, headers: corsHeaders })
+                }
+
+                return new Response("Late order payment credited", { status: 200, headers: corsHeaders })
+            }
+
             const { data, error } = await supabase.rpc("mark_direct_payment_success", {
                 p_order_id: metaData.order_id,
                 p_payment_reference: paymentReference,
@@ -88,7 +179,30 @@ serve(async (request) => {
         }
 
         if (metaData?.type === "gift_card_purchase" && metaData?.gift_card_id) {
-            const amountKobo = Math.round(amountPaid * 100)
+            if (!paymentReference) {
+                return new Response("Gift card payment validation failed", { status: 400, headers: corsHeaders })
+            }
+
+            const { data: giftCard, error: giftCardError } = await supabase
+                .from("gift_cards")
+                .select("id, amount_kobo, payment_reference, status")
+                .eq("id", metaData.gift_card_id)
+                .single()
+            const verified = await verifyTransaction(paymentReference)
+            const amountKobo = Math.round(Number(verified.amountPaid ?? 0) * 100)
+
+            if (
+                giftCardError || !giftCard ||
+                giftCard.payment_reference !== paymentReference ||
+                verified.paymentReference !== paymentReference ||
+                verified.paymentStatus !== "PAID" ||
+                amountKobo !== giftCard.amount_kobo ||
+                Math.round(amountPaid * 100) !== giftCard.amount_kobo
+            ) {
+                console.error("Gift card payment validation failed", giftCardError)
+                return new Response("Gift card payment validation failed", { status: 400, headers: corsHeaders })
+            }
+
             const { data, error } = await supabase.rpc("mark_gift_card_purchase_paid", {
                 p_gift_card_id: metaData.gift_card_id,
                 p_payment_reference: paymentReference,

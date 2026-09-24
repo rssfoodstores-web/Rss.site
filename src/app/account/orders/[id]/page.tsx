@@ -13,10 +13,12 @@ export default async function OrderDetailPage({ params }: { params: { id: string
         redirect("/login")
     }
 
-    // Fetch Order
-    const { data: order } = await supabase
-        .from("orders")
-        .select(`
+    // Fetch the order and its customer-only delivery secret separately. The
+    // secret is never stored on the rider-readable orders row.
+    const [{ data: order }, { data: deliverySecret }] = await Promise.all([
+        supabase
+            .from("orders")
+            .select(`
             *,
             order_items (
                 *,
@@ -37,16 +39,26 @@ export default async function OrderDetailPage({ params }: { params: { id: string
                 phone,
                 avatar_url
             )
-        `)
-        .eq("id", id)
-        .eq("customer_id", user.id) // Security check
-        .single()
+            `)
+            .eq("id", id)
+            .eq("customer_id", user.id)
+            .single(),
+        supabase
+            .from("order_delivery_secrets")
+            .select("delivery_code")
+            .eq("order_id", id)
+            .eq("customer_id", user.id)
+            .maybeSingle(),
+    ])
 
     if (!order) {
         return notFound()
     }
 
     return (
-        <OrderDetailClient order={order} user={user} />
+        <OrderDetailClient
+            order={{ ...order, delivery_code: deliverySecret?.delivery_code ?? null }}
+            user={user}
+        />
     )
 }
