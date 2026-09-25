@@ -41,26 +41,24 @@ serve(async (request) => {
             throw new Error("Payment reference is required.")
         }
 
-        const { data: transaction, error: transactionError } = await supabase
-            .from("wallet_transactions")
-            .select("wallet_id, amount, type, status, reference")
+        const { data: topup, error: transactionError } = await supabase
+            .from("wallet_topup_requests")
+            .select("wallet_id,wallet_credit_kobo,processor_fee_kobo,processor_fee_vat_kobo,rss_fee_kobo,total_charge_kobo,reference")
             .eq("reference", payload.paymentReference)
-            .eq("wallet_id", authData.user.id)
+            .eq("user_id", authData.user.id)
             .single()
 
         if (
             transactionError ||
-            !transaction ||
-            transaction.type !== "credit" ||
-            transaction.status !== "pending" ||
-            !transaction.reference?.startsWith("WAL-") ||
-            !Number.isSafeInteger(transaction.amount) ||
-            transaction.amount <= 0
+            !topup ||
+            !topup.reference?.startsWith("WAL-") ||
+            !Number.isSafeInteger(topup.total_charge_kobo) ||
+            topup.total_charge_kobo <= 0
         ) {
             throw new Error("Pending wallet top-up not found.")
         }
 
-        const amount = transaction.amount / 100
+        const amount = topup.total_charge_kobo / 100
 
         const accessToken = await getAccessToken()
         const siteUrl = (Deno.env.get("SITE_URL") ?? "https://myrss.com.ng").replace(/\/$/, "")
@@ -71,17 +69,19 @@ serve(async (request) => {
                 ? authData.user.user_metadata.full_name
                 : "RSS Foods Customer",
             customerEmail: authData.user.email ?? "support@rssfoods.com",
-            paymentReference: transaction.reference,
-            paymentDescription: `Wallet top-up: NGN ${amount.toLocaleString()}`,
+            paymentReference: topup.reference,
+            paymentDescription: `RSS wallet top-up: NGN ${(topup.wallet_credit_kobo / 100).toLocaleString()}`,
             currencyCode: "NGN",
             contractCode: CONTRACT_CODE,
-            redirectUrl: `${siteUrl}/account/wallet?ref=${encodeURIComponent(transaction.reference)}`,
+            redirectUrl: `${siteUrl}/account/wallet?ref=${encodeURIComponent(topup.reference)}&payment=return`,
             paymentMethods: ["CARD", "ACCOUNT_TRANSFER"],
             metaData: {
                 type: "wallet_topup",
-                wallet_id: transaction.wallet_id,
+                wallet_id: topup.wallet_id,
                 user_id: authData.user.id,
-                amount_kobo: transaction.amount,
+                wallet_credit_kobo: topup.wallet_credit_kobo,
+                quoted_fee_kobo: topup.processor_fee_kobo + topup.processor_fee_vat_kobo + topup.rss_fee_kobo,
+                total_charge_kobo: topup.total_charge_kobo,
             },
         }
 
@@ -103,7 +103,7 @@ serve(async (request) => {
         return new Response(
             JSON.stringify({
                 checkoutUrl: data.responseBody.checkoutUrl,
-                paymentReference: transaction.reference,
+                paymentReference: topup.reference,
                 transactionReference: data.responseBody.transactionReference,
             }),
             {

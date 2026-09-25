@@ -13,6 +13,7 @@ interface WithdrawalRequestRow {
     reference: string
     user_id: string
     amount_kobo: number
+    payout_amount_kobo: number
     bank_code: string
     account_number: string
     bank_name: string
@@ -45,7 +46,7 @@ function mapStatus(status: unknown): WithdrawalStatus {
 }
 
 async function verifyAccount(accessToken: string, bankCode: string, accountNumber: string) {
-    const url = new URL(`${MONNIFY_API_URL}/api/v1/disbursements/account/validate`)
+    const url = new URL(`${MONNIFY_API_URL}/api/v2/disbursements/account/validate`)
     url.searchParams.set("accountNumber", accountNumber)
     url.searchParams.set("bankCode", bankCode)
     const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
@@ -77,7 +78,7 @@ serve(async (request) => {
         const service = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } })
         const { data, error } = await service
             .from("wallet_withdrawal_requests")
-            .select("reference,user_id,amount_kobo,bank_code,account_number,bank_name,status")
+            .select("reference,user_id,amount_kobo,payout_amount_kobo,bank_code,account_number,bank_name,status")
             .eq("reference", payload.reference)
             .eq("user_id", authData.user.id)
             .single()
@@ -114,7 +115,7 @@ serve(async (request) => {
                 method: "POST",
                 headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    amount: withdrawal.amount_kobo / 100,
+                    amount: withdrawal.payout_amount_kobo / 100,
                     reference: withdrawal.reference,
                     narration: "RSS Foods wallet withdrawal",
                     destinationBankCode: withdrawal.bank_code,
@@ -139,7 +140,7 @@ serve(async (request) => {
         }
 
         const monnify = result.responseBody
-        if (String(monnify.reference ?? withdrawal.reference) !== withdrawal.reference || Math.round(Number(monnify.amount) * 100) !== withdrawal.amount_kobo) {
+        if (String(monnify.reference ?? withdrawal.reference) !== withdrawal.reference || Math.round(Number(monnify.amount) * 100) !== withdrawal.payout_amount_kobo) {
             await updateStatus(service, withdrawal.reference, "submission_unknown", {
                 accountName,
                 monnifyReference: String(monnify.transactionReference ?? ""),

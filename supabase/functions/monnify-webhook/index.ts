@@ -60,6 +60,8 @@ async function verifyTransaction(paymentReference: string) {
         paymentReference?: string
         paymentStatus?: string
         amountPaid?: number | string
+        settlementAmount?: number | string
+        transactionReference?: string
     }
 }
 
@@ -116,7 +118,7 @@ serve(async (request) => {
 
             const { data: withdrawal, error: withdrawalError } = await supabase
                 .from("wallet_withdrawal_requests")
-                .select("reference,amount_kobo,bank_code,account_number")
+                .select("reference,payout_amount_kobo,bank_code,account_number")
                 .eq("reference", reference)
                 .single()
             if (withdrawalError || !withdrawal) return new Response("Withdrawal not found", { status: 400, headers: corsHeaders })
@@ -126,7 +128,7 @@ serve(async (request) => {
             const verifiedStatus = String(verified.status ?? "").toUpperCase()
             if (
                 verified.reference !== reference ||
-                verifiedAmountKobo !== withdrawal.amount_kobo ||
+                verifiedAmountKobo !== withdrawal.payout_amount_kobo ||
                 verified.destinationAccountNumber !== withdrawal.account_number ||
                 verified.destinationBankCode !== withdrawal.bank_code
             ) {
@@ -149,6 +151,14 @@ serve(async (request) => {
                 p_monnify_reference: verified.transactionReference ?? null,
                 p_message: verified.transactionDescription ?? verifiedStatus,
             })
+            if (!error && data?.error === "Wallet top-up request not found") {
+                const legacyResult = await supabase.rpc("handle_wallet_credit", {
+                    p_reference: paymentReference,
+                    p_amount_kobo: verifiedAmountKobo,
+                })
+                if (!legacyResult.error) return new Response("Legacy wallet top-up processed", { status: 200, headers: corsHeaders })
+            }
+
             if (error || !data?.success) {
                 console.error("Disbursement finalization failed", error ?? data)
                 return new Response("Disbursement finalization failed", { status: 500, headers: corsHeaders })
@@ -172,6 +182,7 @@ serve(async (request) => {
 
             const verified = await verifyTransaction(paymentReference)
             const verifiedAmountKobo = Math.round(Number(verified.amountPaid ?? 0) * 100)
+            const settlementAmountKobo = Math.round(Number(verified.settlementAmount ?? 0) * 100)
             const webhookAmountKobo = Math.round(amountPaid * 100)
 
             if (
@@ -190,13 +201,15 @@ serve(async (request) => {
                 return new Response("Wallet top-up validation failed", { status: 400, headers: corsHeaders })
             }
 
-            const { error } = await supabase.rpc("handle_wallet_credit", {
+            const { data, error } = await supabase.rpc("handle_wallet_topup_payment", {
                 p_reference: paymentReference,
-                p_amount_kobo: verifiedAmountKobo,
+                p_amount_paid_kobo: verifiedAmountKobo,
+                p_settlement_amount_kobo: settlementAmountKobo,
+                p_monnify_transaction_reference: verified.transactionReference ?? null,
             })
 
-            if (error) {
-                console.error("Wallet top-up processing failed:", error)
+            if (error || !data?.success) {
+                console.error("Wallet top-up processing failed:", error ?? data)
                 return new Response("Wallet top-up processing failed", { status: 500, headers: corsHeaders })
             }
 

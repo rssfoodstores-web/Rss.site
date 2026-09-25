@@ -19,7 +19,7 @@ serve(async (request) => {
         }
 
         const accessToken = await getAccessToken()
-        const primaryUrl = `${MONNIFY_API_URL}/api/v1/disbursements/account/validate?accountNumber=${payload.accountNumber}&bankCode=${payload.bankCode}`
+        const primaryUrl = `${MONNIFY_API_URL}/api/v2/disbursements/account/validate?accountNumber=${payload.accountNumber}&bankCode=${payload.bankCode}`
 
         let response = await fetch(primaryUrl, {
             headers: {
@@ -71,3 +71,4 @@ serve(async (request) => {
         )
     }
 })
+

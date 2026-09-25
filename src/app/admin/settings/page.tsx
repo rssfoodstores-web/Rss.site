@@ -15,6 +15,14 @@ export default async function AdminSettingsPage() {
             </div>
 
             <Link
+                href="/admin/finances"
+                className="flex items-center justify-between rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"
+            >
+                <span>Open wallet finance rules</span>
+                <span>Manage Monnify top-up and withdrawal charges</span>
+            </Link>
+
+            <Link
                 href="/admin/referrals"
                 className="flex items-center justify-between rounded-2xl border border-orange-100 bg-orange-50 px-5 py-4 text-sm font-semibold text-[#F58220] transition hover:bg-orange-100 dark:border-orange-950 dark:bg-orange-950/20 dark:text-orange-300"
             >
@@ -66,3 +74,4 @@ export default async function AdminSettingsPage() {
         </div>
     )
 }
+

@@ -11,6 +11,7 @@ import { formatKobo } from "@/lib/money"
 import { getBanks, getWalletData, initiateWithdrawal, initializeTopUp, verifyAccount } from "./actions"
 import { getRewardWalletSnapshot, type RewardWalletSnapshot } from "@/app/account/rewards/actions"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { calculateTopupQuote, calculateWithdrawalQuote, DEFAULT_WALLET_FEE_SETTINGS, type WalletFeeSettings } from "@/lib/walletFees"
 
 type WalletType = "customer" | "merchant" | "agent" | "rider"
 
@@ -67,12 +68,21 @@ export default function WalletPage() {
     const [verifying, setVerifying] = useState(false)
     const [copied, setCopied] = useState(false)
     const [isWithdrawOpen, setIsWithdrawOpen] = useState(false)
+    const [walletFeeSettings, setWalletFeeSettings] = useState<WalletFeeSettings>(DEFAULT_WALLET_FEE_SETTINGS)
     const [statusModal, setStatusModal] = useState({ open: false, type: "success" as "success" | "error", title: "", message: "", btnText: "OK" })
 
     const activeWallet = useMemo(
         () => wallets.find((wallet) => wallet.id === selectedWalletId) ?? wallets[0] ?? null,
         [selectedWalletId, wallets]
     )
+    const topupQuote = useMemo(() => {
+        const kobo = Math.round(Number(amount || 0) * 100)
+        return kobo > 0 ? calculateTopupQuote(kobo, walletFeeSettings) : null
+    }, [amount, walletFeeSettings])
+    const withdrawalQuote = useMemo(() => {
+        const kobo = Math.round(Number(withdrawAmount || 0) * 100)
+        return kobo > 0 ? calculateWithdrawalQuote(kobo, walletFeeSettings) : null
+    }, [withdrawAmount, walletFeeSettings])
 
     const handleWalletSelection = (walletId: string | null) => {
         setSelectedWalletId(walletId)
@@ -102,6 +112,7 @@ export default function WalletPage() {
         ])
         const nextWallets = (result.wallets as WalletSummary[] | undefined) ?? []
         setWallets(nextWallets)
+        if (result.walletFeeSettings) setWalletFeeSettings(result.walletFeeSettings as WalletFeeSettings)
         const nextWalletId = (
             selectedWalletId && nextWallets.some((wallet) => wallet.id === selectedWalletId)
                 ? selectedWalletId
@@ -130,6 +141,7 @@ export default function WalletPage() {
 
             const nextWallets = (walletResult.wallets as WalletSummary[] | undefined) ?? []
             setWallets(nextWallets)
+            if (walletResult.walletFeeSettings) setWalletFeeSettings(walletResult.walletFeeSettings as WalletFeeSettings)
 
             const nextWalletId = (
                 (walletResult.primaryWalletId as string | null) ?? nextWallets[0]?.id ?? null
@@ -150,6 +162,15 @@ export default function WalletPage() {
         return () => {
             cancelled = true
         }
+    }, [])
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search)
+        if (params.get("payment") === "return") {
+            showStatus("success", "Payment received", "Monnify has returned you to RSS. Your wallet will update as soon as payment verification finishes.")
+            void loadData()
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     function showStatus(type: "success" | "error", title: string, message: string, btnText = "OK") {
@@ -373,6 +394,12 @@ export default function WalletPage() {
                                                     </div>
                                                 ) : null}
                                                 <Input type="number" placeholder="Minimum ₦1,000" className="h-12 rounded-xl bg-gray-50 dark:bg-zinc-800/50" value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} />
+                                                {withdrawalQuote && withdrawalQuote.walletDebitKobo >= 100000 ? <div className="space-y-2 rounded-xl bg-gray-50 p-4 text-sm dark:bg-zinc-800/60">
+                                                    <div className="flex justify-between"><span>Wallet deduction</span><strong>{formatKobo(withdrawalQuote.walletDebitKobo)}</strong></div>
+                                                    <div className="flex justify-between"><span>Monnify transfer charge</span><span>{formatKobo(withdrawalQuote.processorFeeKobo + withdrawalQuote.processorVatKobo)}</span></div>
+                                                    {withdrawalQuote.rssFeeKobo > 0 ? <div className="flex justify-between"><span>RSS service fee</span><span>{formatKobo(withdrawalQuote.rssFeeKobo)}</span></div> : null}
+                                                    <div className="flex justify-between border-t pt-2"><strong>Bank receives</strong><strong>{formatKobo(withdrawalQuote.bankReceivesKobo)}</strong></div>
+                                                </div> : null}
                                                 <p className="text-xs text-gray-500 dark:text-gray-400">Available balance: {formatKobo(activeWallet?.balance ?? 0)}</p>
                                             </div>
                                             <DialogFooter className="flex flex-col gap-3 p-6 pt-0 sm:flex-row">
@@ -390,11 +417,19 @@ export default function WalletPage() {
                             </div>
 
                             {activeWallet?.canTopUp ? (
-                                <div className="mt-6 flex flex-col gap-4 sm:flex-row">
-                                    <Input type="number" placeholder="Enter amount (₦)" className="h-12 max-w-xs border-white/20 bg-white/10 text-white placeholder:text-white/50" value={amount} onChange={(event) => setAmount(event.target.value)} />
-                                    <Button className="h-12 rounded-xl bg-white px-8 text-lg font-bold text-[#F58220] hover:bg-white/90" onClick={handleTopUp} disabled={topupLoading}>
-                                        {topupLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Top up now"}
-                                    </Button>
+                                <div className="mt-6 space-y-4">
+                                    <div className="flex flex-col gap-4 sm:flex-row">
+                                        <Input type="number" placeholder="Wallet credit amount (₦)" className="h-12 max-w-xs border-white/20 bg-white/10 text-white placeholder:text-white/50" value={amount} onChange={(event) => setAmount(event.target.value)} />
+                                        <Button className="h-12 rounded-xl bg-white px-8 text-lg font-bold text-[#F58220] hover:bg-white/90" onClick={handleTopUp} disabled={topupLoading}>
+                                            {topupLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Continue to payment"}
+                                        </Button>
+                                    </div>
+                                    {topupQuote && topupQuote.walletCreditKobo >= 10000 ? <div className="max-w-md space-y-2 rounded-2xl border border-white/15 bg-white/10 p-4 text-sm">
+                                        <div className="flex justify-between"><span>Added to RSS wallet</span><strong>{formatKobo(topupQuote.walletCreditKobo)}</strong></div>
+                                        <div className="flex justify-between"><span>Monnify processing charge</span><span>{formatKobo(topupQuote.processorFeeKobo + topupQuote.processorVatKobo)}</span></div>
+                                        {topupQuote.rssFeeKobo > 0 ? <div className="flex justify-between"><span>RSS service fee</span><span>{formatKobo(topupQuote.rssFeeKobo)}</span></div> : null}
+                                        <div className="flex justify-between border-t border-white/15 pt-2 text-base"><strong>Total to pay</strong><strong>{formatKobo(topupQuote.totalChargeKobo)}</strong></div>
+                                    </div> : null}
                                 </div>
                             ) : (
                                 <div className="mt-6 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-white/90">Role wallets are withdraw-only and are funded automatically by completed-order settlement.</div>
@@ -498,3 +533,4 @@ export default function WalletPage() {
         </div>
     )
 }
+

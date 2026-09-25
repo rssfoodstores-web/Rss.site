@@ -1985,6 +1985,10 @@ export type Database = {
                 Args: Record<PropertyKey, never>
                 Returns: number
             }
+            get_wallet_finance_summary: {
+                Args: Record<PropertyKey, never>
+                Returns: Json
+            }
             get_support_ai_settings: {
                 Args: Record<PropertyKey, never>
                 Returns: Json
@@ -2015,6 +2019,19 @@ export type Database = {
                     description: string
                 }
                 Returns: Json
+            }
+            initiate_wallet_topup: {
+                Args: {
+                    p_wallet_credit_kobo: number
+                    p_reference: string
+                }
+                Returns: Json
+            }
+            cancel_pending_wallet_topup: {
+                Args: {
+                    p_reference: string
+                }
+                Returns: undefined
             }
             initiate_wallet_withdrawal: {
                 Args: {
@@ -2267,4 +2284,5 @@ export type CompositeTypes<
     : PublicCompositeTypeNameOrOptions extends keyof Database["public"]["CompositeTypes"]
     ? Database["public"]["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
+
 

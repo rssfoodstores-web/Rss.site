@@ -15,6 +15,7 @@ import {
     normalizeWalletWithdrawalSettings,
     WALLET_WITHDRAWAL_SETTINGS_KEY,
 } from "@/lib/walletWithdrawalSettings"
+import { DEFAULT_WALLET_FEE_SETTINGS, normalizeWalletFeeSettings } from "@/lib/walletFees"
 
 type WalletType = "customer" | "merchant" | "agent" | "rider"
 
@@ -353,7 +354,7 @@ export async function initializeTopUp(amount: number) {
     let reference: string | null = null
 
     try {
-        const customerWallet = await ensureWalletExists(user.id)
+        await ensureWalletExists(user.id)
 
         reference = `WAL-${crypto.randomUUID()}`
         const amountKobo = Math.round(amount * 100)
@@ -362,50 +363,34 @@ export async function initializeTopUp(amount: number) {
             return { error: "Invalid amount" }
         }
 
-        const { error: transactionError } = await supabase
-            .from("wallet_transactions")
-            .insert({
-                wallet_id: customerWallet.id,
-                amount: amountKobo,
-                type: "credit",
-                status: "pending",
-                reference,
-                description: `Wallet top-up: NGN ${amount.toLocaleString()}`,
-            })
+        const { data: quote, error: quoteError } = await supabase.rpc("initiate_wallet_topup", {
+            p_wallet_credit_kobo: amountKobo,
+            p_reference: reference,
+        })
+        const quoteResult = quote as Record<string, unknown> | null
 
-        if (transactionError) {
-            throw transactionError
+        if (quoteError || !quoteResult?.success) {
+            throw new Error(quoteError?.message ?? String(quoteResult?.error ?? "Unable to create top-up quote"))
         }
 
         const data = await invokeEdgeFunction<{
             checkoutUrl: string
             paymentReference: string
         }>(supabase, "monnify-init-topup", {
-            amount,
-            customerName: String(user.user_metadata?.full_name ?? "Customer"),
-            customerEmail: user.email,
             paymentReference: reference,
-            paymentDescription: `Wallet top-up: NGN ${amount.toLocaleString()}`,
-            redirectPath: `/account/wallet?ref=${reference}`,
-            metadata: {
-                type: "wallet_topup",
-                wallet_id: customerWallet.id,
-                user_kobo_amount: amountKobo,
-            },
         })
 
         return {
             success: true,
             checkoutUrl: data.checkoutUrl,
             reference,
+            quote: quoteResult,
         }
     } catch (error: unknown) {
         if (reference) {
-            const { error: cleanupError } = await supabase
-                .from("wallet_transactions")
-                .delete()
-                .eq("reference", reference)
-                .eq("status", "pending")
+            const { error: cleanupError } = await supabase.rpc("cancel_pending_wallet_topup", {
+                p_reference: reference,
+            })
 
             if (cleanupError) {
                 console.error("Unable to clean up failed top-up reservation:", cleanupError)
@@ -428,6 +413,14 @@ export async function getWalletData() {
     const customerWallet = await ensureWalletExists(user.id)
     const walletWithdrawalSettings = await getWalletWithdrawalSettings(supabase)
     const roleWalletWithdrawal = getRoleWalletWithdrawalAvailability(walletWithdrawalSettings)
+    const { data: feeSettingRow } = await supabase
+        .from("app_settings")
+        .select("value")
+        .eq("key", "wallet_fee_settings")
+        .maybeSingle()
+    const walletFeeSettings = feeSettingRow
+        ? normalizeWalletFeeSettings(feeSettingRow.value)
+        : DEFAULT_WALLET_FEE_SETTINGS
 
     const { data: wallets } = await supabase
         .from("wallets")
@@ -550,6 +543,7 @@ export async function getWalletData() {
         wallets: walletSummaries,
         primaryWalletId: primaryWallet?.id ?? null,
         transactions: primaryWallet?.entries ?? [],
+        walletFeeSettings,
     }
 }
 
