@@ -60,7 +60,6 @@ serve(async (request) => {
     if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders })
 
     try {
-        if (!SOURCE_ACCOUNT_NUMBER) throw new Error("Withdrawal source account is not configured")
         const authorization = request.headers.get("authorization") ?? ""
         if (!authorization.toLowerCase().startsWith("bearer ")) throw new Error("Authentication required")
 
@@ -92,8 +91,21 @@ serve(async (request) => {
             return Response.json({ success: true, status: withdrawal.status, message: "Withdrawal is awaiting confirmation" }, { headers: corsHeaders })
         }
 
-        const accessToken = await getAccessToken()
-        const accountName = await verifyAccount(accessToken, withdrawal.bank_code, withdrawal.account_number)
+        if (!SOURCE_ACCOUNT_NUMBER) {
+            await updateStatus(service, withdrawal.reference, "failed", { message: "Withdrawal source account is not configured" })
+            throw new Error("Withdrawal source account is not configured")
+        }
+
+        let accessToken: string
+        let accountName: string
+        try {
+            accessToken = await getAccessToken()
+            accountName = await verifyAccount(accessToken, withdrawal.bank_code, withdrawal.account_number)
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Unable to verify the destination account"
+            await updateStatus(service, withdrawal.reference, "failed", { message })
+            throw error
+        }
         await updateStatus(service, withdrawal.reference, "submitting", { accountName, message: "Submitting transfer to Monnify" })
 
         let response: Response
