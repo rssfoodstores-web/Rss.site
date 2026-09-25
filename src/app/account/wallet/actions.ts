@@ -597,13 +597,17 @@ export async function initiateWithdrawal(
         return { error: "Not authenticated" }
     }
 
-    if (amount <= 0) {
+    if (!Number.isFinite(amount) || amount < 1000) {
         return { error: "Invalid amount" }
     }
 
     const normalizedAccountNumber = accountNumber.trim()
-    if (!normalizedAccountNumber) {
-        return { error: "Account number is required" }
+    if (!/^\d{10}$/.test(normalizedAccountNumber)) {
+        return { error: "Account number must contain 10 digits" }
+    }
+
+    if (!/^\d{3,10}$/.test(bankCode.trim()) || !bankName.trim()) {
+        return { error: "Select a valid bank" }
     }
 
     const { data: selectedWallet } = await supabase
@@ -617,15 +621,22 @@ export async function initiateWithdrawal(
         return { error: "Wallet not found" }
     }
 
-    const reference = `WIT-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+    const reference = `WIT-${crypto.randomUUID()}`
     const amountKobo = Math.round(amount * 100)
+    if (!Number.isSafeInteger(amountKobo) || amountKobo < 100000) {
+        return { error: "Minimum withdrawal is ₦1,000" }
+    }
     const walletLabel = getWalletLabel(selectedWallet.type as WalletType)
 
     try {
-        await invokeEdgeFunction<{ accountName: string }>(supabase, "monnify-verify-account", {
+        const verifiedAccount = await invokeEdgeFunction<{ accountName: string }>(supabase, "monnify-verify-account", {
             bankCode,
             accountNumber: normalizedAccountNumber,
         })
+
+        if (!verifiedAccount.accountName) {
+            throw new Error("Monnify could not verify this bank account")
+        }
 
         const { data: rpcResult, error: rpcError } = await supabase.rpc("initiate_wallet_withdrawal", {
             p_wallet_id: selectedWallet.id,
@@ -645,48 +656,18 @@ export async function initiateWithdrawal(
             throw new Error(rpcResult.error || "Withdrawal initiation failed")
         }
 
-        try {
-            await invokeEdgeFunction(supabase, "monnify-init-withdrawal", {
-                amount,
-                reference,
-                bankCode,
-                accountNumber: normalizedAccountNumber,
-                narration: `Withdrawal from ${walletLabel}`,
-            })
-        } catch (error: unknown) {
-            const { data: compensationResult, error: compensationError } = await supabase.rpc("refund_failed_withdrawal", {
-                p_reference: reference,
-                p_reason: error instanceof Error ? error.message : "Monnify withdrawal failed",
-            })
-
-            if (compensationError || !compensationResult?.success) {
-                console.error("Withdrawal compensation failed:", compensationError ?? compensationResult)
-                return {
-                    error: "Withdrawal failed and automatic reversal could not be confirmed. Use the reference for manual reconciliation.",
-                    reference,
-                }
-            }
-
-            throw error
-        }
-
-        const { data: markResult, error: markError } = await supabase.rpc("mark_withdrawal_success", {
-            p_reference: reference,
-        })
-
-        if (markError || !markResult?.success) {
-            console.error("Withdrawal finalization failed:", markError ?? markResult)
-            return {
-                error: "Withdrawal was submitted but local finalization failed. Reconcile with the reference before retrying.",
-                reference,
-            }
-        }
+        const withdrawal = await invokeEdgeFunction<{
+            success: boolean
+            status: string
+            message?: string
+        }>(supabase, "monnify-init-withdrawal", { reference })
 
         revalidatePath("/account/wallet")
 
         return {
             success: true,
-            message: "Withdrawal initiated successfully",
+            message: withdrawal.message ?? "Withdrawal submitted for processing",
+            status: withdrawal.status,
             reference,
         }
     } catch (error: unknown) {

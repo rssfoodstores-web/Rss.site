@@ -63,6 +63,29 @@ async function verifyTransaction(paymentReference: string) {
     }
 }
 
+async function verifyDisbursement(reference: string) {
+    const accessToken = await getAccessToken()
+    const url = new URL(`${MONNIFY_API_URL}/api/v2/disbursements/single/summary`)
+    url.searchParams.set("reference", reference)
+    const response = await fetch(url, { headers: { "Authorization": `Bearer ${accessToken}` } })
+    const data = await response.json()
+
+    if (!response.ok || !data?.requestSuccessful || !data?.responseBody) {
+        throw new Error("Unable to verify disbursement with Monnify.")
+    }
+
+    return data.responseBody as {
+        reference?: string
+        amount?: number | string
+        status?: string
+        transactionReference?: string
+        transactionDescription?: string
+        destinationAccountNumber?: string
+        destinationAccountName?: string
+        destinationBankCode?: string
+    }
+}
+
 serve(async (request) => {
     if (request.method === "OPTIONS") {
         return new Response("ok", { headers: corsHeaders })
@@ -84,17 +107,64 @@ serve(async (request) => {
     const body = JSON.parse(bodyText)
     const { eventType, eventData } = body
 
-    if (eventType !== "SUCCESSFUL_TRANSACTION") {
-        return new Response("Ignored", { status: 200, headers: corsHeaders })
-    }
-
-    const paymentReference = eventData?.paymentReference as string | undefined
-    const amountPaid = Number(eventData?.amountPaid ?? 0)
-    const metaData = eventData?.metaData ?? eventData?.meta_data ?? {}
-
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
     try {
+        if (["SUCCESSFUL_DISBURSEMENT", "FAILED_DISBURSEMENT", "REVERSED_DISBURSEMENT"].includes(eventType)) {
+            const reference = String(eventData?.reference ?? "")
+            if (!reference.startsWith("WIT-")) return new Response("Ignored", { status: 200, headers: corsHeaders })
+
+            const { data: withdrawal, error: withdrawalError } = await supabase
+                .from("wallet_withdrawal_requests")
+                .select("reference,amount_kobo,bank_code,account_number")
+                .eq("reference", reference)
+                .single()
+            if (withdrawalError || !withdrawal) return new Response("Withdrawal not found", { status: 400, headers: corsHeaders })
+
+            const verified = await verifyDisbursement(reference)
+            const verifiedAmountKobo = Math.round(Number(verified.amount ?? 0) * 100)
+            const verifiedStatus = String(verified.status ?? "").toUpperCase()
+            if (
+                verified.reference !== reference ||
+                verifiedAmountKobo !== withdrawal.amount_kobo ||
+                verified.destinationAccountNumber !== withdrawal.account_number ||
+                verified.destinationBankCode !== withdrawal.bank_code
+            ) {
+                return new Response("Disbursement validation failed", { status: 400, headers: corsHeaders })
+            }
+
+            const finalStatus = ["SUCCESS", "COMPLETED"].includes(verifiedStatus)
+                ? "success"
+                : verifiedStatus === "REVERSED"
+                    ? "reversed"
+                    : verifiedStatus === "FAILED" || verifiedStatus === "EXPIRED"
+                        ? "failed"
+                        : null
+            if (!finalStatus) return new Response("Disbursement still pending", { status: 200, headers: corsHeaders })
+
+            const { data, error } = await supabase.rpc("update_wallet_withdrawal_status", {
+                p_reference: reference,
+                p_status: finalStatus,
+                p_account_name: verified.destinationAccountName ?? null,
+                p_monnify_reference: verified.transactionReference ?? null,
+                p_message: verified.transactionDescription ?? verifiedStatus,
+            })
+            if (error || !data?.success) {
+                console.error("Disbursement finalization failed", error ?? data)
+                return new Response("Disbursement finalization failed", { status: 500, headers: corsHeaders })
+            }
+
+            return new Response(`Disbursement ${finalStatus}`, { status: 200, headers: corsHeaders })
+        }
+
+        if (eventType !== "SUCCESSFUL_TRANSACTION") {
+            return new Response("Ignored", { status: 200, headers: corsHeaders })
+        }
+
+        const paymentReference = eventData?.paymentReference as string | undefined
+        const amountPaid = Number(eventData?.amountPaid ?? 0)
+        const metaData = eventData?.metaData ?? eventData?.meta_data ?? {}
+
         if (paymentReference?.startsWith("WAL-") || metaData?.type === "wallet_topup") {
             if (!paymentReference) {
                 return new Response("Wallet payment reference missing", { status: 400, headers: corsHeaders })
