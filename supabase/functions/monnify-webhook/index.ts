@@ -96,10 +96,33 @@ serve(async (request) => {
 
     try {
         if (paymentReference?.startsWith("WAL-") || metaData?.type === "wallet_topup") {
-            const amountKobo = Math.round(amountPaid * 100)
+            if (!paymentReference) {
+                return new Response("Wallet payment reference missing", { status: 400, headers: corsHeaders })
+            }
+
+            const verified = await verifyTransaction(paymentReference)
+            const verifiedAmountKobo = Math.round(Number(verified.amountPaid ?? 0) * 100)
+            const webhookAmountKobo = Math.round(amountPaid * 100)
+
+            if (
+                verified.paymentReference !== paymentReference ||
+                verified.paymentStatus !== "PAID" ||
+                verifiedAmountKobo <= 0 ||
+                webhookAmountKobo !== verifiedAmountKobo
+            ) {
+                console.error("Wallet top-up verification failed", {
+                    paymentReference,
+                    verifiedReference: verified.paymentReference,
+                    verifiedStatus: verified.paymentStatus,
+                    verifiedAmountKobo,
+                    webhookAmountKobo,
+                })
+                return new Response("Wallet top-up validation failed", { status: 400, headers: corsHeaders })
+            }
+
             const { error } = await supabase.rpc("handle_wallet_credit", {
                 p_reference: paymentReference,
-                p_amount_kobo: amountKobo,
+                p_amount_kobo: verifiedAmountKobo,
             })
 
             if (error) {
@@ -223,3 +246,4 @@ serve(async (request) => {
         return new Response("Webhook processing failed", { status: 500, headers: corsHeaders })
     }
 })
+

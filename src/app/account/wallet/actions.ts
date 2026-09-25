@@ -346,15 +346,21 @@ export async function initializeTopUp(amount: number) {
         return { error: "Not authenticated" }
     }
 
-    if (amount <= 0) {
+    if (!Number.isFinite(amount) || amount <= 0) {
         return { error: "Invalid amount" }
     }
+
+    let reference: string | null = null
 
     try {
         const customerWallet = await ensureWalletExists(user.id)
 
-        const reference = `WAL-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+        reference = `WAL-${crypto.randomUUID()}`
         const amountKobo = Math.round(amount * 100)
+
+        if (!Number.isSafeInteger(amountKobo) || amountKobo <= 0) {
+            return { error: "Invalid amount" }
+        }
 
         const { error: transactionError } = await supabase
             .from("wallet_transactions")
@@ -394,6 +400,18 @@ export async function initializeTopUp(amount: number) {
             reference,
         }
     } catch (error: unknown) {
+        if (reference) {
+            const { error: cleanupError } = await supabase
+                .from("wallet_transactions")
+                .delete()
+                .eq("reference", reference)
+                .eq("status", "pending")
+
+            if (cleanupError) {
+                console.error("Unable to clean up failed top-up reservation:", cleanupError)
+            }
+        }
+
         console.error("Top-up initialization error:", error)
         return { error: error instanceof Error ? error.message : "Unable to initialize top-up" }
     }
@@ -676,3 +694,4 @@ export async function initiateWithdrawal(
         return { error: error instanceof Error ? error.message : "Unable to initiate withdrawal" }
     }
 }
+
