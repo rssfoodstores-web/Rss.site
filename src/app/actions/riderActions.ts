@@ -8,6 +8,37 @@ interface RiderActionResult {
     message?: string
 }
 
+export async function reportDeliveryIssue(
+    orderId: string,
+    action: "failed" | "reschedule" | "return_to_merchant",
+    reason: string,
+    scheduledAt?: string | null,
+): Promise<RiderActionResult> {
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc("rider_report_delivery_issue", {
+        p_order_id: orderId,
+        p_action: action,
+        p_reason: reason.trim(),
+        p_scheduled_at: scheduledAt ?? null,
+    })
+
+    if (error) {
+        console.error("rider_report_delivery_issue RPC error:", error)
+        return { success: false, message: error.message }
+    }
+
+    if (!data?.success) {
+        return { success: false, message: data?.error ?? "Unable to update delivery status." }
+    }
+
+    revalidatePath("/rider")
+    revalidatePath("/rider/deliveries")
+    revalidatePath("/merchant/orders")
+    revalidatePath(`/merchant/orders/${orderId}`)
+    revalidatePath(`/account/orders/${orderId}`)
+    return { success: true, message: data.message ?? "Delivery status updated." }
+}
+
 export async function acceptOrder(orderId: string, riderId: string): Promise<RiderActionResult> {
     const supabase = await createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -182,3 +213,4 @@ export async function saveFCMToken(token: string) {
 
     return { success: true }
 }
+
