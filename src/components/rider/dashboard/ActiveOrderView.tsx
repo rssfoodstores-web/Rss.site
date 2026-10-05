@@ -14,7 +14,7 @@ import { useState } from "react"
 import { motion } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { formatKobo } from "@/lib/money"
-import { buildOpenStreetMapNavigationUrl, parseCoordinates, type Coordinates } from "@/lib/directions"
+import { buildRiderNavigationUrl, parseCoordinates, type Coordinates } from "@/lib/directions"
 import { formatOrderStatus, getOrderStatusTone } from "@/lib/orders"
 import { RiderRouteMap } from "@/components/rider/dashboard/RiderRouteMap"
 
@@ -28,6 +28,8 @@ interface ActiveOrderViewProps {
     order: Order
     merchant: { name: string; address: string; phone: string | null; location?: unknown | null } | null
     currentLocation?: Coordinates | null
+    gpsAccuracy?: number | null
+    gpsUpdatedAt?: number | null
 }
 
 function normalizeDeliveryContacts(value: unknown): string[] {
@@ -63,7 +65,7 @@ function deliveryAddressLabel(value: unknown): string | null {
     return addressLabel || null
 }
 
-export function ActiveOrderView({ order, merchant, currentLocation = null }: ActiveOrderViewProps) {
+export function ActiveOrderView({ order, merchant, currentLocation = null, gpsAccuracy = null, gpsUpdatedAt = null }: ActiveOrderViewProps) {
     const [deliveryOtp, setDeliveryOtp] = useState("")
     const [loading, setLoading] = useState(false)
     const [releasing, setReleasing] = useState(false)
@@ -110,8 +112,11 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
     const callPhone = isPickupPhase ? merchant?.phone ?? null : customerContacts[0] ?? null
     const activeDestination = isPickupPhase ? merchantCoordinates : deliveryCoordinates
     const navigationUrl = activeDestination
-        ? buildOpenStreetMapNavigationUrl(activeDestination, currentLocation)
+        ? buildRiderNavigationUrl(activeDestination, currentLocation, typeof navigator !== "undefined" ? navigator.userAgent : "")
         : null
+    const gpsAgeSeconds = gpsUpdatedAt ? Math.max(0, Math.round((Date.now() - gpsUpdatedAt) / 1000)) : null
+    const gpsIsStale = gpsAgeSeconds === null || gpsAgeSeconds > 60
+    const gpsIsPoor = gpsAccuracy !== null && gpsAccuracy > 100
 
     const handleCall = () => {
         if (!callPhone) {
@@ -204,6 +209,12 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
+                    <div className={`rounded-lg border p-3 text-sm ${gpsIsStale || gpsIsPoor ? "border-amber-300 bg-amber-50 text-amber-900" : "border-green-200 bg-green-50 text-green-900"}`}>
+                        <p className="font-semibold">{gpsIsStale ? "GPS location needs attention" : gpsIsPoor ? "GPS accuracy is poor" : "GPS location is active"}</p>
+                        <p className="mt-1 text-xs">
+                            {gpsIsStale ? "Keep this page open and enable precise location services." : gpsIsPoor ? `Accuracy is approximately ${Math.round(gpsAccuracy ?? 0)} metres. Move outdoors or enable precise GPS.` : `Accuracy is approximately ${Math.round(gpsAccuracy ?? 0)} metres.`}
+                        </p>
+                    </div>
                     <div className="space-y-4">
                         <div className="flex items-start gap-3">
                             <MapPin className="h-5 w-5 text-[#F58220] mt-1 shrink-0" />
