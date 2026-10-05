@@ -15,6 +15,15 @@ export function buildOpenStreetMapNavigationUrl(
     return `https://www.openstreetmap.org/?mlat=${destination.lat}&mlon=${destination.lng}#map=18/${destination.lat}/${destination.lng}`
 }
 
+export function buildRiderNavigationUrl(destination: Coordinates, origin?: Coordinates | null, userAgent = ""): string {
+    const destinationText = `${destination.lat},${destination.lng}`
+    const originText = origin ? `${origin.lat},${origin.lng}` : ""
+    if (/iphone|ipad|ipod/i.test(userAgent)) {
+        return `https://maps.apple.com/?daddr=${encodeURIComponent(destinationText)}${origin ? `&saddr=${encodeURIComponent(originText)}` : ""}&dirflg=d`
+    }
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destinationText)}${origin ? `&origin=${encodeURIComponent(originText)}` : ""}&travelmode=driving`
+}
+
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === "number" && Number.isFinite(value)
 }
