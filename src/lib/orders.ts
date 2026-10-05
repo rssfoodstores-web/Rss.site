@@ -10,6 +10,10 @@ export type OrderStatus =
     | "cancelled"
     | "disputed"
     | "refunded"
+    | "delivery_failed"
+    | "rescheduled"
+    | "return_in_transit"
+    | "returned_to_merchant"
 
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded"
 export type SettlementStatus = "pending" | "completed" | "failed" | "refunded" | "disputed"
@@ -26,6 +30,10 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
     cancelled: "Cancelled",
     disputed: "Disputed",
     refunded: "Refunded",
+    delivery_failed: "Delivery failed",
+    rescheduled: "Rescheduled",
+    return_in_transit: "Returning to merchant",
+    returned_to_merchant: "Returned to merchant",
 }
 
 const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
@@ -77,6 +85,14 @@ export function getOrderOperationalHint(
             return "This order is currently under dispute review."
         case "refunded":
             return "This order has been refunded."
+        case "delivery_failed":
+            return "Delivery could not be completed. Review the reason and choose the next action."
+        case "rescheduled":
+            return "Delivery has been rescheduled."
+        case "return_in_transit":
+            return "The rider is returning this order to the merchant."
+        case "returned_to_merchant":
+            return "The merchant has received the returned order."
         default:
             return null
     }
@@ -105,7 +121,13 @@ export function getOrderStatusTone(status: string | null | undefined): string {
         case "refunded":
             return "text-red-600 bg-red-50 border-red-100 dark:bg-red-900/10 dark:border-red-900"
         case "disputed":
+        case "delivery_failed":
+        case "return_in_transit":
             return "text-amber-700 bg-amber-50 border-amber-100 dark:bg-amber-900/10 dark:border-amber-900"
+        case "rescheduled":
+            return "text-orange-600 bg-orange-50 border-orange-100 dark:bg-orange-900/10 dark:border-orange-900"
+        case "returned_to_merchant":
+            return "text-blue-600 bg-blue-50 border-blue-100 dark:bg-blue-900/10 dark:border-blue-900"
         case "out_for_delivery":
         case "ready_for_pickup":
             return "text-blue-600 bg-blue-50 border-blue-100 dark:bg-blue-900/10 dark:border-blue-900"
@@ -165,3 +187,4 @@ export function getSettlementTone(status: string | null | undefined): string {
             return "text-gray-600 bg-gray-100 border-gray-200 dark:bg-zinc-800 dark:border-zinc-700"
     }
 }
+
