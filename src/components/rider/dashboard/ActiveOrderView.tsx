@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { MapPin, Phone, MessageSquare, Box, Truck, XCircle, Navigation } from "lucide-react"
 import type { Database } from "@/types/database.types"
-import { releaseStalePickup, verifyDelivery } from "@/app/actions/riderActions"
+import { releaseStalePickup, reportDeliveryIssue, verifyDelivery } from "@/app/actions/riderActions"
 import { toast } from "sonner"
 import { useState } from "react"
 import { motion } from "framer-motion"
@@ -67,6 +67,7 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
     const [deliveryOtp, setDeliveryOtp] = useState("")
     const [loading, setLoading] = useState(false)
     const [releasing, setReleasing] = useState(false)
+    const [issueLoading, setIssueLoading] = useState(false)
     const router = useRouter()
 
     const currentStatus = String(order.status)
@@ -144,6 +145,31 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
             toast.error(error instanceof Error ? error.message : "Unable to release pickup assignment.")
         } finally {
             setReleasing(false)
+        }
+    }
+
+    const handleDeliveryIssue = async (action: "failed" | "reschedule" | "return_to_merchant") => {
+        const labels = { failed: "failed delivery", reschedule: "rescheduling", return_to_merchant: "return to merchant" }
+        const reason = window.prompt(`Reason for ${labels[action]}:`)?.trim()
+        if (!reason) return
+        const scheduledAt = action === "reschedule"
+            ? window.prompt("New delivery date and time (for example 2026-10-06 14:00):")?.trim() ?? null
+            : null
+        if (action === "reschedule" && !scheduledAt) return
+
+        setIssueLoading(true)
+        try {
+            const result = await reportDeliveryIssue(order.id, action, reason, scheduledAt)
+            if (result.success) {
+                toast.success(result.message)
+                router.refresh()
+            } else {
+                toast.error(result.message ?? "Unable to update delivery status.")
+            }
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Unable to update delivery status.")
+        } finally {
+            setIssueLoading(false)
         }
     }
 
@@ -306,6 +332,17 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
                             >
                                 {loading ? "Verifying..." : "Complete Delivery"}
                             </Button>
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                <Button variant="outline" className="text-xs" onClick={() => handleDeliveryIssue("failed")} disabled={issueLoading || loading}>
+                                    Report failed delivery
+                                </Button>
+                                <Button variant="outline" className="text-xs" onClick={() => handleDeliveryIssue("reschedule")} disabled={issueLoading || loading}>
+                                    Reschedule
+                                </Button>
+                                <Button variant="outline" className="text-xs text-red-700" onClick={() => handleDeliveryIssue("return_to_merchant")} disabled={issueLoading || loading}>
+                                    Return to merchant
+                                </Button>
+                            </div>
                         </div>
                     )}
                 </CardContent>
