@@ -32,7 +32,8 @@ export default async function OrderDetailPage({ params }: { params: { id: string
             rider:rider_id (
                 full_name,
                 phone,
-                avatar_url
+                avatar_url,
+                location
             ),
             agent:assigned_agent_id (
                 full_name,
@@ -62,3 +63,4 @@ export default async function OrderDetailPage({ params }: { params: { id: string
         />
     )
 }
+
