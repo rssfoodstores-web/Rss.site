@@ -16,11 +16,14 @@ import { Package, CheckCircle2, MapPin, MessageSquare, Phone, User, ChevronLeft 
 import { cn } from "@/lib/utils"
 import { formatKobo } from "@/lib/money"
 import { formatOrderStatus, formatPaymentStatus, getCustomerOrderTimeline, getOrderStatusTone, getPaymentStatusTone } from "@/lib/orders"
+import { parseCoordinates } from "@/lib/directions"
+import { RiderRouteMap } from "@/components/rider/dashboard/RiderRouteMap"
 
 interface OrderPerson {
     full_name: string | null
     phone: string | null
     avatar_url: string | null
+    location?: unknown | null
 }
 
 interface OrderItemProduct {
@@ -44,6 +47,7 @@ interface OrderDeliveryLocation {
 interface OrderDetail {
     delivery_fee_kobo: number | null
     id: string
+    rider_id?: string | null
     payment_status: string | null
     points_discount_kobo: number | null
     points_redeemed: number | null
@@ -70,6 +74,18 @@ export function OrderDetailClient({ order, user }: OrderDetailClientProps) {
     const [supabase] = useState(() => createClient())
     const router = useRouter()
     const [isCancelling, startCancelling] = useTransition()
+    const [riderLocation, setRiderLocation] = useState(() => parseCoordinates(order.rider?.location ?? null))
+
+    useEffect(() => {
+        if (!order.rider || !["out_for_delivery", "delivered", "completed"].includes(order.status)) return
+        const refreshLocation = async () => {
+            const { data } = await supabase.from("profiles").select("location").eq("id", order.rider_id ?? "").maybeSingle()
+            if (data?.location) setRiderLocation(parseCoordinates(data.location))
+        }
+        void refreshLocation()
+        const timer = window.setInterval(() => void refreshLocation(), 15000)
+        return () => window.clearInterval(timer)
+    }, [order, supabase])
 
     useEffect(() => {
         const channel = supabase
@@ -156,6 +172,24 @@ export function OrderDetailClient({ order, user }: OrderDetailClientProps) {
                             deliveryCode={order.delivery_code}
                             status={order.status}
                         />
+
+                        {order.rider && ["out_for_delivery", "delivered", "completed"].includes(order.status) ? (
+                            <Card className="border-gray-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                                <CardHeader>
+                                    <CardTitle className="text-lg">Live delivery tracking</CardTitle>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400">Showing the assigned rider’s approximate location.</p>
+                                </CardHeader>
+                                <CardContent>
+                                    <RiderRouteMap
+                                        riderLocation={riderLocation}
+                                        dropoffLocation={parseCoordinates(order.delivery_location)}
+                                        pickupLabel="Merchant pickup"
+                                        dropoffLabel="Your delivery location"
+                                        activeStop="dropoff"
+                                    />
+                                </CardContent>
+                            </Card>
+                        ) : null}
 
                         {/* 1.5 Rate Order Widget (When Delivered) */}
                         {(order.status === 'delivered' || order.status === 'completed') && (
@@ -389,3 +423,4 @@ export function OrderDetailClient({ order, user }: OrderDetailClientProps) {
         </div>
     )
 }
+
