@@ -101,6 +101,8 @@ export function RiderMissionControl({
     const [supabase] = useState(() => createClient())
     const [isOnline, setIsOnline] = useState(true)
     const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+    const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null)
+    const [gpsUpdatedAt, setGpsUpdatedAt] = useState<number | null>(null)
     const [nearbyOrders, setNearbyOrders] = useState<NearbyOrderCard[]>(() =>
         initialOrders.map((order) => ({
             id: order.id,
@@ -208,6 +210,8 @@ export function RiderMissionControl({
 
                     const { latitude, longitude } = position.coords
                     setUserLocation({ lat: latitude, lng: longitude })
+                    setGpsAccuracy(Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null)
+                    setGpsUpdatedAt(Date.now())
                     hasShownLocationFallback.current = false
                     await updateRiderLocation(latitude, longitude)
                 },
@@ -218,7 +222,7 @@ export function RiderMissionControl({
 
                     handleLocationFailure(message)
                 },
-                { enableHighAccuracy: false, maximumAge: 30000, timeout: 20000 }
+                { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
             )
         } else {
             handleLocationFailure("Geolocation is not supported on this device.")
@@ -475,7 +479,7 @@ export function RiderMissionControl({
                         </div>
 
                         {selectedOrder ? (
-                            <ActiveOrderView order={selectedOrder} merchant={selectedMerchant} currentLocation={userLocation} />
+                            <ActiveOrderView order={selectedOrder} merchant={selectedMerchant} currentLocation={userLocation} gpsAccuracy={gpsAccuracy} gpsUpdatedAt={gpsUpdatedAt} />
                         ) : (
                             <Card className="border-dashed">
                                 <CardContent className="p-10 text-center text-muted-foreground">
@@ -571,3 +575,4 @@ export function RiderMissionControl({
         </div>
     )
 }
+
