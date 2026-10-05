@@ -2174,6 +2174,10 @@ export type Database = {
                 "cancelled",
                 "disputed",
                 "refunded"
+                ,"delivery_failed"
+                ,"rescheduled"
+                ,"return_in_transit"
+                ,"returned_to_merchant"
             ]
             payment_status: ["pending", "paid", "failed", "refunded"]
             point_transaction_type: [
