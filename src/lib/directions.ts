@@ -3,6 +3,18 @@ export interface Coordinates {
     lng: number
 }
 
+export function buildOpenStreetMapNavigationUrl(
+    destination: Coordinates,
+    origin?: Coordinates | null
+): string {
+    if (origin) {
+        const route = `${origin.lat},${origin.lng};${destination.lat},${destination.lng}`
+        return `https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=${encodeURIComponent(route)}`
+    }
+
+    return `https://www.openstreetmap.org/?mlat=${destination.lat}&mlon=${destination.lng}#map=18/${destination.lat}/${destination.lng}`
+}
+
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === "number" && Number.isFinite(value)
 }
@@ -125,3 +137,4 @@ export function parseCoordinates(value: unknown): Coordinates | null {
 
     return null
 }
+

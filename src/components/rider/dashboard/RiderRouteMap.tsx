@@ -66,12 +66,11 @@ export function RiderRouteMap({
     const dropoffMarkerRef = useRef<LeafletMarkerInstance | null>(null)
     const routeLineRef = useRef<LeafletPolylineInstance | null>(null)
 
-    const routePoints = useMemo(
-        () => [riderLocation, pickupLocation, dropoffLocation].filter(Boolean) as Coordinates[],
-        [dropoffLocation, pickupLocation, riderLocation]
-    )
-
     const activeLocation = activeStop === "pickup" ? pickupLocation : dropoffLocation
+    const routePoints = useMemo(
+        () => [riderLocation, activeLocation].filter(Boolean) as Coordinates[],
+        [activeLocation, riderLocation]
+    )
     const fallbackLocation = activeLocation ?? riderLocation ?? pickupLocation ?? dropoffLocation
 
     const centerRoute = useCallback(() => {
@@ -144,7 +143,7 @@ export function RiderRouteMap({
             riderMarkerRef.current = null
         }
 
-        if (pickupLocation) {
+        if (pickupLocation && activeStop === "pickup") {
             const latLng = toLatLng(pickupLocation)
             if (pickupMarkerRef.current) {
                 pickupMarkerRef.current.setLatLng(latLng)
@@ -157,7 +156,7 @@ export function RiderRouteMap({
             pickupMarkerRef.current = null
         }
 
-        if (dropoffLocation) {
+        if (dropoffLocation && activeStop === "dropoff") {
             const latLng = toLatLng(dropoffLocation)
             if (dropoffMarkerRef.current) {
                 dropoffMarkerRef.current.setLatLng(latLng)
@@ -188,7 +187,7 @@ export function RiderRouteMap({
         }
 
         centerRoute()
-    }, [centerRoute, dropoffLabel, dropoffLocation, mapLoaded, pickupLabel, pickupLocation, riderLocation, routePoints])
+    }, [activeStop, centerRoute, dropoffLabel, dropoffLocation, mapLoaded, pickupLabel, pickupLocation, riderLocation, routePoints])
 
     useEffect(() => {
         return () => {
@@ -237,3 +236,4 @@ export function RiderRouteMap({
         </div>
     )
 }
+

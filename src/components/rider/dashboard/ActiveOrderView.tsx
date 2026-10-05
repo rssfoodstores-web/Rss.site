@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { MapPin, Phone, MessageSquare, Box, Truck, XCircle } from "lucide-react"
+import { MapPin, Phone, MessageSquare, Box, Truck, XCircle, Navigation } from "lucide-react"
 import type { Database } from "@/types/database.types"
 import { releaseStalePickup, verifyDelivery } from "@/app/actions/riderActions"
 import { toast } from "sonner"
@@ -14,7 +14,7 @@ import { useState } from "react"
 import { motion } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { formatKobo } from "@/lib/money"
-import { parseCoordinates, type Coordinates } from "@/lib/directions"
+import { buildOpenStreetMapNavigationUrl, parseCoordinates, type Coordinates } from "@/lib/directions"
 import { formatOrderStatus, getOrderStatusTone } from "@/lib/orders"
 import { RiderRouteMap } from "@/components/rider/dashboard/RiderRouteMap"
 
@@ -28,6 +28,39 @@ interface ActiveOrderViewProps {
     order: Order
     merchant: { name: string; address: string; phone: string | null; location?: unknown | null } | null
     currentLocation?: Coordinates | null
+}
+
+function normalizeDeliveryContacts(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+        return []
+    }
+
+    return Array.from(new Set(
+        value
+            .filter((item): item is string => typeof item === "string")
+            .map((item) => item.trim())
+            .filter(Boolean)
+    )).slice(0, 3)
+}
+
+function phoneHref(value: string): string | null {
+    const normalized = value.replace(/[^\d+]/g, "")
+    if (!/^\+?\d{7,15}$/.test(normalized)) {
+        return null
+    }
+
+    return `tel:${normalized}`
+}
+
+function deliveryAddressLabel(value: unknown): string | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null
+    }
+
+    const snapshot = value as Record<string, unknown>
+    const addressLabel = typeof snapshot.address_label === "string" ? snapshot.address_label.trim() : ""
+
+    return addressLabel || null
 }
 
 export function ActiveOrderView({ order, merchant, currentLocation = null }: ActiveOrderViewProps) {
@@ -66,12 +99,18 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
 
     const deliveryCoordinates = parseCoordinates(order.delivery_location)
     const merchantCoordinates = parseCoordinates(merchant?.location ?? null)
-    let deliveryAddress = "Customer location shared after claim"
-    if (deliveryCoordinates) {
-        deliveryAddress = `Lat ${deliveryCoordinates.lat.toFixed(4)}, Lng ${deliveryCoordinates.lng.toFixed(4)}`
-    }
+    const savedDeliveryAddress = deliveryAddressLabel(order.delivery_address_snapshot)
+    const deliveryAddress = savedDeliveryAddress
+        ?? (deliveryCoordinates
+            ? `Pinned location: ${deliveryCoordinates.lat.toFixed(5)}, ${deliveryCoordinates.lng.toFixed(5)}`
+            : "Customer location is unavailable")
 
-    const callPhone = isPickupPhase ? merchant?.phone ?? null : null
+    const customerContacts = normalizeDeliveryContacts(order.contact_numbers)
+    const callPhone = isPickupPhase ? merchant?.phone ?? null : customerContacts[0] ?? null
+    const activeDestination = isPickupPhase ? merchantCoordinates : deliveryCoordinates
+    const navigationUrl = activeDestination
+        ? buildOpenStreetMapNavigationUrl(activeDestination, currentLocation)
+        : null
 
     const handleCall = () => {
         if (!callPhone) {
@@ -79,7 +118,13 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
             return
         }
 
-        window.location.href = `tel:${callPhone}`
+        const href = phoneHref(callPhone)
+        if (!href) {
+            toast.error("This phone number is not valid.")
+            return
+        }
+
+        window.location.href = href
     }
 
     const handleReleasePickup = async () => {
@@ -148,6 +193,21 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
                         <div className="flex gap-2 pl-8">
                             <Button
                                 size="sm"
+                                className="h-8 bg-[#F58220] text-xs text-white hover:bg-[#E57210]"
+                                asChild={Boolean(navigationUrl)}
+                                disabled={!navigationUrl}
+                            >
+                                {navigationUrl ? (
+                                    <a href={navigationUrl} target="_blank" rel="noreferrer">
+                                        <Navigation className="mr-2 h-3 w-3" />
+                                        {isPickupPhase ? "Navigate to merchant" : "Navigate to customer"}
+                                    </a>
+                                ) : (
+                                    <span><Navigation className="mr-2 h-3 w-3" />Location unavailable</span>
+                                )}
+                            </Button>
+                            <Button
+                                size="sm"
                                 variant="outline"
                                 className="h-8 text-xs"
                                 onClick={handleCall}
@@ -163,6 +223,32 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
                                 </Link>
                             </Button>
                         </div>
+                        {!isPickupPhase && customerContacts.length > 0 ? (
+                            <div className="ml-8 rounded-xl border border-green-200 bg-green-50/70 p-3 dark:border-green-900/40 dark:bg-green-950/20">
+                                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-green-800 dark:text-green-200">
+                                    Delivery contacts
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                    {customerContacts.map((number, index) => {
+                                        const href = phoneHref(number)
+
+                                        return href ? (
+                                            <a
+                                                key={`${number}-${index}`}
+                                                href={href}
+                                                className="rounded-full border border-green-200 bg-white px-3 py-1.5 text-sm font-semibold text-green-800 hover:bg-green-100 dark:border-green-800 dark:bg-green-950/40 dark:text-green-100"
+                                            >
+                                                {index === 0 ? "Primary: " : `Alternative ${index}: `}{number}
+                                            </a>
+                                        ) : (
+                                            <span key={`${number}-${index}`} className="rounded-full border border-red-200 px-3 py-1.5 text-sm text-red-700">
+                                                Invalid number: {number}
+                                            </span>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        ) : null}
                         <RiderRouteMap
                             riderLocation={currentLocation}
                             pickupLocation={merchantCoordinates}
@@ -241,3 +327,4 @@ export function ActiveOrderView({ order, merchant, currentLocation = null }: Act
         </div>
     )
 }
+
