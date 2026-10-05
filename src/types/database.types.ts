@@ -956,6 +956,7 @@ export type Database = {
                     created_at: string | null
                     customer_id: string
                     delivery_code: string | null
+                    delivery_address_snapshot: Json | null
                     delivery_fee: number | null
                     delivery_fee_kobo: number
                     delivery_location: Json | null
@@ -985,6 +986,7 @@ export type Database = {
                     created_at?: string | null
                     customer_id: string
                     delivery_code?: string | null
+                    delivery_address_snapshot?: Json | null
                     delivery_fee?: number | null
                     delivery_fee_kobo?: number
                     delivery_location?: Json | null
@@ -1014,6 +1016,7 @@ export type Database = {
                     created_at?: string | null
                     customer_id?: string
                     delivery_code?: string | null
+                    delivery_address_snapshot?: Json | null
                     delivery_fee?: number | null
                     delivery_fee_kobo?: number
                     delivery_location?: Json | null
@@ -2284,5 +2287,6 @@ export type CompositeTypes<
     : PublicCompositeTypeNameOrOptions extends keyof Database["public"]["CompositeTypes"]
     ? Database["public"]["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
+
 
 
