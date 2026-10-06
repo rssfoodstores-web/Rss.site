@@ -10,8 +10,11 @@ type LivenessStep = "ready" | "blink" | "open_mouth" | "turn_head" | "stay_still
 type Status = "idle" | "loading_camera" | "loading_model" | "ready" | "error"
 type FaceResult = { faceLandmarks?: Array<Array<{ x: number }>>; faceBlendshapes?: Array<{ categories?: Array<{ categoryName?: string; score?: number }> }> }
 type Landmarker = { detectForVideo: (video: HTMLVideoElement, timestamp: number) => FaceResult; close?: () => void }
+// Keep the verification runtime on the same origin as the app. Relying on a
+// third party CDN made camera verification fail on phones and restricted
+// networks even when camera permission had already been granted.
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
-const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm"
+const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm"
 
 function cameraErrorMessage(error: unknown) {
     const name = error instanceof DOMException ? error.name : ""
