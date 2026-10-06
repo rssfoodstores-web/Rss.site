@@ -333,7 +333,7 @@ export default function WalletPage() {
                             </div>
                         </section>
 
-                        <section className="rounded-3xl bg-[#F58220] p-6 text-white shadow-lg shadow-orange-500/20 lg:p-8">
+                        <section className="rounded-3xl bg-[#F58220] p-6 text-white shadow-lg shadow-orange-500/20 lg:p-8">\n                            <div className="mb-5 rounded-2xl border border-white/20 bg-white/10 p-4"><h2 className="text-lg font-extrabold">Choose what you want to do</h2><p className="mt-1 text-sm text-white/85">Add money to use on RSS, or send money from your wallet to your bank.</p></div>
                             <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
                                 <div>
                                     <div className="flex items-center gap-2 text-sm text-white/80">
@@ -369,9 +369,9 @@ export default function WalletPage() {
                                         </DialogTrigger>
                                         <DialogContent className="sm:max-w-[440px] rounded-3xl border-gray-200 bg-white p-0 dark:border-zinc-800 dark:bg-zinc-900">
                                             <DialogHeader className="p-6 pb-0">
-                                                <DialogTitle className="text-xl font-bold">Withdraw funds</DialogTitle>
+                                                <DialogTitle className="text-xl font-bold">Send money to your bank</DialogTitle>
                                                 <DialogDescription>
-                                                    Transfer money from your {activeWallet?.label?.toLowerCase() || "wallet"} to your verified bank account.
+                                                    This sends money out of your RSS wallet to your verified bank account.
                                                 </DialogDescription>
                                             </DialogHeader>
                                             <div className="space-y-5 p-6">
