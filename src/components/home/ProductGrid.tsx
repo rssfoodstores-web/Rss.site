@@ -408,7 +408,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                                     key={category.label}
                                     href={href}
                                     className={cn(
-                                        "whitespace-nowrap rounded-full border px-4 py-2 text-sm font-semibold transition-colors",
+                                        "shrink-0 whitespace-nowrap rounded-full border px-4 py-2 text-sm font-semibold transition-colors touch-manipulation",
                                         isActive
                                             ? "border-[#F58220] bg-[#F58220] text-white"
                                             : "border-gray-200 bg-white text-gray-600 hover:border-orange-200 hover:text-[#F58220] dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300"
