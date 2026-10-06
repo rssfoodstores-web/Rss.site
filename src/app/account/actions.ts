@@ -59,7 +59,7 @@ export async function updateProfileDetailed(formData: FormData) {
 
     const hasField = (field: string) => formData.has(field)
 
-    const explicitFullName = getOptionalText("fullName")
+    const explicitFullName = getOptionalText("fullName")\n    const email = getOptionalText("email")\n    if (hasField("email") && email && email.toLowerCase() !== (user.email ?? "").toLowerCase()) {\n        if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {\n            return { error: "Please enter a valid email address." }\n        }\n        const { error } = await supabase.auth.updateUser({ email })\n        if (error) return { error: error.message }\n    }
     const firstName = getOptionalText("first_name")
     const lastName = getOptionalText("last_name")
     const combinedFullName = [firstName, lastName]
