@@ -96,11 +96,12 @@ export function AddProductModal() {
 
         setIsSubmitting(true)
         try {
-            await createProduct({
+            const result = await createProduct({
                 ...values,
                 images,
                 image_url: images[0] // Primary image
             })
+            if (!result.ok) throw new Error(result.error)
             toast.success("Product created! Waiting for approval.")
             setOpen(false)
             form.reset()
@@ -268,3 +269,4 @@ export function AddProductModal() {
         </Dialog>
     )
 }
+

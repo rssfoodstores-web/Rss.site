@@ -257,10 +257,12 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
             }
 
             if (isEditing && initialData?.id) {
-                await updateProduct(initialData.id, payload)
+                const result = await updateProduct(initialData.id, payload)
+                if (!result.ok) throw new Error(result.error)
                 toast.success("Product updated successfully")
             } else {
-                await createProduct(payload)
+                const result = await createProduct(payload)
+                if (!result.ok) throw new Error(result.error)
                 toast.success("Product submitted for review")
             }
             router.push("/merchant/products")
@@ -1149,3 +1151,4 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
         </div >
     )
 }
+
