@@ -406,7 +406,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                             return (
                                 <Link
                                     key={category.label}
-                                    href={href}
+                                    href={href}\n                                    onClick={(event) => { event.preventDefault(); window.location.assign(href) }}
                                     className={cn(
                                         "shrink-0 whitespace-nowrap rounded-full border px-4 py-2 text-sm font-semibold transition-colors touch-manipulation",
                                         isActive
