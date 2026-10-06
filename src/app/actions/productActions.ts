@@ -13,6 +13,33 @@ type ProductInput = Record<string, unknown> & {
     categories?: string[]
 }
 
+export type ProductActionResult =
+    | { ok: true; productId?: string }
+    | { ok: false; error: string; code?: string }
+
+function productActionError(error: unknown, operation: string): ProductActionResult {
+    const value = error as { code?: string; message?: string; details?: string; hint?: string }
+    const code = typeof value?.code === "string" ? value.code : undefined
+    const detail = typeof value?.message === "string" ? value.message : "Unknown server error"
+
+    console.error(`[product:${operation}]`, {
+        code,
+        message: detail,
+        details: value?.details,
+        hint: value?.hint,
+    })
+
+    if (error instanceof Error && error.message === "Unauthorized") {
+        return { ok: false, error: "Your session has expired. Sign in again and retry." }
+    }
+
+    return {
+        ok: false,
+        error: `Product ${operation} failed${code ? ` (${code})` : ""}: ${detail}`,
+        code,
+    }
+}
+
 function assertPositiveAmount(amount: number, label: string) {
     if (!Number.isFinite(amount) || amount <= 0) {
         throw new Error(`${label} must be greater than 0.`)
@@ -124,64 +151,57 @@ async function createMerchantPriceInput(productId: string, merchantId: string, a
     }
 }
 
-export async function createProduct(data: ProductInput) {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+export async function createProduct(data: ProductInput): Promise<ProductActionResult> {
+    try {
+        const supabase = await createClient()
+        const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user) {
-        throw new Error("Unauthorized")
+        if (!user) throw new Error("Unauthorized")
+        await assertMerchantCanPostProducts(supabase, user.id)
+
+        const productPayload = buildProductPayload(data)
+        const { data: product, error } = await supabase
+            .from("products")
+            .insert({ ...productPayload, merchant_id: user.id })
+            .select("id, merchant_id, name, price")
+            .single()
+
+        if (error || !product) throw error ?? new Error("Product insert returned no row")
+        await createMerchantPriceInput(product.id, user.id, product.price)
+
+        revalidatePath("/merchant/products")
+        revalidatePath("/merchant/products/add")
+        return { ok: true, productId: product.id }
+    } catch (error) {
+        return productActionError(error, "creation")
     }
-
-    await assertMerchantCanPostProducts(supabase, user.id)
-
-    const productPayload = buildProductPayload(data)
-
-    const { data: product, error } = await supabase
-        .from("products")
-        .insert({
-            ...productPayload,
-            merchant_id: user.id,
-        })
-        .select("id, merchant_id, name, price")
-        .single()
-
-    if (error || !product) {
-        throw new Error(toReadableProductError(error, "Failed to create product."))
-    }
-
-    await createMerchantPriceInput(product.id, user.id, product.price)
-
-    revalidatePath("/merchant/products")
-    revalidatePath("/merchant/products/add")
 }
 
-export async function updateProduct(id: string, data: ProductInput) {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+export async function updateProduct(id: string, data: ProductInput): Promise<ProductActionResult> {
+    try {
+        const supabase = await createClient()
+        const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user) {
-        throw new Error("Unauthorized")
+        if (!user) throw new Error("Unauthorized")
+        const productPayload = buildProductPayload(data)
+        const { data: product, error } = await supabase
+            .from("products")
+            .update(productPayload)
+            .eq("id", id)
+            .eq("merchant_id", user.id)
+            .select("id, merchant_id, price")
+            .single()
+
+        if (error || !product) throw error ?? new Error("Product update returned no row")
+        await createMerchantPriceInput(product.id, user.id, product.price)
+
+        revalidatePath("/merchant/products")
+        revalidatePath(`/merchant/products/${id}`)
+        revalidatePath(`/products/${id}`)
+        return { ok: true, productId: product.id }
+    } catch (error) {
+        return productActionError(error, "update")
     }
-
-    const productPayload = buildProductPayload(data)
-
-    const { data: product, error } = await supabase
-        .from("products")
-        .update(productPayload)
-        .eq("id", id)
-        .eq("merchant_id", user.id)
-        .select("id, merchant_id, price")
-        .single()
-
-    if (error || !product) {
-        throw new Error(toReadableProductError(error, "Failed to update product."))
-    }
-
-    await createMerchantPriceInput(product.id, user.id, product.price)
-
-    revalidatePath("/merchant/products")
-    revalidatePath(`/merchant/products/${id}`)
-    revalidatePath(`/products/${id}`)
 }
 
 export async function deleteProduct(id: string) {
@@ -350,3 +370,4 @@ export async function submitAgentPriceInput(productId: string, amountNaira: numb
     revalidatePath("/agent")
     revalidatePath("/agent/pricing")
 }
+
