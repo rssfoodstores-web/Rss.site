@@ -13,6 +13,16 @@ type Landmarker = { detectForVideo: (video: HTMLVideoElement, timestamp: number)
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm"
 
+function cameraErrorMessage(error: unknown) {
+    const name = error instanceof DOMException ? error.name : ""
+    if (!window.isSecureContext) return "Camera access requires a secure connection. Open the site using its HTTPS address."
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") return "Camera permission is blocked. In your phone settings, allow camera access for this browser, then reload the page."
+    if (name === "NotReadableError" || name === "AbortError") return "Your camera is busy in another app. Close Camera, WhatsApp, Instagram, or another browser tab, then try again."
+    if (name === "NotFoundError") return "No camera was found. Check that this device has a working front camera."
+    if (name === "OverconstrainedError") return "This camera does not support the requested quality. Try again with the phone held normally."
+    return "Camera access failed. Use the latest Chrome or Safari, open the site directly (not inside WhatsApp or another app), allow camera access, and try again."
+}
+
 function blendshapeScore(result: FaceResult, name: string) {
     const category = result.faceBlendshapes?.[0]?.categories?.find((item) => item.categoryName === name)
     return typeof category?.score === "number" ? category.score : 0
@@ -68,7 +78,7 @@ export default function LivePhotoCapture({ onCapture, label = "Take a Live Photo
             streamRef.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
             setIsCameraOpen(true); await loadModel()
         } catch (cameraError) {
-            console.error("Camera or model error", cameraError); setStatus("error"); setStatusMessage((cameraError as Error)?.message === "CAMERA_UNSUPPORTED" ? "This device does not provide a supported camera." : "Camera access failed. Allow camera access and try again.")
+            console.error("Camera or model error", cameraError); setStatus("error"); setStatusMessage((cameraError as Error)?.message === "CAMERA_UNSUPPORTED" ? "This device does not provide a supported camera." : cameraErrorMessage(cameraError))
             if (streamRef.current && !landmarkerRef.current) setStatusMessage("The verification camera is ready, but the private face checker could not load. Check your connection and try again.")
             else if ((cameraError as DOMException)?.name === "NotAllowedError" || (cameraError as DOMException)?.name === "PermissionDeniedError") setStatusMessage("Camera permission was blocked. Allow camera access in your browser settings and try again.")
             else if ((cameraError as DOMException)?.name === "NotReadableError") setStatusMessage("The camera is being used by another app. Close it and try again.")
