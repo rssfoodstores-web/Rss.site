@@ -13,8 +13,8 @@ type Landmarker = { detectForVideo: (video: HTMLVideoElement, timestamp: number)
 // Keep the verification runtime on the same origin as the app. Relying on a
 // third party CDN made camera verification fail on phones and restricted
 // networks even when camera permission had already been granted.
-const MODEL_URL = "/mediapipe/face_landmarker.task"
-const WASM_URL = "/mediapipe/wasm"
+const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm"
 
 function cameraErrorMessage(error: unknown) {
     const name = error instanceof DOMException ? error.name : ""
