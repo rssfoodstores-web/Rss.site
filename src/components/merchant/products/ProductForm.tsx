@@ -316,7 +316,7 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
     const canSubmit = requiredChecklist.every((item) => item.done) && !isUploading && !isCookedImageUploading && !isSubmitting
 
     return (
-        <div className="mx-auto max-w-[1400px] space-y-8 px-4 py-4 sm:px-6">
+        <div className="mx-auto min-w-0 max-w-[1400px] space-y-6 overflow-x-hidden px-3 py-4 sm:space-y-8 sm:px-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-4">
                     <button onClick={() => router.back()} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
@@ -369,10 +369,10 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
             ) : null}
 
             <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-1 gap-6 pb-40 lg:grid-cols-3 lg:gap-8 lg:pb-32">
-                    <div className="space-y-6 lg:col-span-2 lg:space-y-8">
+                <form onSubmit={form.handleSubmit(onSubmit)} className="grid min-w-0 grid-cols-1 gap-5 pb-[calc(11rem+env(safe-area-inset-bottom))] lg:grid-cols-3 lg:gap-8 lg:pb-32">
+                    <div className="min-w-0 space-y-5 lg:col-span-2 lg:space-y-8">
                         {/* Information Section */}
-                        <section className="space-y-6 rounded-[2rem] border border-gray-100/50 bg-white p-5 shadow-sm dark:bg-zinc-900 sm:p-8">
+                        <section className="min-w-0 space-y-6 overflow-hidden rounded-2xl border border-gray-100/50 bg-white p-4 shadow-sm dark:bg-zinc-900 sm:rounded-[2rem] sm:p-8">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <h2 className="text-lg font-bold text-gray-900 dark:text-white">Information</h2>
                                 <ProductHelpDialog
@@ -1138,7 +1138,7 @@ export function ProductForm({ initialData, isEditing = false }: ProductFormProps
                     </div>
 
                     {/* Fixed Action Bar at Bottom */}
-                    <div className="fixed bottom-0 left-0 right-0 z-50 flex flex-col gap-3 border-t border-gray-100 bg-white p-4 shadow-2xl sm:flex-row sm:items-center sm:justify-end lg:left-[280px]">
+                    <div className="fixed inset-x-0 bottom-0 z-50 flex flex-col gap-2 border-t border-gray-100 bg-white/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-2xl backdrop-blur sm:flex-row sm:items-center sm:justify-end sm:p-4 sm:pb-4 lg:left-[280px]">
                         <Button type="button" variant="outline" className="h-10 w-full rounded-lg sm:w-auto sm:px-8" onClick={() => router.back()}>
                             Cancel
                         </Button>
