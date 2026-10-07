@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 4321)
-Total output lines: 298
-
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
@@ -181,7 +178,23 @@ export function NotificationsClient({
                     </aside>
                     <main className="min-w-0 flex-1">
                         <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                            <div className="flex gap-3 overflow-x-auto border-b border-gray-100 px-4 py-4 [scrollbar-width:none] dark:border-zinc-800 sm:flex-wr…321 tokens truncated…                </span>
+                            <div className="flex gap-3 overflow-x-auto border-b border-gray-100 px-4 py-4 [scrollbar-width:none] dark:border-zinc-800 sm:flex-wrap sm:px-6 [&::-webkit-scrollbar]:hidden">
+                                {filterOptions.map((filterOption) => (
+                                    <button
+                                        key={filterOption.key}
+                                        type="button"
+                                        onClick={() => setActiveFilter(filterOption.key)}
+                                        className={cn(
+                                            "inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition",
+                                            activeFilter === filterOption.key
+                                                ? "border-[#F58220] bg-[#F58220]/10 text-[#F58220]"
+                                                : "border-gray-200 text-gray-600 hover:border-[#F58220]/40 hover:text-[#F58220] dark:border-zinc-700 dark:text-zinc-300"
+                                        )}
+                                    >
+                                        <span>{filterOption.label}</span>
+                                        <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs dark:bg-zinc-950">
+                                            {filterOption.count}
+                                        </span>
                                     </button>
                                 ))}
                             </div>
