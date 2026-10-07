@@ -1,9 +1,10 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from "react"
+import { usePathname } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { type Session, type User } from "@supabase/supabase-js"
-import { buildNotificationPathCounts } from "@/lib/notifications"
+import { buildNotificationPathCounts, matchesNotificationPath, normalizeNotificationPath } from "@/lib/notifications"
 import { createEmptyProfileRow } from "@/lib/profile"
 
 interface UserProfile {
@@ -50,6 +51,7 @@ function isAbortLike(error: unknown) {
 }
 
 export function UserProvider({ children }: { children: ReactNode }) {
+    const pathname = usePathname()
     const [user, setUser] = useState<User | null>(null)
     const [profile, setProfile] = useState<UserProfile | null>(null)
     const [roleNames, setRoleNames] = useState<string[]>([])
@@ -105,6 +107,61 @@ export function UserProvider({ children }: { children: ReactNode }) {
         setUnreadCount(unreadNotifications.length)
         setNotificationPathCounts(buildNotificationPathCounts(unreadNotifications))
     }, [supabase, user?.id])
+
+    const markCurrentPageNotificationsAsRead = useCallback(async (targetUserId: string, targetPathname: string) => {
+        if (targetPathname === "/account/notifications") {
+            return
+        }
+
+        const { data, error } = await supabase
+            .from("notifications")
+            .select("id,action_url")
+            .eq("user_id", targetUserId)
+            .eq("read", false)
+
+        if (error) {
+            console.error("Error checking page notifications:", error)
+            return
+        }
+
+        const unreadNotifications = (data ?? []) as Array<{ id: string; action_url: string | null }>
+        const matchingIds = unreadNotifications
+            .filter((notification) => matchesNotificationPath(targetPathname, notification.action_url))
+            .map((notification) => notification.id)
+
+        if (matchingIds.length === 0) {
+            return
+        }
+
+        const matchingIdSet = new Set(matchingIds)
+        setUnreadCount((current) => Math.max(0, current - matchingIds.length))
+        setNotificationPathCounts((current) => {
+            const nextCounts = { ...current }
+
+            for (const notification of unreadNotifications) {
+                if (!matchingIdSet.has(notification.id)) continue
+                const notificationPath = normalizeNotificationPath(notification.action_url)
+                if (!notificationPath) continue
+                const nextCount = (nextCounts[notificationPath] ?? 0) - 1
+                if (nextCount > 0) nextCounts[notificationPath] = nextCount
+                else delete nextCounts[notificationPath]
+            }
+
+            return nextCounts
+        })
+
+        const { error: updateError } = await supabase
+            .from("notifications")
+            .update({ read: true })
+            .eq("user_id", targetUserId)
+            .in("id", matchingIds)
+            .eq("read", false)
+
+        if (updateError) {
+            console.error("Error marking page notifications as read:", updateError)
+        }
+
+    }, [supabase])
 
     const resetUserState = useCallback(() => {
         setProfile(null)
@@ -297,7 +354,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
             unreadRefreshTimeoutRef.current = window.setTimeout(() => {
                 unreadRefreshTimeoutRef.current = null
-                void refreshUnreadCount(user.id)
+                void markCurrentPageNotificationsAsRead(user.id, pathname).then(() => refreshUnreadCount(user.id))
             }, 100)
         }
 
@@ -318,7 +375,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
             }
             supabase.removeChannel(channel)
         }
-    }, [refreshUnreadCount, supabase, user?.id])
+    }, [markCurrentPageNotificationsAsRead, pathname, refreshUnreadCount, supabase, user?.id])
+
+    useEffect(() => {
+        if (!user?.id) return
+        void markCurrentPageNotificationsAsRead(user.id, pathname).then(() => refreshUnreadCount(user.id))
+    }, [markCurrentPageNotificationsAsRead, pathname, refreshUnreadCount, user?.id])
 
     const refreshProfile = useCallback(async () => {
         if (user) {

@@ -176,7 +176,7 @@ export function normalizeNotificationPath(path: string | null | undefined) {
     return trimmedPath
 }
 
-export function matchesNotificationPath(pathname: string | null | undefined, href: string) {
+export function matchesNotificationPath(pathname: string | null | undefined, href: string | null | undefined) {
     const normalizedPath = normalizeNotificationPath(pathname)
     const normalizedHref = normalizeNotificationPath(href)
 

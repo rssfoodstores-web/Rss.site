@@ -6,10 +6,10 @@ import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js"
 import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
 import { useUser } from "@/context/UserContext"
-import type { AppNotification } from "@/lib/notifications"
+import { matchesNotificationPath, type AppNotification } from "@/lib/notifications"
 
 export function RealtimeNotificationBridge() {
-    const { user } = useUser()
+    const { user, refreshUnreadCount } = useUser()
     const router = useRouter()
     const pathname = usePathname()
     const [supabase] = useState(() => createClient())
@@ -39,6 +39,25 @@ export function RealtimeNotificationBridge() {
 
                     seenIds.current.add(notification.id)
 
+                    const markNotificationAsRead = async () => {
+                        const { error } = await supabase
+                            .from("notifications")
+                            .update({ read: true })
+                            .eq("id", notification.id)
+                            .eq("user_id", user.id)
+                            .eq("read", false)
+
+                        if (!error) {
+                            await refreshUnreadCount(user.id)
+                        }
+                    }
+
+                    if (matchesNotificationPath(pathname, notification.action_url)) {
+                        void markNotificationAsRead()
+                        router.refresh()
+                        return
+                    }
+
                     toast(notification.title, {
                         description: notification.message,
                         duration: 6000,
@@ -47,6 +66,7 @@ export function RealtimeNotificationBridge() {
                                 label: pathname === notification.action_url ? "Refresh" : "Open",
                                 onClick: () => {
                                     if (notification.action_url) {
+                                        void markNotificationAsRead()
                                         router.push(notification.action_url)
                                     }
                                 },
@@ -63,13 +83,10 @@ export function RealtimeNotificationBridge() {
                         nativeNotification.onclick = () => {
                             window.focus()
                             if (notification.action_url) {
+                                void markNotificationAsRead()
                                 router.push(notification.action_url)
                             }
                         }
-                    }
-
-                    if (notification.action_url && pathname === notification.action_url) {
-                        router.refresh()
                     }
                 }
             )
@@ -78,7 +95,7 @@ export function RealtimeNotificationBridge() {
         return () => {
             supabase.removeChannel(channel)
         }
-    }, [pathname, router, supabase, user])
+    }, [pathname, refreshUnreadCount, router, supabase, user])
 
     return null
 }
