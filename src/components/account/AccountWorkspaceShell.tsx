@@ -20,8 +20,8 @@ export function AccountWorkspaceShell({
     description = "Manage your account and role pages from one place.",
 }: AccountWorkspaceShellProps) {
     return (
-        <div className="min-h-screen bg-gray-50/50 py-6 dark:bg-black sm:py-8 lg:py-12">
-            <div className="container mx-auto px-4 sm:px-6">
+        <div className="min-h-screen w-full min-w-0 max-w-full overflow-x-clip bg-gray-50/50 py-5 dark:bg-black sm:py-8 lg:py-12">
+            <div className="container mx-auto w-full min-w-0 px-3 sm:px-6">
                 {showHeader ? (
                     <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-end sm:justify-between">
                         <div>

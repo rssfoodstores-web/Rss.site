@@ -35,7 +35,7 @@ export default async function AccountLayout({
                     },
                 ]}
             />
-            {children}
+            <div className="w-full min-w-0 max-w-full overflow-x-clip">{children}</div>
         </>
     )
 }

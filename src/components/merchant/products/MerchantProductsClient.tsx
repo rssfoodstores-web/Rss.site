@@ -74,14 +74,15 @@ export function MerchantProductsClient({
     }, [products, activeTab])
 
     return (
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-5 sm:space-y-6">
 
             {/* Header */}
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold text-[#1A1A1A] dark:text-white mb-1">Product</h1>
+                <div className="min-w-0">
+                    <h1 className="mb-1 text-2xl font-bold text-[#1A1A1A] dark:text-white sm:text-3xl">Products</h1>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Manage your listings, stock, and approval status.</p>
                     {!locationReady && (
-                        <p className="text-sm text-red-500 font-medium">
+                        <p className="mt-2 text-sm font-medium text-red-500">
                             {locationStatusMessage}
                         </p>
                     )}
@@ -120,7 +121,7 @@ export function MerchantProductsClient({
 
                     {locationReady ? (
                         <Link href="/merchant/products/add">
-                            <Button className="flex h-10 w-full items-center gap-2 rounded-lg bg-[#1E1E66] px-6 font-bold text-white shadow-sm transition-all active:scale-95 hover:bg-[#1E1E66]/90 sm:w-auto">
+                            <Button className="flex h-12 w-full items-center gap-2 rounded-xl bg-[#F58220] px-6 font-bold text-white shadow-sm transition-all active:scale-[0.98] hover:bg-[#E57210] sm:w-auto">
                                 <Plus className="h-4 w-4" /> Add Product
                             </Button>
                         </Link>
@@ -136,7 +137,7 @@ export function MerchantProductsClient({
                 </div>
             </div>
 
-            <div className="rounded-[2rem] border border-gray-100/50 bg-white p-5 shadow-sm dark:bg-zinc-900 sm:p-8">
+            <div className="min-w-0 rounded-3xl border border-gray-100/50 bg-white p-3 shadow-sm dark:bg-zinc-900 sm:rounded-[2rem] sm:p-6 lg:p-8">
                 {/* Filter Tabs & Search */}
                 <ProductFilters
                     activeTab={activeTab}

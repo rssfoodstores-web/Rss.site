@@ -58,7 +58,7 @@ export function ProductTable({ products }: { products: Product[] }) {
                             </div>
                             <span
                                 className={cn(
-                                    "rounded-lg px-3 py-1 text-[11px] font-bold capitalize",
+                                    "shrink-0 rounded-lg px-3 py-1 text-[11px] font-bold capitalize",
                                     product.status === "approved"
                                         ? "bg-green-50 text-[#12B76A]"
                                         : product.status === "pending"
@@ -89,22 +89,31 @@ export function ProductTable({ products }: { products: Product[] }) {
                                 </p>
                             </div>
                         </div>
-                        <div className="mt-4 flex items-center justify-end gap-2 text-gray-300">
-                            <Link href={`/merchant/products/edit/${product.id}`}>
-                                <button className="rounded-lg p-2 transition-colors hover:bg-gray-50 hover:text-[#F58220] dark:hover:bg-zinc-800">
-                                    <Edit className="h-4 w-4" />
-                                </button>
+                        <div className="mt-4 grid grid-cols-3 gap-2">
+                            <Link
+                                href={`/merchant/products/edit/${product.id}`}
+                                aria-label={`Edit ${product.name}`}
+                                className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-gray-200 px-2 text-xs font-semibold text-gray-700 transition-colors hover:border-[#F58220] hover:bg-orange-50 hover:text-[#F58220] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F58220] dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                            >
+                                <Edit className="h-4 w-4 shrink-0" />
+                                <span>Edit</span>
                             </Link>
-                            <Link href={`/merchant/products/${product.id}`}>
-                                <button className="rounded-lg p-2 transition-colors hover:bg-gray-50 hover:text-[#F58220] dark:hover:bg-zinc-800">
-                                    <Eye className="h-4 w-4" />
-                                </button>
+                            <Link
+                                href={`/merchant/products/${product.id}`}
+                                aria-label={`View ${product.name}`}
+                                className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-gray-200 px-2 text-xs font-semibold text-gray-700 transition-colors hover:border-[#F58220] hover:bg-orange-50 hover:text-[#F58220] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F58220] dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                            >
+                                <Eye className="h-4 w-4 shrink-0" />
+                                <span>View</span>
                             </Link>
                             <button
+                                type="button"
                                 onClick={() => handleDelete(product.id)}
-                                className="rounded-lg p-2 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/30"
+                                aria-label={`Delete ${product.name}`}
+                                className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-gray-200 px-2 text-xs font-semibold text-gray-700 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-red-950/30"
                             >
-                                <Trash2 className="h-4 w-4" />
+                                <Trash2 className="h-4 w-4 shrink-0" />
+                                <span>Delete</span>
                             </button>
                         </div>
                     </div>
@@ -165,19 +174,28 @@ export function ProductTable({ products }: { products: Product[] }) {
                                 </td>
                                 <td className="px-8 py-6 text-right">
                                     <div className="flex items-center justify-end gap-2 text-gray-300">
-                                        <Link href={`/merchant/products/edit/${product.id}`}>
-                                            <button className="p-2 hover:bg-gray-50 dark:hover:bg-zinc-800 rounded-lg transition-colors hover:text-[#F58220]">
-                                                <Edit className="h-4 w-4" />
-                                            </button>
+                                        <Link
+                                            href={`/merchant/products/edit/${product.id}`}
+                                            aria-label={`Edit ${product.name}`}
+                                            title={`Edit ${product.name}`}
+                                            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-50 hover:text-[#F58220] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F58220] dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                        >
+                                            <Edit className="h-4 w-4" />
                                         </Link>
-                                        <Link href={`/merchant/products/${product.id}`}>
-                                            <button className="p-2 hover:bg-gray-50 dark:hover:bg-zinc-800 rounded-lg transition-colors hover:text-[#F58220]">
-                                                <Eye className="h-4 w-4" />
-                                            </button>
+                                        <Link
+                                            href={`/merchant/products/${product.id}`}
+                                            aria-label={`View ${product.name}`}
+                                            title={`View ${product.name}`}
+                                            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-50 hover:text-[#F58220] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F58220] dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                        >
+                                            <Eye className="h-4 w-4" />
                                         </Link>
                                         <button
+                                            type="button"
                                             onClick={() => handleDelete(product.id)}
-                                            className="p-2 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors hover:text-red-500"
+                                            aria-label={`Delete ${product.name}`}
+                                            title={`Delete ${product.name}`}
+                                            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:text-zinc-300 dark:hover:bg-red-950/30"
                                         >
                                             <Trash2 className="h-4 w-4" />
                                         </button>
