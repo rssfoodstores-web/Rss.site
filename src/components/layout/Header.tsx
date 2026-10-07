@@ -43,6 +43,8 @@ export function Header() {
 
     const { isMerchant, isRider } = roles
     const isStorefrontPage = isStorefrontPath(pathname)
+    const isHomePage = pathname === "/"
+    const isAccountPage = pathname?.startsWith("/account") ?? false
     const currentQuery = searchParams.get("q") ?? ""
     const primaryPhoneMethod = getContactMethodByType(contactContent.methods, "phone")
 
@@ -168,27 +170,29 @@ export function Header() {
                     </Link>
 
                     {/* Search Bar - Figma Spec: Frame 8:391 */}
-                    <div className="hidden md:flex flex-1 items-center justify-center">
-                        <form
-                            key={`desktop-${pathname}-${currentQuery}`}
-                            onSubmit={submitSearch}
-                            className="flex items-center w-full max-w-[560px] h-[48px] border border-[#ECECEC] dark:border-zinc-700 rounded-xl overflow-hidden bg-white dark:bg-zinc-900 shadow-sm"
-                        >
-                            <div className="flex items-center px-4 flex-1 h-full gap-2 text-[#808080]">
-                                <Search className="h-5 w-5 text-[#1A1A1A] dark:text-gray-200" />
-                                <Input
-                                    name="q"
-                                    type="search"
-                                    defaultValue={currentQuery}
-                                    placeholder="Search products, pantry items, or brands"
-                                    className="h-full border-0 p-0 focus-visible:ring-0 placeholder:text-[#808080] text-[15px] bg-transparent dark:text-gray-100"
-                                />
-                            </div>
-                            <Button type="submit" className="h-full w-[118px] bg-[#F58220] hover:bg-[#F58220]/90 text-white font-semibold rounded-none shrink-0 text-sm">
-                                Search
-                            </Button>
-                        </form>
-                    </div>
+                    {!isHomePage && !isAccountPage && (
+                        <div className="hidden md:flex flex-1 items-center justify-center">
+                            <form
+                                key={`desktop-${pathname}-${currentQuery}`}
+                                onSubmit={submitSearch}
+                                className="flex items-center w-full max-w-[560px] h-[48px] border border-[#ECECEC] dark:border-zinc-700 rounded-xl overflow-hidden bg-white dark:bg-zinc-900 shadow-sm"
+                            >
+                                <div className="flex items-center px-4 flex-1 h-full gap-2 text-[#808080]">
+                                    <Search className="h-5 w-5 text-[#1A1A1A] dark:text-gray-200" />
+                                    <Input
+                                        name="q"
+                                        type="search"
+                                        defaultValue={currentQuery}
+                                        placeholder="Search products, pantry items, or brands"
+                                        className="h-full border-0 p-0 focus-visible:ring-0 placeholder:text-[#808080] text-[15px] bg-transparent dark:text-gray-100"
+                                    />
+                                </div>
+                                <Button type="submit" className="h-full w-[118px] bg-[#F58220] hover:bg-[#F58220]/90 text-white font-semibold rounded-none shrink-0 text-sm">
+                                    Search
+                                </Button>
+                            </form>
+                        </div>
+                    )}
 
                     {/* Icons & Contact */}
                     <div className="flex items-center gap-4 md:gap-6">
@@ -242,7 +246,7 @@ export function Header() {
                     </div>
                 </div>
 
-                {isStorefrontPage && (
+                {isStorefrontPage && !isHomePage && (
                     <form
                         key={`mobile-${pathname}-${currentQuery}`}
                         onSubmit={submitSearch}
@@ -266,7 +270,7 @@ export function Header() {
             </div>
 
             {/* Navigation Bar - Figma Spec: Frame 8:363 */}
-            <div className="bg-[#F7F7F7] dark:bg-zinc-900 dark:border-zinc-800">
+            <div className={`bg-[#F7F7F7] dark:bg-zinc-900 dark:border-zinc-800 ${isAccountPage ? "hidden md:block" : ""}`}>
                 <div className="container mx-auto px-4 md:px-8">
                     <div className="flex items-center justify-between h-[64px]">
 

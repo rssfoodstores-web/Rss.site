@@ -6,7 +6,6 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { toast } from "sonner"
 import { subscribeToNewsletter } from "@/app/actions/newsletterActions"
-import { createStorefrontHref, storefrontCategories } from "@/lib/categories"
 import { buildContactMethodHref, getContactMethodByType } from "@/lib/contactPage"
 import { usePublicContactPageContent } from "@/hooks/usePublicContactPageContent"
 import { Button } from "@/components/ui/button"
@@ -15,7 +14,6 @@ import { SocialMediaFooter } from "./SocialMediaFooter"
 
 export function Footer() {
     const pathname = usePathname()
-    const featuredFooterCategories = storefrontCategories.slice(0, 4)
     const content = usePublicContactPageContent()
     const [email, setEmail] = useState("")
     const [isPending, startTransition] = useTransition()
@@ -81,7 +79,7 @@ export function Footer() {
 
             <div className="bg-[#1A1A1A] pb-8 pt-16 text-white">
                 <div className="container mx-auto px-4 md:px-8">
-                    <div className="mb-16 grid grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-8">
+                    <div className="mb-12 grid grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-10">
                         <div className="space-y-6 text-center lg:col-span-4 lg:pr-12 lg:text-left">
                             <Link href="/" className="mb-2 inline-block">
                                 <div className="flex flex-col items-center lg:items-start">
@@ -115,34 +113,10 @@ export function Footer() {
                             </div>
                         </div>
 
-                        <div className="hidden lg:col-span-1 lg:block" />
-
-                        <div className="grid grid-cols-2 gap-8 text-center sm:grid-cols-3 sm:text-left md:grid-cols-5 lg:col-span-7">
-                            <div className="space-y-6">
-                                <h3 className="text-base font-bold text-white">Categories</h3>
-                                <ul className="space-y-4 text-sm text-gray-400">
-                                    {featuredFooterCategories.map((category) => (
-                                        <li key={category.slug}>
-                                            <Link
-                                                href={createStorefrontHref({
-                                                    pathname,
-                                                    patch: {
-                                                        category: category.slug,
-                                                        page: null,
-                                                    },
-                                                })}
-                                                className="transition-colors hover:text-white"
-                                            >
-                                                {category.label}
-                                            </Link>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-
-                            <div className="space-y-6">
+                        <div className="grid grid-cols-2 gap-x-6 gap-y-10 text-left sm:gap-x-10 lg:col-span-8 lg:grid-cols-4 lg:gap-8">
+                            <div className="space-y-5">
                                 <h3 className="text-base font-bold text-white">Account</h3>
-                                <ul className="space-y-4 text-sm text-gray-400">
+                                <ul className="space-y-3 text-sm text-gray-400">
                                     <li><Link href="/account" className="transition-colors hover:text-white">My Account</Link></li>
                                     <li><Link href="/account/orders" className="transition-colors hover:text-white">Order History</Link></li>
                                     <li><Link href="/cart" className="transition-colors hover:text-white">Shopping Cart</Link></li>
@@ -150,18 +124,18 @@ export function Footer() {
                                 </ul>
                             </div>
 
-                            <div className="space-y-6">
+                            <div className="space-y-5">
                                 <h3 className="text-base font-bold text-white">Register</h3>
-                                <ul className="space-y-4 text-sm text-gray-400">
+                                <ul className="space-y-3 text-sm text-gray-400">
                                     <li><Link href="/join/rider" className="transition-colors hover:text-white">Delivery Partner</Link></li>
                                     <li><Link href="/join/agent" className="transition-colors hover:text-white">Become an Agent</Link></li>
                                     <li><Link href="/join/merchant" className="transition-colors hover:text-white">Merchant Sign Up</Link></li>
                                 </ul>
                             </div>
 
-                            <div className="space-y-6">
+                            <div className="space-y-5">
                                 <h3 className="text-base font-bold text-white">Company</h3>
-                                <ul className="space-y-4 text-sm text-gray-400">
+                                <ul className="space-y-3 text-sm text-gray-400">
                                     <li><Link href="/about" className="transition-colors hover:text-white">About Us</Link></li>
                                     <li><Link href="/retail" className="transition-colors hover:text-white">Shop</Link></li>
                                     <li><Link href="/wholesale" className="transition-colors hover:text-white">Products</Link></li>
@@ -169,9 +143,9 @@ export function Footer() {
                                 </ul>
                             </div>
 
-                            <div className="space-y-6">
+                            <div className="space-y-5">
                                 <h3 className="text-base font-bold text-white">Help</h3>
-                                <ul className="space-y-4 text-sm text-gray-400">
+                                <ul className="space-y-3 text-sm text-gray-400">
                                     <li><Link href="/contact" className="transition-colors hover:text-white">Contact Us</Link></li>
                                     <li><Link href="/faqs" className="transition-colors hover:text-white">FAQs</Link></li>
                                     <li><Link href="/terms" className="transition-colors hover:text-white">Terms & Conditions</Link></li>
