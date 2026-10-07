@@ -187,13 +187,13 @@ export function createStorefrontHref({
         params.set(key, value)
     }
 
-    const rawNextCategory = patch.category?.trim().toLowerCase()
-    const nextCategory =
-        rawNextCategory === undefined
-            ? currentCategory
-            : isStorefrontCategorySlug(rawNextCategory)
-                ? rawNextCategory
-                : null
+    const hasCategoryPatch = patch.category !== undefined
+    const rawNextCategory = typeof patch.category === "string" ? patch.category.trim().toLowerCase() : null
+    const nextCategory = hasCategoryPatch
+        ? isStorefrontCategorySlug(rawNextCategory)
+            ? rawNextCategory
+            : null
+        : currentCategory
 
     if (nextCategory) {
         nextPathname = buildStorefrontCategoryPath(baseSalesType, nextCategory)

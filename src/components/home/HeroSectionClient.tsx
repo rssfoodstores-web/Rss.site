@@ -2,18 +2,9 @@
 
 import * as React from "react"
 import Image from "next/image"
-import Link from "next/link"
-import { ArrowRight } from "lucide-react"
-import { motion } from "framer-motion"
+import { ArrowRight, Pause, Play } from "lucide-react"
+import { motion, useReducedMotion } from "framer-motion"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { useCategory } from "@/context/CategoryContext"
-import {
-    createStorefrontHref,
-    getActiveStorefrontCategory,
-    storefrontNavigationCategories,
-} from "@/lib/categories"
-import { usePathname, useSearchParams } from "next/navigation"
 
 export interface HeroSlide {
     bodyText: string | null
@@ -50,15 +41,17 @@ function getCallToAction(slide: HeroSlide) {
     }
 }
 
-function renderBackgroundMedia(slide: HeroSlide) {
+function renderBackgroundMedia(slide: HeroSlide, reduceMotion: boolean) {
     if (slide.mediaType === "video") {
         return (
             <video
-                autoPlay
+                autoPlay={!reduceMotion}
                 loop
                 muted
                 playsInline
-                className="absolute inset-0 h-full w-full object-cover opacity-90"
+                preload="metadata"
+                aria-hidden="true"
+                className="absolute inset-0 h-full w-full object-cover object-right"
                 src={slide.mediaUrl}
             />
         )
@@ -67,139 +60,123 @@ function renderBackgroundMedia(slide: HeroSlide) {
     return (
         <Image
             src={slide.mediaUrl}
-            alt={slide.title}
+            alt=""
             fill
-            sizes="(max-width: 768px) 100vw, 70vw"
-            className="object-cover opacity-90"
+            sizes="(max-width: 768px) 100vw, 58vw"
+            className="object-cover object-right"
             priority
         />
     )
 }
 
 export function HeroSectionClient({ slides }: { slides: HeroSlide[] }) {
-    const { isOpen } = useCategory()
-    const pathname = usePathname()
-    const searchParams = useSearchParams()
-    const currentCategory = getActiveStorefrontCategory(pathname, searchParams)
+    const reduceMotion = useReducedMotion() ?? false
     const [currentSlide, setCurrentSlide] = React.useState(0)
+    const [isPaused, setIsPaused] = React.useState(false)
     const activeSlide = slides[currentSlide] ?? slides[0]
 
     React.useEffect(() => {
-        if (currentSlide < slides.length) {
-            return
-        }
-
+        if (currentSlide < slides.length) return
         setCurrentSlide(0)
     }, [currentSlide, slides.length])
 
     React.useEffect(() => {
-        if (slides.length <= 1) {
-            return
-        }
+        if (slides.length <= 1 || isPaused || reduceMotion) return
 
         const timer = window.setTimeout(() => {
             setCurrentSlide((previous) => (previous + 1) % slides.length)
         }, Math.max(activeSlide?.displayDurationSeconds ?? 7, 2) * 1000)
 
         return () => window.clearTimeout(timer)
-    }, [activeSlide?.displayDurationSeconds, currentSlide, slides.length])
+    }, [activeSlide?.displayDurationSeconds, currentSlide, isPaused, reduceMotion, slides.length])
+
+    if (!activeSlide) return null
 
     const cta = getCallToAction(activeSlide)
 
     return (
-        <section className="mx-auto w-full md:container py-0 md:px-4 md:py-6 lg:px-8">
-            <div className="flex flex-col gap-0 transition-all duration-300 ease-in-out md:flex-row md:gap-6">
-                <div className={`${isOpen ? "w-64 translate-x-0 opacity-100" : "hidden w-0 -translate-x-full opacity-0"} hidden flex-shrink-0 overflow-hidden transition-all duration-300 ease-in-out md:block`}>
-                    <Card className="h-full rounded-none border-none bg-white shadow-sm dark:bg-card">
-                        <div className="flex h-[500px] flex-col overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-gray-200 dark:scrollbar-thumb-zinc-700">
-                            {storefrontNavigationCategories.map((category, index) => {
-                                const isActive = category.slug === null ? !currentCategory : currentCategory === category.slug
-                                const href = createStorefrontHref({
-                                    pathname,
-                                    searchParams,
-                                    patch: {
-                                        category: category.slug,
-                                        page: null,
-                                    },
-                                    hash: "product-grid",
-                                })
-
-                                return (
-                                    <Link
-                                        key={`${category.label}-${index}`}
-                                        href={href}
-                                        className={`flex flex-shrink-0 items-center gap-3 px-6 py-3 text-sm font-medium transition-colors hover:bg-orange-50 hover:text-primary dark:hover:bg-accent ${isActive ? "sticky top-0 z-10 bg-[#F58220] text-white hover:bg-[#F58220]/90 hover:text-white" : "text-[#555555] dark:text-gray-300"}`}
-                                    >
-                                        <category.icon className={`h-5 w-5 flex-shrink-0 ${isActive ? "text-white" : "text-[#888888]"}`} />
-                                        <span className="truncate">{category.label}</span>
-                                    </Link>
-                                )
-                            })}
-                        </div>
-                    </Card>
+        <section className="mx-auto w-full md:container md:px-4 md:py-6 lg:px-8" aria-label="Featured offers">
+            <div className="relative flex min-h-[420px] w-full flex-col overflow-hidden bg-[#0F392B] shadow-lg shadow-green-950/10 sm:rounded-[2rem] md:min-h-[450px] md:flex-row">
+                <div className="relative h-[190px] w-full shrink-0 overflow-hidden bg-[#173F31] sm:h-[230px] md:h-auto md:min-h-[450px] md:w-[56%]">
+                    {renderBackgroundMedia(activeSlide, reduceMotion)}
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#0F392B]/20 to-transparent md:bg-gradient-to-r md:from-transparent md:to-[#0F392B]/20" />
                 </div>
 
-                <div className="relative flex min-h-[80vh] md:min-h-[430px] flex-1 items-end md:items-center overflow-hidden rounded-none md:rounded-[2rem] bg-[#0F392B] shadow-lg">
-                    <div className="absolute inset-0 z-0 h-full w-full">
-                        {renderBackgroundMedia(activeSlide)}
-                        <div className="absolute inset-0 z-10 bg-gradient-to-t md:bg-gradient-to-r from-[#0F392B] via-[#0F392B]/80 md:via-[#0F392B]/84 to-transparent md:to-[#0F392B]/20" />
-                    </div>
+                <div className="relative z-10 flex w-full flex-col justify-center bg-[#0F392B] px-5 py-6 sm:px-9 sm:py-8 md:min-h-[450px] md:w-[44%] md:px-8 md:py-10 lg:px-12">
+                    <motion.div
+                        key={activeSlide.id}
+                        initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: reduceMotion ? 0 : 0.35, ease: "easeOut" }}
+                        className="flex flex-col items-start text-left"
+                    >
+                        <span className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-orange-200 backdrop-blur-sm sm:text-xs">
+                            <span className="h-1.5 w-1.5 rounded-full bg-[#F58220]" aria-hidden="true" />
+                            {activeSlide.eyebrowText || "Fresh picks for today"}
+                        </span>
 
-                    <div className="relative z-20 w-full max-w-xl px-6 pb-12 pt-32 md:pb-0 md:pt-0 md:px-12 lg:px-16 flex flex-col items-center text-center md:items-start md:text-left mx-auto md:mx-0">
-                        <motion.div
-                            key={activeSlide.id}
-                            initial={{ opacity: 0, y: 16 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.45 }}
-                            className="w-full flex flex-col items-center md:items-start"
-                        >
-                            <span className="mb-2 md:mb-3 block text-xs md:text-sm font-bold uppercase tracking-[0.24em] text-primary drop-shadow-sm">
-                                {activeSlide.eyebrowText || "Fresh picks for today"}
-                            </span>
-
-                            <h1 className="text-4xl font-bold leading-tight text-white sm:text-5xl drop-shadow-md">
-                                {activeSlide.title}
-                                {activeSlide.highlightText ? (
-                                    <>
-                                        <br className="hidden md:block" />
-                                        <span className="md:hidden"> </span>
-                                        <span className="text-green-400">{activeSlide.highlightText}</span>
-                                    </>
-                                ) : null}
-                            </h1>
-
-                            {activeSlide.bodyText ? (
-                                <p className="mt-4 md:mt-5 max-w-lg text-sm sm:text-base leading-relaxed text-white/90 md:text-lg drop-shadow-sm">
-                                    {activeSlide.bodyText}
-                                </p>
+                        <h1 className="line-clamp-4 max-w-2xl text-[1.9rem] font-bold leading-[1.05] tracking-tight text-white drop-shadow-md sm:text-4xl md:line-clamp-4 md:text-[2.35rem] lg:text-[2.5rem]">
+                            {activeSlide.title}
+                            {activeSlide.highlightText ? (
+                                <>
+                                    <span className="hidden md:inline"> </span>
+                                    <span className="block text-orange-300 md:inline">{activeSlide.highlightText}</span>
+                                </>
                             ) : null}
+                        </h1>
 
-                            <Button
-                                size="lg"
-                                className="mt-6 md:mt-8 rounded-full bg-primary px-8 py-6 text-base md:text-lg text-white group hover:bg-primary/90 w-full sm:w-auto shadow-lg"
-                                asChild
-                            >
-                                <a href={cta.url}>
-                                    {cta.label}
-                                    <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
-                                </a>
-                            </Button>
-                        </motion.div>
+                        {activeSlide.bodyText ? (
+                            <p className="mt-3 line-clamp-2 max-w-xl text-sm leading-relaxed text-white/90 sm:text-base">
+                                {activeSlide.bodyText}
+                            </p>
+                        ) : null}
 
-                        {slides.length > 1 ? (
-                            <div className="mt-8 md:mt-12 flex justify-center md:justify-start gap-2">
+                        <Button
+                            size="lg"
+                            className="group mt-5 min-h-12 w-full rounded-xl bg-[#F58220] px-6 text-base font-semibold text-white shadow-lg shadow-orange-950/20 transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#E57210] hover:shadow-xl sm:w-auto"
+                            asChild
+                        >
+                            <a href={cta.url}>
+                                {cta.label}
+                                <ArrowRight className="ml-2 h-5 w-5 transition-transform duration-200 group-hover:translate-x-1" />
+                            </a>
+                        </Button>
+                    </motion.div>
+
+                    {slides.length > 1 ? (
+                        <div className="mt-4 flex min-h-11 items-center justify-between gap-4 sm:justify-start">
+                            <div className="flex items-center gap-1" role="group" aria-label="Choose a featured offer">
                                 {slides.map((slide, index) => (
                                     <button
                                         key={slide.id}
                                         type="button"
-                                        onClick={() => setCurrentSlide(index)}
-                                        className={`h-3 rounded-full transition-all ${index === currentSlide ? "w-8 bg-white opacity-100" : "w-3 bg-white opacity-30"}`}
-                                        aria-label={`Go to slide ${index + 1}`}
-                                    />
+                                        onClick={() => {
+                                            setCurrentSlide(index)
+                                            setIsPaused(true)
+                                        }}
+                                        className="flex h-11 w-11 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#0F392B]"
+                                        aria-label={`Show featured offer ${index + 1}`}
+                                        aria-pressed={index === currentSlide}
+                                    >
+                                        <span className={`h-1.5 rounded-full transition-all duration-300 ${index === currentSlide ? "w-7 bg-white" : "w-1.5 bg-white/50"}`} />
+                                    </button>
                                 ))}
                             </div>
-                        ) : null}
-                    </div>
+                            {!reduceMotion ? (
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setIsPaused((paused) => !paused)}
+                                    className="min-h-11 rounded-full px-3 text-white hover:bg-white/10 hover:text-white"
+                                    aria-label={isPaused ? "Play featured offers" : "Pause featured offers"}
+                                >
+                                    {isPaused ? <Play className="mr-2 h-4 w-4" /> : <Pause className="mr-2 h-4 w-4" />}
+                                    {isPaused ? "Play" : "Pause"}
+                                </Button>
+                            ) : null}
+                        </div>
+                    ) : null}
                 </div>
             </div>
         </section>
