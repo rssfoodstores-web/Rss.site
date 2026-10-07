@@ -52,6 +52,32 @@ interface BankOption {
     name: string
 }
 
+function isPendingTopUp(entry: WalletActivity) {
+    return entry.source === "wallet_transaction"
+        && entry.direction === "credit"
+        && entry.status.toLowerCase() === "pending"
+        && /top.?up/i.test(entry.description)
+}
+
+function getActivityStatusLabel(entry: WalletActivity) {
+    if (entry.source === "ledger_entry") return "Settled"
+
+    switch (entry.status.toLowerCase()) {
+        case "success":
+        case "successful":
+            return "Completed"
+        case "pending":
+            return isPendingTopUp(entry) ? "Awaiting payment" : "Processing"
+        case "failed":
+        case "failure":
+            return "Failed"
+        case "reversed":
+            return "Reversed"
+        default:
+            return entry.status.replace(/_/g, " ")
+    }
+}
+
 export default function WalletPage() {
     const [loading, setLoading] = useState(true)
     const [walletLoadError, setWalletLoadError] = useState("")
@@ -75,7 +101,7 @@ export default function WalletPage() {
     const [copied, setCopied] = useState(false)
     const [isWithdrawOpen, setIsWithdrawOpen] = useState(false)
     const [walletFeeSettings, setWalletFeeSettings] = useState<WalletFeeSettings>(DEFAULT_WALLET_FEE_SETTINGS)
-    const [statusModal, setStatusModal] = useState({ open: false, type: "success" as "success" | "error", title: "", message: "", btnText: "OK" })
+    const [statusModal, setStatusModal] = useState({ open: false, type: "success" as "success" | "error" | "info", title: "", message: "", btnText: "OK" })
 
     const activeWallet = useMemo(
         () => wallets.find((wallet) => wallet.id === selectedWalletId) ?? wallets[0] ?? null,
@@ -195,12 +221,12 @@ export default function WalletPage() {
     useEffect(() => {
         const params = new URLSearchParams(window.location.search)
         if (params.get("payment") === "return") {
-            showStatus("success", "Payment received", "Monnify has returned you to RSS. Your wallet will update as soon as payment verification finishes.")
+            showStatus("info", "Checking payment status", "We’re checking Monnify’s confirmation. Your balance changes only after payment is verified. If you left checkout before paying, no money was added.")
             void loadData()
         }
     }, [])
 
-    function showStatus(type: "success" | "error", title: string, message: string, btnText = "OK") {
+    function showStatus(type: "success" | "error" | "info", title: string, message: string, btnText = "OK") {
         setStatusModal({ open: true, type, title, message, btnText })
     }
 
@@ -427,7 +453,11 @@ export default function WalletPage() {
                                 <section className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
                                     <div className="flex items-center justify-between gap-3 border-b border-gray-100 p-4 dark:border-zinc-800 sm:p-6"><div><h2 className="text-lg font-bold text-gray-950 dark:text-white">Recent activity</h2><p className="mt-1 text-sm text-gray-600 dark:text-gray-400">See money added, payouts, and withdrawals.</p></div><span className="hidden rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600 dark:bg-zinc-800 dark:text-gray-300 sm:inline-flex">{activeWallet.entries.length} recent</span></div>
                                     {activeWallet.entries.length === 0 ? <div className="p-8 text-center sm:p-12"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-gray-500 dark:bg-zinc-800"><CreditCard className="h-5 w-5" /></div><p className="mt-3 font-semibold text-gray-900 dark:text-white">No activity yet</p><p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{activeWallet.canTopUp ? "Your top-ups and payments will appear here." : "Your payouts and withdrawals will appear here."}</p></div> : (
-                                        <div className="divide-y divide-gray-100 dark:divide-zinc-800">{activeWallet.entries.map((entry) => <div key={entry.id} className="flex items-center gap-3 p-4 sm:gap-4 sm:px-6"><div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full", entry.direction === "credit" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30" : "bg-rose-50 text-rose-600 dark:bg-rose-950/30")}>{entry.direction === "credit" ? <ArrowDownToLine className="h-5 w-5" /> : <ArrowUpFromLine className="h-5 w-5" />}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{entry.description}</p><p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">{entry.created_at ? new Date(entry.created_at).toLocaleString() : "Time unavailable"}{entry.reference ? " · " + entry.reference : ""}</p></div><div className="shrink-0 text-right"><p className={cn("text-sm font-bold sm:text-base", entry.direction === "credit" ? "text-emerald-700 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300")}>{entry.direction === "credit" ? "+" : "−"}{formatKobo(entry.amount)}</p><p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{entry.source === "ledger_entry" ? "Settlement" : entry.status}</p></div></div>)}</div>
+                                        <div className="divide-y divide-gray-100 dark:divide-zinc-800">{activeWallet.entries.map((entry) => {
+                                            const pendingTopUp = isPendingTopUp(entry)
+
+                                            return <div key={entry.id} className="flex items-center gap-3 p-4 sm:gap-4 sm:px-6"><div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full", pendingTopUp ? "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300" : entry.direction === "credit" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30" : "bg-rose-50 text-rose-600 dark:bg-rose-950/30")}>{entry.direction === "credit" ? <ArrowDownToLine className="h-5 w-5" /> : <ArrowUpFromLine className="h-5 w-5" />}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{entry.description}</p><p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">{entry.created_at ? new Date(entry.created_at).toLocaleString() : "Time unavailable"}{entry.reference ? " · " + entry.reference : ""}</p>{pendingTopUp ? <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">Not credited to your balance yet</p> : null}</div><div className="shrink-0 text-right"><p className={cn("text-sm font-bold sm:text-base", pendingTopUp ? "text-amber-700 dark:text-amber-300" : entry.direction === "credit" ? "text-emerald-700 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300")}>{pendingTopUp ? "" : entry.direction === "credit" ? "+" : "−"}{formatKobo(entry.amount)}</p><p className={cn("mt-1 text-[10px] font-semibold uppercase tracking-wide", pendingTopUp ? "text-amber-700 dark:text-amber-300" : "text-gray-400")}>{getActivityStatusLabel(entry)}</p></div></div>
+                                        })}</div>
                                     )}
                                 </section>
                             </div>
@@ -442,14 +472,14 @@ export default function WalletPage() {
                         <DialogDescription>{statusModal.message}</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-6 text-center">
-                        <div className={cn("mx-auto flex h-24 w-24 items-center justify-center rounded-full", statusModal.type === "success" ? "bg-[#F58220]/10" : "bg-red-500/10")}>
-                            {statusModal.type === "success" ? <CheckCircle2 className="h-12 w-12 text-[#F58220]" /> : <XCircle className="h-12 w-12 text-red-500" />}
+                        <div className={cn("mx-auto flex h-24 w-24 items-center justify-center rounded-full", statusModal.type === "success" ? "bg-[#F58220]/10" : statusModal.type === "error" ? "bg-red-500/10" : "bg-blue-500/10")}>
+                            {statusModal.type === "success" ? <CheckCircle2 className="h-12 w-12 text-[#F58220]" /> : statusModal.type === "error" ? <XCircle className="h-12 w-12 text-red-500" /> : <Info className="h-12 w-12 text-blue-600" />}
                         </div>
                         <div className="space-y-2">
                             <h3 className="text-2xl font-bold text-gray-900 dark:text-white">{statusModal.title}</h3>
                             <p className="text-gray-500 dark:text-gray-400">{statusModal.message}</p>
                         </div>
-                        <Button className={cn("h-14 w-full rounded-2xl text-lg font-bold", statusModal.type === "success" ? "bg-[#F58220] text-white hover:bg-[#E57210]" : "bg-red-500 text-white hover:bg-red-600")} onClick={() => setStatusModal((current) => ({ ...current, open: false }))}>
+                        <Button className={cn("h-14 w-full rounded-2xl text-lg font-bold", statusModal.type === "success" ? "bg-[#F58220] text-white hover:bg-[#E57210]" : statusModal.type === "error" ? "bg-red-500 text-white hover:bg-red-600" : "bg-blue-600 text-white hover:bg-blue-700")} onClick={() => setStatusModal((current) => ({ ...current, open: false }))}>
                             {statusModal.btnText}
                         </Button>
                     </div>
