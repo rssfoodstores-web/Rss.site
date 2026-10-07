@@ -41,7 +41,6 @@ export function CategoryGrid() {
                             category: category.slug,
                             page: null,
                         },
-                        hash: "product-grid",
                     })
                     const Icon = category.icon
 
@@ -49,6 +48,7 @@ export function CategoryGrid() {
                         <Link
                             key={category.label}
                             href={href}
+                            scroll={false}
                             className={cn(
                                 "group min-w-[220px] rounded-[28px] border p-5 transition-all duration-200 md:min-w-0 md:min-h-[270px] md:p-7",
                                 isActive

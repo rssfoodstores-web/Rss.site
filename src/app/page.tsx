@@ -1,7 +1,6 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { HeroSection } from "@/components/home/HeroSection"
-import { FeatureHighlights } from "@/components/home/FeatureHighlights"
 import { ProductGrid } from "@/components/home/ProductGrid"
 import { AdPlacementSection } from "@/components/ads/AdPlacementSection"
 import { StructuredData } from "@/components/seo/StructuredData"
@@ -27,11 +26,12 @@ export async function generateMetadata({
   const resolvedSearchParams = await searchParams
   const searchQuery = getFirstSearchParam(resolvedSearchParams.q)
   const state = getFirstSearchParam(resolvedSearchParams.state)
+  const sort = getFirstSearchParam(resolvedSearchParams.sort)
 
   return buildSeoMetadata({
     canonicalPath: "/",
     description: "Shop fresh groceries, grains, staples, and pantry essentials on RSS Foods with fast delivery across Nigeria.",
-    index: !(searchQuery || state),
+    index: !(searchQuery || state || sort),
     keywords: ["groceries Nigeria", "online food marketplace", "fresh groceries", "RSS Foods"],
     path: "/",
     title: "Fresh Groceries Delivered",
@@ -45,8 +45,9 @@ export default async function Home({
   const category = getFirstSearchParam(resolvedSearchParams.category).toLowerCase()
   const searchQuery = getFirstSearchParam(resolvedSearchParams.q)
   const state = getFirstSearchParam(resolvedSearchParams.state)
+  const sort = getFirstSearchParam(resolvedSearchParams.sort)
 
-  if (isStorefrontCategorySlug(category) && !searchQuery && !state) {
+  if (isStorefrontCategorySlug(category) && !searchQuery && !state && !sort) {
     redirect(buildStorefrontCategoryPath("retail", category))
   }
 
@@ -54,13 +55,12 @@ export default async function Home({
     <div className="flex flex-col gap-6">
       <StructuredData data={[createOrganizationJsonLd(), createWebSiteJsonLd()]} />
       <HeroSection />
-      <FeatureHighlights />
+      <ProductGrid />
       <AdPlacementSection
         placement="home_inline"
         title="Featured campaigns"
         description="Sponsored campaigns running across the storefront right now."
       />
-      <ProductGrid />
     </div>
   )
 }

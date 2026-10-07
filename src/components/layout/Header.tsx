@@ -71,10 +71,9 @@ export function Header() {
                 q: nextQuery,
                 page: null,
             },
-            hash: "product-grid",
         })
 
-        router.push(nextHref)
+        router.push(nextHref, { scroll: false })
     }
 
     if (pathname?.startsWith('/merchant')) return null;

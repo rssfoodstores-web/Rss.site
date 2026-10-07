@@ -130,7 +130,6 @@ export function Footer() {
                                                         category: category.slug,
                                                         page: null,
                                                     },
-                                                    hash: "product-grid",
                                                 })}
                                                 className="transition-colors hover:text-white"
                                             >
