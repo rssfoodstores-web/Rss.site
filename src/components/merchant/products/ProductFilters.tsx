@@ -14,14 +14,17 @@ export function ProductFilters({
     counts: Record<string, number>
 }) {
     return (
-        <div className="mb-8">
-            <div className="bg-[#F58220] p-1.5 rounded-2xl flex items-center gap-1">
+        <div className="mb-5 min-w-0 max-w-full sm:mb-8">
+            <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-2xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div role="group" aria-label="Filter products" className="flex w-max min-w-full items-center gap-1 rounded-2xl bg-[#F58220] p-1.5">
                 {statuses.map((status) => (
                     <button
                         key={status}
+                        type="button"
                         onClick={() => setActiveTab(status)}
+                        aria-pressed={activeTab === status}
                         className={cn(
-                            "px-6 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap",
+                            "shrink-0 rounded-xl px-4 py-2.5 text-sm font-bold whitespace-nowrap transition-all duration-300 sm:px-6",
                             activeTab === status
                                 ? "bg-white text-[#F58220] shadow-sm"
                                 : "text-white hover:bg-white/10"
@@ -45,6 +48,7 @@ export function ProductFilters({
                         )}
                     </button>
                 ))}
+                </div>
             </div>
         </div>
     )

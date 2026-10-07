@@ -296,23 +296,31 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
     const mobileSwipeItems = useMemo(() => {
         const uniqueItems = new Map<string, NavItem>()
 
-        for (const section of sections) {
-            for (const item of section.items) {
-                uniqueItems.set(item.href, item)
-            }
+        for (const item of activeSection?.items ?? []) {
+            uniqueItems.set(item.href, item)
         }
 
         return Array.from(uniqueItems.values())
-    }, [sections])
+    }, [activeSection])
 
     useEffect(() => {
-        const activeChip = mobileNavRef.current?.querySelector<HTMLElement>('[data-active-nav="true"]')
-        activeChip?.scrollIntoView({
-            behavior: "smooth",
-            block: "nearest",
-            inline: "center",
+        const nav = mobileNavRef.current
+        const activeChip = nav?.querySelector<HTMLElement>('[data-active-nav="true"]')
+
+        if (!nav || !activeChip) return
+
+        const navRect = nav.getBoundingClientRect()
+        const chipRect = activeChip.getBoundingClientRect()
+        const centeredScrollLeft = nav.scrollLeft + chipRect.left - navRect.left - (nav.clientWidth - chipRect.width) / 2
+        const maxScrollLeft = Math.max(nav.scrollWidth - nav.clientWidth, 0)
+
+        // Scroll only the quick-link strip. Element.scrollIntoView can move the
+        // entire document horizontally on narrow mobile screens.
+        nav.scrollTo({
+            left: Math.min(Math.max(centeredScrollLeft, 0), maxScrollLeft),
+            behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
         })
-    }, [pathname])
+    }, [mobileSwipeItems, pathname])
 
     const handleLogout = async () => {
         if (isLoggingOut) {
@@ -424,14 +432,14 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
         <>
             <div
                 className={cn(
-                    "rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 lg:hidden",
+                    "min-w-0 max-w-full overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 lg:hidden",
                     className
                 )}
             >
                 <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                         <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-gray-400 dark:text-gray-500">
-                            Account menu
+                            Your pages
                         </p>
                         <div className="mt-2 flex min-w-0 items-center gap-3">
                             {activeItem ? (
@@ -458,14 +466,14 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                                 className="h-11 shrink-0 rounded-xl border-gray-200 px-4 font-semibold dark:border-zinc-700"
                             >
                                 <Menu className="mr-2 h-4 w-4" />
-                                Open
+                                Pages
                             </Button>
                         </SheetTrigger>
                         <SheetContent side="left" className="w-[92vw] max-w-sm overflow-y-auto p-0">
                             <SheetHeader className="border-b border-gray-100 px-5 py-5 dark:border-zinc-800">
-                                <SheetTitle>Account navigation</SheetTitle>
+                                <SheetTitle>Browse your pages</SheetTitle>
                                 <SheetDescription>
-                                    Jump between your account pages, shared tools, and any approved workspace pages.
+                                    Use the quick links for common pages, or choose a section below to browse everything available to you.
                                 </SheetDescription>
                             </SheetHeader>
 
@@ -492,8 +500,9 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                 {!showLoadingSkeleton && mobileSwipeItems.length > 0 ? (
                     <div
                         ref={mobileNavRef}
-                        aria-label="Swipeable account navigation"
-                        className="mt-4 flex snap-x snap-mandatory gap-2 overflow-x-auto px-0.5 pb-1 scroll-smooth touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                        role="navigation"
+                        aria-label="Quick links for this section"
+                        className="mt-4 flex min-w-0 max-w-full snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain px-0.5 pb-1 scroll-smooth touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                     >
                         {mobileSwipeItems.map((item) => {
                             const isActive = isItemActive(pathname, item)
