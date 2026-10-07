@@ -280,7 +280,7 @@ export default function EditProfilePage() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Email</label>
-                                    <Input value={email} disabled className="bg-gray-100 dark:bg-zinc-800" />
+                                    <Input name="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="you@example.com" />
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Phone</label>
