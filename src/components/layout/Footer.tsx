@@ -3,6 +3,7 @@
 import { FormEvent, useState, useTransition } from "react"
 import Image from "next/image"
 import Link from "next/link"
+import { Mail, Phone } from "lucide-react"
 import { usePathname } from "next/navigation"
 import { toast } from "sonner"
 import { subscribeToNewsletter } from "@/app/actions/newsletterActions"
@@ -77,46 +78,51 @@ export function Footer() {
                 </div>
             </div>
 
-            <div className="bg-[#1A1A1A] pb-8 pt-16 text-white">
+            <div className="bg-[#171717] pb-8 pt-12 text-white md:pt-16">
                 <div className="container mx-auto px-4 md:px-8">
-                    <div className="mb-12 grid grid-cols-1 gap-12 lg:grid-cols-12 lg:gap-10">
-                        <div className="space-y-6 text-center lg:col-span-4 lg:pr-12 lg:text-left">
-                            <Link href="/" className="mb-2 inline-block">
-                                <div className="flex flex-col items-center lg:items-start">
-                                    <Image src="/logo.png" alt="RSS Foods" width={180} height={48} className="h-12 w-auto object-contain brightness-0 invert" />
-                                </div>
+                    <div className="mb-10 grid grid-cols-1 gap-8 lg:mb-12 lg:grid-cols-12 lg:gap-10">
+                        <div className="space-y-5 lg:col-span-4 lg:pr-10">
+                            <Link href="/" className="inline-flex">
+                                <Image src="/logo.png" alt="RSS Foods" width={180} height={48} className="h-11 w-auto object-contain brightness-0 invert" />
                             </Link>
-                            <p className="mx-auto max-w-md text-sm leading-relaxed text-gray-400 lg:mx-0">
-                                Your trusted partner for quality food items - rice, pasta, semovita, and detergents - delivered fresh and fast. Shop early and save big this season!
+                            <p className="max-w-md text-[15px] leading-6 text-gray-400">
+                                Quality food and household essentials, delivered to your door.
                             </p>
 
-                            <div className="flex flex-col items-center gap-4 pt-4 lg:items-start">
-                                <div className="flex flex-col items-center gap-2 sm:flex-row">
-                                    {phoneHref && primaryPhoneMethod ? (
-                                        <a href={phoneHref} className="text-lg font-semibold text-white transition-colors hover:text-[#F58220]">
-                                            {primaryPhoneMethod.value}
-                                        </a>
-                                    ) : (
-                                        <span className="text-lg font-semibold text-white">{primaryPhoneMethod?.value ?? ""}</span>
-                                    )}
-                                    <span className="hidden text-gray-500 sm:inline">or</span>
-                                    {emailHref && primaryEmailMethod ? (
-                                        <a href={emailHref} className="border-b-2 border-[#F58220] pb-0.5 text-lg font-semibold text-white transition-colors hover:text-[#F58220]">
-                                            {primaryEmailMethod.value}
-                                        </a>
-                                    ) : (
-                                        <span className="border-b-2 border-[#F58220] pb-0.5 text-lg font-semibold text-white">
-                                            {primaryEmailMethod?.value ?? ""}
+                            <div className="grid gap-3 min-[520px]:grid-cols-2 lg:grid-cols-1">
+                                {primaryPhoneMethod ? (
+                                    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F58220]/15 text-[#F58220]"><Phone aria-hidden="true" className="h-4 w-4" /></span>
+                                        <span className="min-w-0">
+                                            <span className="block text-xs font-medium uppercase tracking-wider text-gray-500">Call us</span>
+                                            {phoneHref ? (
+                                                <a href={phoneHref} className="block truncate text-[15px] font-semibold text-white transition-colors hover:text-[#F58220]">{primaryPhoneMethod.value}</a>
+                                            ) : (
+                                                <span className="block truncate text-[15px] font-semibold text-white">{primaryPhoneMethod.value}</span>
+                                            )}
                                         </span>
-                                    )}
-                                </div>
+                                    </div>
+                                ) : null}
+                                {primaryEmailMethod ? (
+                                    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F58220]/15 text-[#F58220]"><Mail aria-hidden="true" className="h-4 w-4" /></span>
+                                        <span className="min-w-0">
+                                            <span className="block text-xs font-medium uppercase tracking-wider text-gray-500">Email us</span>
+                                            {emailHref ? (
+                                                <a href={emailHref} className="block truncate text-[15px] font-semibold text-white transition-colors hover:text-[#F58220]">{primaryEmailMethod.value}</a>
+                                            ) : (
+                                                <span className="block truncate text-[15px] font-semibold text-white">{primaryEmailMethod.value}</span>
+                                            )}
+                                        </span>
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-x-6 gap-y-10 text-left sm:gap-x-10 lg:col-span-8 lg:grid-cols-4 lg:gap-8">
-                            <div className="space-y-5">
-                                <h3 className="text-base font-bold text-white">Account</h3>
-                                <ul className="space-y-3 text-sm text-gray-400">
+                        <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:gap-x-10 lg:col-span-8 lg:grid-cols-4 lg:gap-8">
+                            <div className="border-t border-white/10 pt-4">
+                                <h3 className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-[#F58220]">Account</h3>
+                                <ul className="space-y-2.5 text-[15px] leading-6 text-gray-400">
                                     <li><Link href="/account" className="transition-colors hover:text-white">My Account</Link></li>
                                     <li><Link href="/account/orders" className="transition-colors hover:text-white">Order History</Link></li>
                                     <li><Link href="/cart" className="transition-colors hover:text-white">Shopping Cart</Link></li>
@@ -124,18 +130,18 @@ export function Footer() {
                                 </ul>
                             </div>
 
-                            <div className="space-y-5">
-                                <h3 className="text-base font-bold text-white">Register</h3>
-                                <ul className="space-y-3 text-sm text-gray-400">
+                            <div className="border-t border-white/10 pt-4">
+                                <h3 className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-[#F58220]">Register</h3>
+                                <ul className="space-y-2.5 text-[15px] leading-6 text-gray-400">
                                     <li><Link href="/join/rider" className="transition-colors hover:text-white">Delivery Partner</Link></li>
                                     <li><Link href="/join/agent" className="transition-colors hover:text-white">Become an Agent</Link></li>
                                     <li><Link href="/join/merchant" className="transition-colors hover:text-white">Merchant Sign Up</Link></li>
                                 </ul>
                             </div>
 
-                            <div className="space-y-5">
-                                <h3 className="text-base font-bold text-white">Company</h3>
-                                <ul className="space-y-3 text-sm text-gray-400">
+                            <div className="border-t border-white/10 pt-4">
+                                <h3 className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-[#F58220]">Company</h3>
+                                <ul className="space-y-2.5 text-[15px] leading-6 text-gray-400">
                                     <li><Link href="/about" className="transition-colors hover:text-white">About Us</Link></li>
                                     <li><Link href="/retail" className="transition-colors hover:text-white">Shop</Link></li>
                                     <li><Link href="/wholesale" className="transition-colors hover:text-white">Products</Link></li>
@@ -143,9 +149,9 @@ export function Footer() {
                                 </ul>
                             </div>
 
-                            <div className="space-y-5">
-                                <h3 className="text-base font-bold text-white">Help</h3>
-                                <ul className="space-y-3 text-sm text-gray-400">
+                            <div className="border-t border-white/10 pt-4">
+                                <h3 className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-[#F58220]">Help</h3>
+                                <ul className="space-y-2.5 text-[15px] leading-6 text-gray-400">
                                     <li><Link href="/contact" className="transition-colors hover:text-white">Contact Us</Link></li>
                                     <li><Link href="/faqs" className="transition-colors hover:text-white">FAQs</Link></li>
                                     <li><Link href="/terms" className="transition-colors hover:text-white">Terms & Conditions</Link></li>
