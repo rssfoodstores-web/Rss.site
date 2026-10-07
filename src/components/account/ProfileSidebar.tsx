@@ -12,10 +12,10 @@ import {
     Gift,
     History,
     LayoutDashboard,
+    LayoutGrid,
     Lock,
     LogOut,
     MapPin,
-    Menu,
     MessageSquare,
     RefreshCcw,
     ShoppingBag,
@@ -439,7 +439,7 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                 <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                         <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-gray-400 dark:text-gray-500">
-                            Your pages
+                            Account & workspace
                         </p>
                         <div className="mt-2 flex min-w-0 items-center gap-3">
                             {activeItem ? (
@@ -452,7 +452,7 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                                     {showLoadingSkeleton ? "Loading navigation..." : activeItem?.label ?? "Browse your account"}
                                 </p>
                                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                                    {activeSection?.title ?? "Wallet, orders, notifications, and workspaces"}
+                                    Account tools and role workspaces
                                 </p>
                             </div>
                         </div>
@@ -463,15 +463,16 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                             <Button
                                 type="button"
                                 variant="outline"
-                                className="h-11 shrink-0 rounded-xl border-gray-200 px-4 font-semibold dark:border-zinc-700"
+                                aria-label="Browse all account pages"
+                                className="h-11 shrink-0 rounded-xl border-gray-200 px-3 font-semibold dark:border-zinc-700 sm:px-4"
                             >
-                                <Menu className="mr-2 h-4 w-4" />
-                                Pages
+                                <LayoutGrid className="mr-2 h-4 w-4" />
+                                Browse
                             </Button>
                         </SheetTrigger>
                         <SheetContent side="left" className="w-[92vw] max-w-sm overflow-y-auto p-0">
                             <SheetHeader className="border-b border-gray-100 px-5 py-5 dark:border-zinc-800">
-                                <SheetTitle>Browse your pages</SheetTitle>
+                                <SheetTitle>All account pages</SheetTitle>
                                 <SheetDescription>
                                     Use the quick links for common pages, or choose a section below to browse everything available to you.
                                 </SheetDescription>

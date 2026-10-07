@@ -213,7 +213,7 @@ async function createMonnifyReservedAccount(
     }
 }
 
-async function ensureWalletExists(userId: string) {
+async function ensureWalletExists(userId: string, provisionDepositAccount = true) {
     const supabase = await getSupabase()
 
     let { data: currentWallet } = await supabase
@@ -251,7 +251,7 @@ async function ensureWalletExists(userId: string) {
         }
     }
 
-    if (currentWallet && !currentWallet.virtual_account) {
+    if (provisionDepositAccount && currentWallet && !currentWallet.virtual_account) {
         const { data: { user } } = await supabase.auth.getUser()
 
         if (user) {
@@ -354,7 +354,7 @@ export async function initializeTopUp(amount: number) {
     let reference: string | null = null
 
     try {
-        await ensureWalletExists(user.id)
+        await ensureWalletExists(user.id, false)
 
         reference = `WAL-${crypto.randomUUID()}`
         const amountKobo = Math.round(amount * 100)
@@ -410,22 +410,26 @@ export async function getWalletData() {
         return { error: "Not authenticated" }
     }
 
-    const customerWallet = await ensureWalletExists(user.id)
-    const walletWithdrawalSettings = await getWalletWithdrawalSettings(supabase)
+    const customerWallet = await ensureWalletExists(user.id, false)
+    const [walletWithdrawalSettings, feeSettingResult, walletResult] = await Promise.all([
+        getWalletWithdrawalSettings(supabase),
+        supabase
+            .from("app_settings")
+            .select("value")
+            .eq("key", "wallet_fee_settings")
+            .maybeSingle(),
+        supabase
+            .from("wallets")
+            .select("*")
+            .eq("owner_id", user.id),
+    ])
     const roleWalletWithdrawal = getRoleWalletWithdrawalAvailability(walletWithdrawalSettings)
-    const { data: feeSettingRow } = await supabase
-        .from("app_settings")
-        .select("value")
-        .eq("key", "wallet_fee_settings")
-        .maybeSingle()
+    const { data: feeSettingRow } = feeSettingResult
     const walletFeeSettings = feeSettingRow
         ? normalizeWalletFeeSettings(feeSettingRow.value)
         : DEFAULT_WALLET_FEE_SETTINGS
 
-    const { data: wallets } = await supabase
-        .from("wallets")
-        .select("*")
-        .eq("owner_id", user.id)
+    const { data: wallets } = walletResult
 
     const allWallets = ((wallets ?? []) as Array<{
         id: string
@@ -544,6 +548,36 @@ export async function getWalletData() {
         primaryWalletId: primaryWallet?.id ?? null,
         transactions: primaryWallet?.entries ?? [],
         walletFeeSettings,
+    }
+}
+
+export async function createWalletDepositAccount() {
+    const supabase = await getSupabase()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+        return { error: "Not authenticated" }
+    }
+
+    try {
+        const wallet = await ensureWalletExists(user.id, true)
+        const account = wallet?.virtual_account as Record<string, string> | null | undefined
+
+        if (!account?.accountNumber) {
+            return { error: "We could not create your transfer account. Please try again." }
+        }
+
+        return {
+            success: true,
+            account: {
+                bankName: account.bankName,
+                accountNumber: account.accountNumber,
+                accountName: account.accountName,
+            },
+        }
+    } catch (error: unknown) {
+        console.error("Deposit account setup error:", error)
+        return { error: error instanceof Error ? error.message : "Unable to create transfer account" }
     }
 }
 
