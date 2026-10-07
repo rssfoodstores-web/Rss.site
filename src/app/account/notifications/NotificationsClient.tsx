@@ -1,6 +1,9 @@
+Warning: truncated output (original token count: 4321)
+Total output lines: 298
+
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js"
 import { ProfileSidebar } from "@/components/account/ProfileSidebar"
@@ -26,55 +29,16 @@ export function NotificationsClient({
     currentUserId,
 }: NotificationsClientProps) {
     const [notifications, setNotifications] = useState<AppNotification[]>(() =>
-        initialNotifications.map((notification) => ({ ...notification, read: true }))
+        initialNotifications
     )
     const [activeFilter, setActiveFilter] = useState<NotificationFilter>("all")
-    const { refreshUnreadCount, setUnreadCountLocal } = useUser()
+    const { refreshUnreadCount } = useUser()
     const [supabase] = useState(() => createClient())
     const router = useRouter()
-    const hadUnreadOnOpen = useMemo(
-        () => initialNotifications.some((notification) => !isNotificationRead(notification)),
-        [initialNotifications]
-    )
-
-    const markVisibleNotificationsAsRead = useCallback(async () => {
-        if (!hadUnreadOnOpen) {
-            await refreshUnreadCount(currentUserId)
-            return
-        }
-
-        await markAllAsRead()
-        await refreshUnreadCount(currentUserId)
-    }, [currentUserId, hadUnreadOnOpen, refreshUnreadCount])
-
-    const autoReadNotification = useCallback(async (notification: AppNotification) => {
-        if (isNotificationRead(notification)) {
-            setUnreadCountLocal(0)
-            await refreshUnreadCount(currentUserId)
-            return
-        }
-
-        setNotifications((current) =>
-            current.map((entry) =>
-                entry.id === notification.id ? { ...entry, read: true } : entry
-            )
-        )
-        setUnreadCountLocal(0)
-
-        const { success } = await markAsRead(notification.id)
-        if (!success) {
-            setNotifications((current) =>
-                current.map((entry) =>
-                    entry.id === notification.id ? notification : entry
-                )
-            )
-        }
-        await refreshUnreadCount(currentUserId)
-    }, [currentUserId, refreshUnreadCount, setUnreadCountLocal])
 
     useEffect(() => {
-        void markVisibleNotificationsAsRead()
-    }, [markVisibleNotificationsAsRead])
+        void refreshUnreadCount(currentUserId)
+    }, [currentUserId, refreshUnreadCount])
 
     useEffect(() => {
         const channel = supabase
@@ -92,9 +56,8 @@ export function NotificationsClient({
                         const nextNotification = payload.new as AppNotification
                         setNotifications((current) => {
                             const filtered = current.filter((notification) => notification.id !== nextNotification.id)
-                            return [{ ...nextNotification, read: true }, ...filtered]
+                            return [nextNotification, ...filtered]
                         })
-                        void autoReadNotification(nextNotification)
                     }
 
                     if (payload.eventType === "UPDATE") {
@@ -119,7 +82,7 @@ export function NotificationsClient({
         return () => {
             supabase.removeChannel(channel)
         }
-    }, [autoReadNotification, currentUserId, supabase])
+    }, [currentUserId, supabase])
 
     const handleMarkAsRead = async (id: string) => {
         const { success } = await markAsRead(id)
@@ -127,7 +90,6 @@ export function NotificationsClient({
             setNotifications((current) => current.map((notification) => (
                 notification.id === id ? { ...notification, read: true } : notification
             )))
-            setUnreadCountLocal(0)
             await refreshUnreadCount(currentUserId)
         }
     }
@@ -135,8 +97,6 @@ export function NotificationsClient({
     const handleMarkAllAsRead = async () => {
         const previousNotifications = notifications
         setNotifications((current) => current.map((notification) => ({ ...notification, read: true })))
-        setUnreadCountLocal(0)
-
         const { success } = await markAllAsRead()
         if (!success) {
             setNotifications(previousNotifications)
@@ -150,7 +110,6 @@ export function NotificationsClient({
         if (success) {
             setNotifications((current) => current.filter((notification) => notification.id !== id))
             if (deletedNotification && !isNotificationRead(deletedNotification)) {
-                setUnreadCountLocal(0)
                 await refreshUnreadCount(currentUserId)
             }
         }
@@ -164,7 +123,6 @@ export function NotificationsClient({
                     entry.id === notification.id ? { ...entry, read: true } : entry
                 )
             )
-            setUnreadCountLocal(0)
             await refreshUnreadCount(currentUserId)
         }
 
@@ -223,23 +181,7 @@ export function NotificationsClient({
                     </aside>
                     <main className="min-w-0 flex-1">
                         <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                            <div className="flex gap-3 overflow-x-auto border-b border-gray-100 px-4 py-4 [scrollbar-width:none] dark:border-zinc-800 sm:flex-wrap sm:px-6 [&::-webkit-scrollbar]:hidden">
-                                {filterOptions.map((filterOption) => (
-                                    <button
-                                        key={filterOption.key}
-                                        type="button"
-                                        onClick={() => setActiveFilter(filterOption.key)}
-                                        className={cn(
-                                            "inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition",
-                                            activeFilter === filterOption.key
-                                                ? "border-[#F58220] bg-[#F58220]/10 text-[#F58220]"
-                                                : "border-gray-200 text-gray-600 hover:border-[#F58220]/40 hover:text-[#F58220] dark:border-zinc-700 dark:text-zinc-300"
-                                        )}
-                                    >
-                                        <span>{filterOption.label}</span>
-                                        <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs dark:bg-zinc-950">
-                                            {filterOption.count}
-                                        </span>
+                            <div className="flex gap-3 overflow-x-auto border-b border-gray-100 px-4 py-4 [scrollbar-width:none] dark:border-zinc-800 sm:flex-wr…321 tokens truncated…                </span>
                                     </button>
                                 ))}
                             </div>
