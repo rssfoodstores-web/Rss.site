@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { useTheme } from "next-themes"
-import { Search, ShoppingCart, Heart, User, Phone, ChevronDown, Menu, Sun, Moon, LogOut, Bell } from "lucide-react"
+import { Search, ShoppingCart, Heart, User, Phone, Menu, Sun, Moon, LogOut, Bell } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { createClient } from "@/lib/supabase/client"
-import { useCategory } from "@/context/CategoryContext"
 import { useUser } from "@/context/UserContext"
 import { useCart } from "@/context/CartContext"
 import { useWishlist } from "@/context/WishlistContext"
@@ -32,7 +31,6 @@ export function Header() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const { setTheme, theme } = useTheme()
-    const { toggle, isOpen } = useCategory()
     const { user, roles, unreadCount } = useUser()
     const { itemCount } = useCart()
     const { items: wishlistItems } = useWishlist()
@@ -275,26 +273,7 @@ export function Header() {
                     <div className="flex items-center justify-between h-[64px]">
 
                         {/* Desktop Nav */}
-                        <div className="hidden md:flex items-center gap-[50px]"> {/* Adjusted gap to separate button and links */}
-                            {/* Categories Button - Figma Spec: Frame 8:365 */}
-                            {(pathname === "/" || pathname === "/retail" || pathname === "/wholesale") && (
-                                <div
-                                    onClick={toggle}
-                                    className="bg-[#333333] dark:bg-zinc-800 text-white flex items-center cursor-pointer w-[312px] h-[64px] rounded-[10px] overflow-hidden transition-colors hover:bg-[#333333]/90 relative select-none"
-                                >
-                                    {/* Menu Icon Box - Figma Spec: Frame 8:366 */}
-                                    <div className="w-[64px] h-[64px] bg-[#F58220] flex items-center justify-center shrink-0">
-                                        <Menu className="h-6 w-6 text-white" />
-                                    </div>
-
-                                    {/* Text Content */}
-                                    <div className="flex items-center justify-between flex-1 px-4">
-                                        <span className="font-medium text-lg">All Categories</span>
-                                        <ChevronDown className={`h-5 w-5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-                                    </div>
-                                </div>
-                            )}
-
+                        <div className="hidden md:flex items-center">
                             {/* Nav Links - Figma Spec: Frame 8:375 */}
                             <nav className="flex items-center gap-[27px] text-sm font-medium">
                                 <Link href="/" className={`${pathname === "/" ? "text-[#F58220]" : "text-[#002603] dark:text-gray-200 hover:text-[#F58220]"} transition-colors`}>Home</Link>
