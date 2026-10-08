@@ -6,7 +6,24 @@ import { revalidatePath } from "next/cache"
 import type { Database } from "@/types/database.types"
 
 type MerchantKycValue = string | null | Record<string, string>
-type CloudinaryUploadResult = { secure_url: string }
+type MerchantDocumentField =
+    | "cac_certificate"
+    | "cac_form_1_1"
+    | "director_id"
+    | "valid_id"
+    | "utility_bill"
+    | "food_handler_certificate"
+    | "kitchen_photo"
+
+const MERCHANT_DOCUMENT_FIELDS = new Set<MerchantDocumentField>([
+    "cac_certificate",
+    "cac_form_1_1",
+    "director_id",
+    "valid_id",
+    "utility_bill",
+    "food_handler_certificate",
+    "kitchen_photo",
+])
 
 // Initialize Supabase Server Client
 async function getSupabase() {
@@ -238,6 +255,38 @@ export async function updateAvatar(url: string) {
 
 import cloudinary from "@/lib/cloudinary"
 
+function sanitizeMerchantDocumentName(fileName: string) {
+    return fileName
+        .replace(/\.[^/.]+$/, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 40) || "document"
+}
+
+export async function createMerchantDocumentUploadSignature(field: MerchantDocumentField, fileName: string) {
+    const supabase = await getSupabase()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) throw new Error("Sign in again to upload your documents.")
+    if (!MERCHANT_DOCUMENT_FIELDS.has(field)) throw new Error("This document type is not supported.")
+
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+    const apiKey = process.env.CLOUDINARY_API_KEY
+    const apiSecret = process.env.CLOUDINARY_API_SECRET
+
+    if (!cloudName || !apiKey || !apiSecret) {
+        throw new Error("Document uploads are temporarily unavailable. Please contact support.")
+    }
+
+    const folder = `rssa/merchants/${user.id}/${field}`
+    const publicId = `merchant-${Date.now()}-${crypto.randomUUID()}-${sanitizeMerchantDocumentName(fileName)}`
+    const timestamp = Math.floor(Date.now() / 1000)
+    const signature = cloudinary.utils.api_sign_request({ folder, public_id: publicId, timestamp }, apiSecret)
+
+    return { apiKey, cloudName, folder, publicId, signature, timestamp }
+}
+
 export async function registerMerchant(formData: FormData) {
     const supabase = await getSupabase()
     const { data: { user } } = await supabase.auth.getUser()
@@ -251,7 +300,10 @@ export async function registerMerchant(formData: FormData) {
     const owner_name = formData.get("owner_name") as string
     const business_phone = formData.get("business_phone") as string
     const business_address = formData.get("business_address") as string
-    const merchant_type = formData.get("merchant_type") as "business" | "individual"
+    const merchant_type = formData.get("merchant_type")
+    if (merchant_type !== "business" && merchant_type !== "individual") {
+        return { error: "Choose whether you are registering a business or an individual store." }
+    }
     const getFormText = (field: string) => {
         const value = formData.get(field)
         return typeof value === "string" ? value : null
@@ -270,48 +322,62 @@ export async function registerMerchant(formData: FormData) {
         kyc_data.next_of_kin_phone = getFormText("next_of_kin_phone")
     }
 
-    // Handle File Uploads
-    const documents: Record<string, string> = {}
-    const fileFields = [
-        "cac_certificate", "cac_form_1_1", "director_id", // Business
-        "valid_id", "utility_bill", // Individual
-        "food_handler_certificate", "kitchen_photo" // Common
-    ]
+    const submittedDocuments = getFormText("merchant_documents")
+    let uploadedDocuments: Record<string, { publicId: string; secureUrl: string }> = {}
 
-    for (const field of fileFields) {
-        const file = formData.get(field) as File | null
-        if (file && file.size > 0) {
-            try {
-                const arrayBuffer = await file.arrayBuffer()
-                const buffer = Buffer.from(arrayBuffer)
-
-                // Upload to Cloudinary
-                const result = await new Promise<CloudinaryUploadResult>((resolve, reject) => {
-                    const uploadStream = cloudinary.uploader.upload_stream(
-                        { folder: `rssa/merchants/${user.id}/${field}` },
-                        (error, result) => {
-                            if (error) {
-                                reject(error)
-                                return
-                            }
-
-                            if (!result?.secure_url) {
-                                reject(new Error("Cloudinary upload did not return a secure URL"))
-                                return
-                            }
-
-                            resolve({ secure_url: result.secure_url })
-                        }
-                    )
-                    uploadStream.end(buffer)
-                })
-
-                documents[field] = result.secure_url
-            } catch (uploadError) {
-                console.error(`Error uploading ${field}:`, uploadError)
-                return { error: `Failed to upload ${field.replace('_', ' ')}` }
-            }
+    try {
+        const parsedDocuments: unknown = submittedDocuments ? JSON.parse(submittedDocuments) : {}
+        if (!parsedDocuments || typeof parsedDocuments !== "object" || Array.isArray(parsedDocuments)) {
+            return { error: "The uploaded document details could not be read. Please try again." }
         }
+        uploadedDocuments = parsedDocuments as Record<string, { publicId: string; secureUrl: string }>
+    } catch {
+        return { error: "The uploaded document details could not be read. Please try again." }
+    }
+
+    const documents: Record<string, string> = {}
+    for (const [field, document] of Object.entries(uploadedDocuments)) {
+        if (
+            !MERCHANT_DOCUMENT_FIELDS.has(field as MerchantDocumentField)
+            || !document
+            || typeof document.publicId !== "string"
+            || typeof document.secureUrl !== "string"
+            || !document.publicId
+            || !document.secureUrl
+        ) {
+            return { error: "One of the uploaded documents is invalid. Please upload it again." }
+        }
+
+        const expectedFolder = `rssa/merchants/${user.id}/${field}/`
+        let uploadedUrl: URL
+        try {
+            uploadedUrl = new URL(document.secureUrl)
+        } catch {
+            return { error: "One of the uploaded documents has an invalid link. Please upload it again." }
+        }
+
+        const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+        if (!cloudName || uploadedUrl.protocol !== "https:" || uploadedUrl.hostname !== "res.cloudinary.com" || !uploadedUrl.pathname.includes(`/${cloudName}/`)) {
+            return { error: "One of the uploaded documents could not be verified. Please upload it again." }
+        }
+
+        if (!document.publicId.startsWith(expectedFolder)) {
+            return { error: "One of the uploaded documents does not belong to this application. Please upload it again." }
+        }
+
+        if (!uploadedUrl.pathname.includes(document.publicId)) {
+            return { error: "One of the uploaded documents could not be matched to your application. Please upload it again." }
+        }
+
+        documents[field] = document.secureUrl
+    }
+
+    const requiredDocumentFields = merchant_type === "business"
+        ? ["cac_certificate", "cac_form_1_1", "director_id", "kitchen_photo"]
+        : ["valid_id", "utility_bill", "kitchen_photo"]
+    const missingDocument = requiredDocumentFields.find((field) => !documents[field])
+    if (missingDocument) {
+        return { error: `Please upload ${missingDocument.replaceAll("_", " ")} before submitting.` }
     }
 
     kyc_data.documents = documents

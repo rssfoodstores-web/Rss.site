@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { CheckCircle2, Loader2 } from "lucide-react"
-import { registerMerchant } from "@/app/account/actions"
+import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
+import { createMerchantDocumentUploadSignature, registerMerchant } from "@/app/account/actions"
 import { useRouter } from "next/navigation"
 import { AnimatePresence, motion } from "framer-motion"
 import { createClient } from "@/lib/supabase/client"
@@ -24,6 +24,12 @@ const SHOWCASE_IMAGES = [
     },
 ]
 
+const BUSINESS_DOCUMENT_FIELDS = ["cac_certificate", "cac_form_1_1", "director_id", "food_handler_certificate", "kitchen_photo"] as const
+const INDIVIDUAL_DOCUMENT_FIELDS = ["valid_id", "utility_bill", "food_handler_certificate", "kitchen_photo"] as const
+const MAX_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024
+
+type MerchantDocumentField = typeof BUSINESS_DOCUMENT_FIELDS[number] | typeof INDIVIDUAL_DOCUMENT_FIELDS[number]
+
 interface UserRoleRow {
     role: string
 }
@@ -34,6 +40,8 @@ export default function MerchantRegisterPage() {
     const [currentImage, setCurrentImage] = useState(0)
     const [merchantType, setMerchantType] = useState<"business" | "individual">("business")
     const [authReady, setAuthReady] = useState(false)
+    const [submissionError, setSubmissionError] = useState<string | null>(null)
+    const [uploadProgress, setUploadProgress] = useState<string | null>(null)
     const router = useRouter()
 
     useEffect(() => {
@@ -82,20 +90,78 @@ export default function MerchantRegisterPage() {
         )
     }
 
-    async function handleSubmit(formData: FormData) {
+    async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault()
+        const form = event.currentTarget
+        const formData = new FormData(form)
+        setSubmissionError(null)
         setLoading(true)
-        const result = await registerMerchant(formData)
-        setLoading(false)
+        setUploadProgress("Preparing your documents…")
 
-        if (!result.success) {
-            alert("Registration failed: " + result.error)
-            return
+        try {
+            const fileFields: readonly MerchantDocumentField[] = merchantType === "business"
+                ? BUSINESS_DOCUMENT_FIELDS
+                : INDIVIDUAL_DOCUMENT_FIELDS
+            const documents: Record<string, { publicId: string; secureUrl: string }> = {}
+            const filesToUpload = fileFields.flatMap((field) => {
+                const file = formData.get(field)
+                return file instanceof File && file.size > 0 ? [{ field, file }] : []
+            })
+
+            for (const { field, file } of filesToUpload) {
+                const extension = file.name.split(".").pop()?.toLowerCase()
+                if (!extension || !["pdf", "jpg", "jpeg", "png"].includes(extension)) {
+                    throw new Error(`${field.replaceAll("_", " ")} must be a PDF, JPG, or PNG file.`)
+                }
+                if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
+                    throw new Error(`${field.replaceAll("_", " ")} is over the 10 MB limit. Choose a smaller file and try again.`)
+                }
+
+                setUploadProgress(`Uploading ${field.replaceAll("_", " ")}…`)
+                const signature = await createMerchantDocumentUploadSignature(field, file.name)
+                const uploadData = new FormData()
+                uploadData.append("file", file)
+                uploadData.append("api_key", signature.apiKey)
+                uploadData.append("timestamp", String(signature.timestamp))
+                uploadData.append("signature", signature.signature)
+                uploadData.append("folder", signature.folder)
+                uploadData.append("public_id", signature.publicId)
+
+                const response = await fetch(`https://api.cloudinary.com/v1_1/${signature.cloudName}/auto/upload`, {
+                    method: "POST",
+                    body: uploadData,
+                })
+                const payload = await response.json() as {
+                    public_id?: string
+                    secure_url?: string
+                    error?: { message?: string }
+                }
+                if (!response.ok || !payload.public_id || !payload.secure_url) {
+                    throw new Error(payload.error?.message || `Unable to upload ${field.replaceAll("_", " ")}. Check your connection and try again.`)
+                }
+
+                documents[field] = { publicId: payload.public_id, secureUrl: payload.secure_url }
+                formData.delete(field)
+            }
+
+            formData.append("merchant_documents", JSON.stringify(documents))
+            setUploadProgress("Submitting your application…")
+            const result = await registerMerchant(formData)
+
+            if (!result.success) {
+                setSubmissionError(result.error || "We could not submit your application. Please try again.")
+                return
+            }
+
+            setSuccess(true)
+            window.setTimeout(() => router.push("/merchant"), 3000)
+        } catch (error) {
+            console.error("Merchant application submission failed:", error)
+            setSubmissionError(error instanceof Error ? error.message : "We could not submit your application. Please try again.")
+        } finally {
+            setLoading(false)
+            setUploadProgress(null)
         }
-
-        setSuccess(true)
-        window.setTimeout(() => {
-            router.push("/merchant")
-        }, 3000)
     }
 
     if (success) {
@@ -149,7 +215,7 @@ export default function MerchantRegisterPage() {
                         </button>
                     </div>
 
-                    <form action={handleSubmit} className="space-y-5">
+                    <form onSubmit={handleSubmit} className="space-y-5">
                         <input type="hidden" name="merchant_type" value={merchantType} />
 
                         <div className="space-y-4">
@@ -200,11 +266,18 @@ export default function MerchantRegisterPage() {
                             </div>
                         </div>
 
+                        {submissionError ? (
+                            <div role="alert" className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+                                <span>{submissionError}</span>
+                            </div>
+                        ) : null}
+
                         <Button
                             disabled={loading}
                             className="w-full h-16 bg-[#F58220] hover:bg-[#E57210] text-white font-extrabold text-xl rounded-2xl shadow-xl shadow-orange-500/20 active:scale-95 transition-all mt-6"
                         >
-                            {loading ? <Loader2 className="h-6 w-6 animate-spin" /> : "Submit Application"}
+                            {loading ? <><Loader2 className="mr-2 h-6 w-6 animate-spin" />{uploadProgress}</> : "Submit Application"}
                         </Button>
                     </form>
                 </div>
