@@ -380,9 +380,20 @@ export async function initializeTopUp(amount: number) {
             paymentReference: reference,
         })
 
+        let checkoutUrl: URL
+        try {
+            checkoutUrl = new URL(data.checkoutUrl)
+        } catch {
+            throw new Error("Monnify returned an invalid checkout link. Please try again.")
+        }
+
+        if (checkoutUrl.protocol !== "https:" || !checkoutUrl.hostname.endsWith(".monnify.com")) {
+            throw new Error("Monnify returned an invalid checkout link. Please try again.")
+        }
+
         return {
             success: true,
-            checkoutUrl: data.checkoutUrl,
+            checkoutUrl: checkoutUrl.toString(),
             reference,
             quote: quoteResult,
         }
@@ -548,6 +559,32 @@ export async function getWalletData() {
         primaryWalletId: primaryWallet?.id ?? null,
         transactions: primaryWallet?.entries ?? [],
         walletFeeSettings,
+    }
+}
+
+export async function verifyWalletTopUp(reference: string) {
+    if (!/^WAL-[0-9a-f-]{36}$/i.test(reference)) {
+        return { success: false, error: "Invalid payment reference" }
+    }
+
+    try {
+        const supabase = await getSupabase()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return { success: false, error: "Not authenticated" }
+
+        const data = await invokeEdgeFunction<{
+            success: boolean
+            status?: string
+            settled?: boolean
+        }>(supabase, "monnify-check-wallet-topup", { paymentReference: reference })
+
+        return data
+    } catch (error) {
+        console.error("Wallet top-up verification error:", error)
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : "Unable to check payment status.",
+        }
     }
 }
 
