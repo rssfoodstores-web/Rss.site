@@ -153,6 +153,14 @@ export default function MerchantRegisterPage() {
                 return
             }
 
+            // The registration action added the merchant role after this session was
+            // issued. Refresh now so the next request carries the merchant app_metadata
+            // claim required by the products RLS policy.
+            const { error: sessionRefreshError } = await createClient().auth.refreshSession()
+            if (sessionRefreshError) {
+                console.error("Merchant role session refresh failed:", sessionRefreshError)
+            }
+
             setSuccess(true)
             window.setTimeout(() => router.push("/merchant"), 3000)
         } catch (error) {
