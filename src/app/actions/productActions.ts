@@ -1,6 +1,7 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
+import type { User } from "@supabase/supabase-js"
 import { createClient } from "@/lib/supabase/server"
 import { nairaToKobo } from "@/lib/money"
 import { assertMerchantCanPostProducts } from "@/lib/merchantPostingAccess"
@@ -33,10 +34,56 @@ function productActionError(error: unknown, operation: string): ProductActionRes
         return { ok: false, error: "Your session has expired. Sign in again and retry." }
     }
 
+    if (code === "42501") {
+        return {
+            ok: false,
+            error: "We couldn't confirm your merchant access, so your product wasn't submitted. Please refresh this page and try once more.",
+            code,
+        }
+    }
+
     return {
         ok: false,
         error: `Product ${operation} failed${code ? ` (${code})` : ""}: ${detail}`,
         code,
+    }
+}
+
+function hasMerchantRoleClaim(value: unknown) {
+    return Array.isArray(value) && value.some((role) => role === "merchant")
+}
+
+function claimsIncludeMerchantRole(claims: unknown) {
+    if (!claims || typeof claims !== "object") return false
+
+    const appMetadata = (claims as Record<string, unknown>).app_metadata
+    if (!appMetadata || typeof appMetadata !== "object") return false
+
+    return hasMerchantRoleClaim((appMetadata as Record<string, unknown>).roles)
+}
+
+async function ensureMerchantRoleClaim(supabase: Awaited<ReturnType<typeof createClient>>, user: User) {
+    const { data: currentClaims, error: claimsError } = await supabase.auth.getClaims()
+
+    if (claimsError) throw claimsError
+    if (claimsIncludeMerchantRole(currentClaims?.claims)) return
+
+    // Role rows update app_metadata through a database trigger. The browser may still
+    // hold the JWT issued before that trigger ran, so refresh it before using RLS.
+    if (!hasMerchantRoleClaim(user.app_metadata?.roles)) {
+        throw new Error("This account does not have active merchant access yet. Please contact support if you believe this is a mistake.")
+    }
+
+    const { data: refreshedSession, error: refreshError } = await supabase.auth.refreshSession()
+    if (refreshError || !refreshedSession.session) {
+        throw new Error("Your merchant access was updated, but your session could not refresh. Please sign out and back in, then submit again.")
+    }
+
+    const { data: refreshedClaims, error: refreshedClaimsError } = await supabase.auth.getClaims()
+    if (refreshedClaimsError) throw refreshedClaimsError
+
+    if (!claimsIncludeMerchantRole(refreshedClaims?.claims)) {
+        throw new Error("Your merchant access is still syncing. Please sign out and back in, then submit again.")
     }
 }
 
@@ -157,6 +204,7 @@ export async function createProduct(data: ProductInput): Promise<ProductActionRe
         const { data: { user } } = await supabase.auth.getUser()
 
         if (!user) throw new Error("Unauthorized")
+        await ensureMerchantRoleClaim(supabase, user)
         await assertMerchantCanPostProducts(supabase, user.id)
 
         const productPayload = buildProductPayload(data)
@@ -167,7 +215,28 @@ export async function createProduct(data: ProductInput): Promise<ProductActionRe
             .single()
 
         if (error || !product) throw error ?? new Error("Product insert returned no row")
-        await createMerchantPriceInput(product.id, user.id, product.price)
+        try {
+            await createMerchantPriceInput(product.id, user.id, product.price)
+        } catch (priceInputError) {
+            const { error: rollbackError } = await supabase
+                .from("products")
+                .delete()
+                .eq("id", product.id)
+                .eq("merchant_id", user.id)
+
+            if (rollbackError) {
+                console.error("Product was created but its price review record failed, and the product could not be rolled back:", {
+                    productId: product.id,
+                    rollbackError,
+                })
+                return {
+                    ok: false,
+                    error: "The product was saved, but its price review record could not be completed. Check your Pending products before trying again to avoid a duplicate, or contact support.",
+                }
+            }
+
+            throw priceInputError
+        }
 
         revalidatePath("/merchant/products")
         revalidatePath("/merchant/products/add")

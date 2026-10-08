@@ -106,8 +106,9 @@ export function AddProductModal() {
             setOpen(false)
             form.reset()
             setImages([])
-        } catch {
-            toast.error("Failed to create product")
+        } catch (error) {
+            console.error("Merchant product submission failed:", error)
+            toast.error(error instanceof Error ? error.message : "Failed to create product")
         } finally {
             setIsSubmitting(false)
         }
