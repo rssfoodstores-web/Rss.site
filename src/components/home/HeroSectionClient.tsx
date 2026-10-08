@@ -41,6 +41,21 @@ function getCallToAction(slide: HeroSlide) {
     }
 }
 
+function getHeroCopy(slide: HeroSlide, compact: boolean) {
+    const title = slide.title.trim()
+    const isLongTitle = title.length > (compact ? 42 : 90)
+
+    return {
+        title: isLongTitle ? `${title.slice(0, compact ? 39 : 87).trimEnd()}…` : title,
+        showHighlight: !compact || !isLongTitle,
+        bodyText: isLongTitle && !compact && slide.bodyText?.trim()
+            ? slide.bodyText
+            : isLongTitle
+                ? null
+                : slide.bodyText,
+    }
+}
+
 function renderBackgroundMedia(slide: HeroSlide, reduceMotion: boolean) {
     if (slide.mediaType === "video") {
         return (
@@ -51,7 +66,7 @@ function renderBackgroundMedia(slide: HeroSlide, reduceMotion: boolean) {
                 playsInline
                 preload="metadata"
                 aria-hidden="true"
-                className="absolute inset-0 h-full w-full object-cover object-right"
+                className="absolute inset-0 h-full w-full object-cover object-center md:object-right"
                 src={slide.mediaUrl}
             />
         )
@@ -63,7 +78,7 @@ function renderBackgroundMedia(slide: HeroSlide, reduceMotion: boolean) {
             alt=""
             fill
             sizes="(max-width: 768px) 100vw, 58vw"
-            className="object-cover object-right"
+            className="object-cover object-center md:object-right"
             priority
         />
     )
@@ -93,16 +108,18 @@ export function HeroSectionClient({ slides }: { slides: HeroSlide[] }) {
     if (!activeSlide) return null
 
     const cta = getCallToAction(activeSlide)
+    const heroCopy = getHeroCopy(activeSlide, true)
+    const desktopHeroCopy = getHeroCopy(activeSlide, false)
 
     return (
-        <section className="mx-auto w-full md:container md:px-4 md:py-6 lg:px-8" aria-label="Featured offers">
-            <div className="relative flex min-h-[420px] w-full flex-col overflow-hidden bg-[#0F392B] shadow-lg shadow-green-950/10 sm:rounded-[2rem] md:min-h-[450px] md:flex-row">
-                <div className="relative h-[190px] w-full shrink-0 overflow-hidden bg-[#173F31] sm:h-[230px] md:h-auto md:min-h-[450px] md:w-[56%]">
+        <section className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-6 md:px-8 md:py-7 lg:px-10" aria-label="Featured offers">
+            <div className="relative flex min-h-0 w-full flex-col overflow-hidden rounded-[1.75rem] border border-[#0F392B]/10 bg-white shadow-[0_18px_55px_-30px_rgba(15,57,43,0.42)] sm:rounded-[2rem] md:min-h-[430px] md:flex-row">
+                <div className="relative aspect-[1.55/1] w-full shrink-0 overflow-hidden bg-[#173F31] sm:aspect-[1.8/1] md:aspect-auto md:min-h-[430px] md:w-[54%]">
                     {renderBackgroundMedia(activeSlide, reduceMotion)}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0F392B]/20 to-transparent md:bg-gradient-to-r md:from-transparent md:to-[#0F392B]/20" />
                 </div>
 
-                <div className="relative z-10 flex w-full flex-col justify-center bg-[#0F392B] px-5 py-6 sm:px-9 sm:py-8 md:min-h-[450px] md:w-[44%] md:px-8 md:py-10 lg:px-12">
+                <div className="relative z-10 flex w-full flex-col justify-center bg-white px-5 py-6 sm:px-9 sm:py-8 md:min-h-[430px] md:w-[50%] md:bg-[#0F392B] md:px-8 md:py-10 lg:px-12">
                     <motion.div
                         key={activeSlide.id}
                         initial={reduceMotion ? false : { opacity: 0, y: 12 }}
@@ -110,24 +127,24 @@ export function HeroSectionClient({ slides }: { slides: HeroSlide[] }) {
                         transition={{ duration: reduceMotion ? 0 : 0.35, ease: "easeOut" }}
                         className="flex flex-col items-start text-left"
                     >
-                        <span className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-orange-200 backdrop-blur-sm sm:text-xs">
+                        <span className="mb-3 inline-flex max-w-full items-center gap-2 rounded-full border border-[#0F392B]/10 bg-[#F3F7F3] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.13em] text-[#174C37] sm:text-xs sm:tracking-[0.16em] md:border-white/20 md:bg-white/10 md:text-orange-200 md:backdrop-blur-sm">
                             <span className="h-1.5 w-1.5 rounded-full bg-[#F58220]" aria-hidden="true" />
                             {activeSlide.eyebrowText || "Fresh picks for today"}
                         </span>
 
-                        <h1 className="line-clamp-4 max-w-2xl text-[1.9rem] font-bold leading-[1.05] tracking-tight text-white drop-shadow-md sm:text-4xl md:line-clamp-4 md:text-[2.35rem] lg:text-[2.5rem]">
-                            {activeSlide.title}
+                        <h1 className="max-w-2xl break-words text-[clamp(1.65rem,6.1vw,3.4rem)] font-extrabold leading-[1.05] tracking-[-0.04em] text-[#123D2E] md:text-white">
+                            <span className="md:hidden">{heroCopy.title}</span>
+                            <span className="hidden md:inline">{desktopHeroCopy.title}</span>
                             {activeSlide.highlightText ? (
                                 <>
-                                    <span className="hidden md:inline"> </span>
-                                    <span className="block text-orange-300 md:inline">{activeSlide.highlightText}</span>
+                                    <span className={`${heroCopy.showHighlight ? "" : "hidden md:inline"} text-[#D96C12] md:text-orange-300`}> {activeSlide.highlightText}</span>
                                 </>
                             ) : null}
                         </h1>
 
-                        {activeSlide.bodyText ? (
-                            <p className="mt-3 line-clamp-2 max-w-xl text-sm leading-relaxed text-white/90 sm:text-base">
-                                {activeSlide.bodyText}
+                        {desktopHeroCopy.bodyText ? (
+                            <p className="mt-3 hidden max-w-xl text-[13px] leading-relaxed text-[#4E6157] sm:text-base md:block md:text-white/90">
+                                {desktopHeroCopy.bodyText}
                             </p>
                         ) : null}
 
