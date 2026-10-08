@@ -5,14 +5,13 @@ interface SignedUploadPayload {
     cloudName: string
     folder: string
     publicId: string
-    resourceType: "image" | "video"
     signature: string
     timestamp: number
 }
 
 interface CloudinaryUploadResponse {
     public_id?: string
-    resource_type?: "image" | "video"
+    resource_type?: "image" | "video" | "raw"
     secure_url?: string
     error?: {
         message?: string
@@ -21,14 +20,14 @@ interface CloudinaryUploadResponse {
 
 export interface UploadedCloudinaryAsset {
     publicId: string
-    resourceType: "image" | "video"
+    resourceType: "image" | "video" | "raw"
     secureUrl: string
 }
 
-export async function uploadSignedCloudinaryAsset(
+export async function uploadSignedCloudinaryAsset<ResourceType extends "image" | "video" | "auto">(
     file: File,
-    getSignature: (fileName: string, resourceType: "image" | "video") => Promise<SignedUploadPayload>,
-    resourceType: "image" | "video"
+    getSignature: (fileName: string, resourceType: ResourceType) => Promise<SignedUploadPayload>,
+    resourceType: ResourceType
 ): Promise<UploadedCloudinaryAsset> {
     const signedUpload = await getSignature(file.name, resourceType)
 
@@ -60,3 +59,4 @@ export async function uploadSignedCloudinaryAsset(
         secureUrl: payload.secure_url,
     }
 }
+

@@ -3,11 +3,6 @@
 import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
-import cloudinary from "@/lib/cloudinary"
-
-interface CloudinaryUploadResult {
-    secure_url: string
-}
 
 // Initialize Supabase Server Client
 async function getSupabase() {
@@ -68,39 +63,45 @@ export async function registerAgent(formData: FormData) {
 
     const guarantors = { guarantor1, guarantor2 }
 
-    let id_card_url = ""
-
-    const file = formData.get("idCard") as File | null
-    if (file && file.size > 0) {
-        try {
-            const arrayBuffer = await file.arrayBuffer()
-            const buffer = Buffer.from(arrayBuffer)
-
-            // Upload to Cloudinary
-            const result = await new Promise<CloudinaryUploadResult>((resolve, reject) => {
-                const uploadStream = cloudinary.uploader.upload_stream(
-                    { folder: `rssa/agents/${user.id}/id_card` },
-                    (error, result) => {
-                        if (error || !result?.secure_url) {
-                            reject(error ?? new Error("Upload failed"))
-                            return
-                        }
-
-                        resolve({
-                            secure_url: result.secure_url,
-                        })
-                    }
-                )
-                uploadStream.end(buffer)
-            })
-
-            id_card_url = result.secure_url
-
-        } catch (uploadError) {
-            console.error("Error uploading ID Card:", uploadError)
-            return { error: "Failed to upload ID Card" }
+    type AgentIdDocument = { publicId?: string; secureUrl?: string }
+    let idCardDocument: AgentIdDocument | null = null
+    try {
+        const submittedDocument = formData.get("agent_id_document")
+        if (typeof submittedDocument === "string") {
+            const parsed: unknown = JSON.parse(submittedDocument)
+            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                return { error: "The uploaded ID document details could not be read. Please upload it again." }
+            }
+            idCardDocument = parsed as AgentIdDocument
         }
+    } catch {
+        return { error: "The uploaded ID document details could not be read. Please upload it again." }
     }
+
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+    let uploadedIdUrl: URL | null = null
+    try {
+        if (idCardDocument?.secureUrl) uploadedIdUrl = new URL(idCardDocument.secureUrl)
+    } catch {
+        return { error: "The uploaded ID document has an invalid link. Please upload it again." }
+    }
+
+    const expectedFolder = `rssa/agents/${user.id}/id_card/`
+    if (
+        typeof idCardDocument?.publicId !== "string"
+        || typeof idCardDocument.secureUrl !== "string"
+        || !uploadedIdUrl
+        || !cloudName
+        || uploadedIdUrl.protocol !== "https:"
+        || uploadedIdUrl.hostname !== "res.cloudinary.com"
+        || !uploadedIdUrl.pathname.includes(`/${cloudName}/`)
+        || !idCardDocument.publicId.startsWith(expectedFolder)
+        || !uploadedIdUrl.pathname.includes(idCardDocument.publicId)
+    ) {
+        return { error: "Upload a valid government ID before submitting your application." }
+    }
+
+    const id_card_url = idCardDocument.secureUrl
 
     // 1. Update Profile (Phone, Address, potentially Full Name if allowed)
     // We only update what's missing or if we treat this as source of truth
@@ -158,3 +159,4 @@ export async function registerAgent(formData: FormData) {
     revalidatePath("/account")
     return { success: true }
 }
+

@@ -3,11 +3,7 @@
 import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { revalidatePath } from "next/cache"
-import cloudinary from "@/lib/cloudinary"
-
-interface CloudinaryUploadResult {
-    secure_url: string
-}
+import type { RiderDocumentField } from "@/app/actions/applicationDocumentActions"
 
 interface RiderGuarantor {
     form_url?: string
@@ -61,8 +57,7 @@ export async function submitDeliveryApplication(formData: FormData) {
     const guarantor_phone = formData.get("guarantor_phone") as string
     const guarantors: RiderGuarantor = { name: guarantor_name, phone: guarantor_phone }
 
-    // File Uploads
-    const fileFields = [
+    const fileFields: RiderDocumentField[] = [
         "passport_photo",
         "id_card_front",
         "id_card_back",
@@ -73,39 +68,66 @@ export async function submitDeliveryApplication(formData: FormData) {
         "guarantor_id"
     ]
 
-    const uploadedUrls: Record<string, string> = {}
-
-    for (const field of fileFields) {
-        const file = formData.get(field) as File | null
-        if (file && file.size > 0) {
-            try {
-                const arrayBuffer = await file.arrayBuffer()
-                const buffer = Buffer.from(arrayBuffer)
-
-                // Upload to Cloudinary
-                const result = await new Promise<CloudinaryUploadResult>((resolve, reject) => {
-                    const uploadStream = cloudinary.uploader.upload_stream(
-                        { folder: `rssa/riders/${user.id}/${field}` },
-                        (error, result) => {
-                            if (error || !result?.secure_url) {
-                                reject(error ?? new Error("Upload failed"))
-                                return
-                            }
-
-                            resolve({
-                                secure_url: result.secure_url,
-                            })
-                        }
-                    )
-                    uploadStream.end(buffer)
-                })
-
-                uploadedUrls[field] = result.secure_url
-            } catch (uploadError) {
-                console.error(`Error uploading ${field}:`, uploadError)
-                return { error: `Failed to upload ${field.replace('_', ' ')}` }
+    let submittedDocuments: Record<string, { publicId?: string; secureUrl?: string }> = {}
+    try {
+        const rawDocuments = formData.get("rider_documents")
+        if (typeof rawDocuments === "string") {
+            const parsed: unknown = JSON.parse(rawDocuments)
+            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                return { error: "The uploaded document details could not be read. Please upload them again." }
             }
+            submittedDocuments = parsed as Record<string, { publicId?: string; secureUrl?: string }>
         }
+    } catch {
+        return { error: "The uploaded document details could not be read. Please upload them again." }
+    }
+
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME
+    const uploadedUrls: Record<string, string> = {}
+    for (const [field, document] of Object.entries(submittedDocuments)) {
+        if (
+            !fileFields.includes(field as RiderDocumentField)
+            || !document
+            || typeof document.publicId !== "string"
+            || typeof document.secureUrl !== "string"
+        ) {
+            return { error: "One of the uploaded documents is invalid. Please upload it again." }
+        }
+
+        let uploadedUrl: URL
+        try {
+            uploadedUrl = new URL(document.secureUrl)
+        } catch {
+            return { error: "One of the uploaded documents has an invalid link. Please upload it again." }
+        }
+
+        const expectedFolder = `rssa/riders/${user.id}/${field}/`
+        if (
+            !cloudName
+            || uploadedUrl.protocol !== "https:"
+            || uploadedUrl.hostname !== "res.cloudinary.com"
+            || !uploadedUrl.pathname.includes(`/${cloudName}/`)
+            || !document.publicId.startsWith(expectedFolder)
+            || !uploadedUrl.pathname.includes(document.publicId)
+        ) {
+            return { error: "One of the uploaded documents could not be verified. Please upload it again." }
+        }
+
+        uploadedUrls[field] = document.secureUrl
+    }
+
+    const requiredDocumentFields: RiderDocumentField[] = [
+        "passport_photo",
+        "id_card_front",
+        "bike_license",
+        "bike_insurance",
+        "bike_roadworthiness",
+        "guarantor_form",
+        "guarantor_id",
+    ]
+    const missingDocument = requiredDocumentFields.find((field) => !uploadedUrls[field])
+    if (missingDocument) {
+        return { error: `Please upload ${missingDocument.replaceAll("_", " ")} before submitting.` }
     }
 
     // Map uploads to schema structure
@@ -174,3 +196,4 @@ export async function submitDeliveryApplication(formData: FormData) {
     revalidatePath("/account")
     return { success: true }
 }
+

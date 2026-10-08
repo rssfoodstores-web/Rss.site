@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label"
 import { Slideshow } from "@/components/ui/slideshow"
 import { Loader2, Upload, CheckCircle2 } from "lucide-react"
 import { registerAgent } from "@/app/actions/agentActions"
+import { createAgentIdUploadSignature } from "@/app/actions/applicationDocumentActions"
+import { uploadSignedCloudinaryAsset } from "@/lib/cloudinaryMediaUpload"
 
 const agentSlides = [
     {
@@ -39,6 +41,7 @@ export default function AgentRegisterPage() {
     const [loading, setLoading] = useState(false)
     const [success, setSuccess] = useState(false)
     const [authReady, setAuthReady] = useState(false)
+    const [submitError, setSubmitError] = useState<string | null>(null)
     const router = useRouter()
 
     useEffect(() => {
@@ -79,8 +82,28 @@ export default function AgentRegisterPage() {
     }
 
     async function handleSubmit(formData: FormData) {
+        setSubmitError(null)
         setLoading(true)
         try {
+            const file = formData.get("idCard")
+            if (!(file instanceof File) || file.size === 0) {
+                throw new Error("Upload your government ID before submitting.")
+            }
+            if (file.size > 5 * 1024 * 1024) {
+                throw new Error("Your ID document is larger than 5 MB. Choose a smaller file.")
+            }
+            if (!/\.(pdf|jpe?g|png)$/i.test(file.name)) {
+                throw new Error("Choose a PDF, JPG, or PNG ID document.")
+            }
+
+            const asset = await uploadSignedCloudinaryAsset(
+                file,
+                () => createAgentIdUploadSignature(file.name),
+                "auto"
+            )
+            formData.delete("idCard")
+            formData.set("agent_id_document", JSON.stringify(asset))
+
             const result = await registerAgent(formData)
 
             if (result.success) {
@@ -89,11 +112,11 @@ export default function AgentRegisterPage() {
                     router.push("/agent")
                 }, 3000)
             } else {
-                alert("Registration failed: " + result.error)
+                setSubmitError(result.error ?? "Registration failed. Please try again.")
             }
         } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : "Unknown error"
-            alert("An unexpected error occurred: " + errorMessage)
+            setSubmitError(errorMessage || "An unexpected error occurred. Please try again.")
         } finally {
             setLoading(false)
         }
@@ -136,6 +159,7 @@ export default function AgentRegisterPage() {
                     </div>
 
                     <form action={handleSubmit} className="space-y-8">
+                        {submitError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{submitError}</p>}
                         {/* Personal Information */}
                         <div className="space-y-4">
                             <h3 className="text-lg font-semibold text-foreground border-b pb-2">Personal Information</h3>
@@ -240,6 +264,7 @@ function FileUploadField({ label, name, required = true }: { label: string, name
                     <p className={`text-sm font-medium truncate ${fileName ? "text-[#F58220]" : "text-muted-foreground"}`}>
                         {fileName || "Click to upload document"}
                     </p>
+                    <p className="text-xs text-muted-foreground">PDF, JPG, or PNG · Max 5 MB</p>
                 </div>
                 {fileName && <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />}
 
@@ -259,3 +284,4 @@ function FileUploadField({ label, name, required = true }: { label: string, name
         </div>
     )
 }
+

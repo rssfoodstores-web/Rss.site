@@ -6,25 +6,22 @@ import { Input } from "@/components/ui/input"
 import { Upload, CheckCircle2, Loader2 } from "lucide-react"
 import LivePhotoCapture from "./LivePhotoCapture"
 import { submitDeliveryApplication } from "@/app/actions/deliveryActions"
+import { createRiderDocumentUploadSignature, type RiderDocumentField } from "@/app/actions/applicationDocumentActions"
+import { uploadSignedCloudinaryAsset } from "@/lib/cloudinaryMediaUpload"
 import { useRouter } from "next/navigation"
-
-function getErrorMessage(error: unknown) {
-    if (error instanceof Error) {
-        return error.message
-    }
-
-    return "Unknown error"
-}
 
 export default function DeliveryRegistrationForm() {
     const [loading, setLoading] = useState(false)
     const [success, setSuccess] = useState(false)
     const [livePhoto, setLivePhoto] = useState<File | null>(null)
+    const [submitError, setSubmitError] = useState<string | null>(null)
+    const [uploadMessage, setUploadMessage] = useState<string | null>(null)
     const router = useRouter()
 
     async function handleSubmit(formData: FormData) {
+        setSubmitError(null)
         if (!livePhoto) {
-            alert("Please complete the live photo verification.")
+            setSubmitError("Please complete the live photo verification.")
             return
         }
 
@@ -32,6 +29,43 @@ export default function DeliveryRegistrationForm() {
         formData.append("passport_photo", livePhoto)
 
         try {
+            const fileFields: RiderDocumentField[] = [
+                "passport_photo",
+                "id_card_front",
+                "id_card_back",
+                "bike_license",
+                "bike_insurance",
+                "bike_roadworthiness",
+                "guarantor_form",
+                "guarantor_id",
+            ]
+            const uploadedDocuments: Record<string, { publicId: string; secureUrl: string }> = {}
+            const selectedFiles = fileFields.flatMap((field) => {
+                const value = formData.get(field)
+                return value instanceof File && value.size > 0 ? [{ field, file: value }] : []
+            })
+
+            if (!selectedFiles.some(({ field }) => field === "passport_photo")) {
+                throw new Error("Please complete the live photo verification again.")
+            }
+            for (const { field, file } of selectedFiles) {
+                if (file.size > 5 * 1024 * 1024) {
+                    throw new Error(`${file.name} is larger than 5 MB. Choose a smaller file.`)
+                }
+                if (!/\.(pdf|jpe?g|png)$/i.test(file.name)) {
+                    throw new Error(`${file.name} is not a supported document. Choose a PDF, JPG, or PNG.`)
+                }
+                setUploadMessage(`Uploading ${field.replaceAll("_", " ")}…`)
+                uploadedDocuments[field] = await uploadSignedCloudinaryAsset(
+                    file,
+                    () => createRiderDocumentUploadSignature(field, file.name),
+                    "auto"
+                )
+            }
+
+            for (const field of fileFields) formData.delete(field)
+            formData.set("rider_documents", JSON.stringify(uploadedDocuments))
+            setUploadMessage("Saving your application…")
             const result = await submitDeliveryApplication(formData)
 
             if (result.success) {
@@ -41,12 +75,13 @@ export default function DeliveryRegistrationForm() {
                     router.push("/rider")
                 }, 3000)
             } else {
-                alert("Application failed: " + result.error)
+                setSubmitError(result.error ?? "Application failed. Please try again.")
             }
         } catch (error: unknown) {
-            alert("An unexpected error occurred: " + getErrorMessage(error))
+            setSubmitError(error instanceof Error ? error.message : "An unexpected error occurred. Please try again.")
         } finally {
             setLoading(false)
+            setUploadMessage(null)
         }
     }
 
@@ -70,6 +105,7 @@ export default function DeliveryRegistrationForm() {
     return (
         <form action={handleSubmit} className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="space-y-6">
+                {submitError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{submitError}</p>}
                 <h3 className="text-xl font-bold text-[#1A1A1A] dark:text-gray-100 flex items-center gap-2">
                     <span className="bg-[#F58220] text-white h-8 w-8 rounded-full flex items-center justify-center text-sm">1</span>
                     Personal Information
@@ -129,6 +165,7 @@ export default function DeliveryRegistrationForm() {
                 >
                     {loading ? <Loader2 className="h-6 w-6 animate-spin" /> : "Submit Application"}
                 </Button>
+                {uploadMessage && <p role="status" className="mt-3 text-center text-sm text-gray-500">{uploadMessage}</p>}
                 <p className="text-center text-gray-400 mt-4 text-sm">
                     By submitting, you agree to our <span className="underline">Terms of Service</span> for riders.
                 </p>
@@ -151,7 +188,7 @@ function FileUploadField({ label, name, required = true }: { label: string, name
                     <p className={`text-sm font-medium truncate ${fileName ? "text-[#F58220]" : "text-gray-500"}`}>
                         {fileName || "Click to upload document"}
                     </p>
-                    <p className="text-[10px] text-gray-400">PDF, JPG, PNG (Max 5MB)</p>
+                    <p className="text-[10px] text-gray-400">PDF, JPG, PNG (Max 5 MB)</p>
                 </div>
                 {fileName && <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />}
 
@@ -171,3 +208,4 @@ function FileUploadField({ label, name, required = true }: { label: string, name
         </div>
     )
 }
+
