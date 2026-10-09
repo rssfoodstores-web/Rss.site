@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { type FormEvent, useEffect, useMemo, useState } from "react"
 import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCircle2, Copy, CreditCard, Info, Landmark, Loader2, ShieldCheck, Wallet, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -50,6 +50,65 @@ interface WalletSummary {
 interface BankOption {
     code: string
     name: string
+}
+
+type WalletTopupDiagnosticEvent =
+    | "client_navigation_timeout"
+    | "wallet_returned_without_callback"
+    | "server_failure_returned"
+    | "provider_returned"
+    | "payment_verification_error"
+    | "payment_verification_complete"
+
+interface PendingWalletTopup {
+    attemptId: string
+    startedAt: number
+}
+
+const PENDING_WALLET_TOPUP_KEY = "rss-wallet-topup-pending"
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function readPendingWalletTopup(): PendingWalletTopup | null {
+    try {
+        const storedValue = window.sessionStorage.getItem(PENDING_WALLET_TOPUP_KEY)
+        if (!storedValue) return null
+
+        const parsedValue = JSON.parse(storedValue) as Partial<PendingWalletTopup>
+        if (
+            typeof parsedValue.attemptId !== "string"
+            || !UUID_PATTERN.test(parsedValue.attemptId)
+            || typeof parsedValue.startedAt !== "number"
+            || !Number.isFinite(parsedValue.startedAt)
+        ) {
+            window.sessionStorage.removeItem(PENDING_WALLET_TOPUP_KEY)
+            return null
+        }
+
+        return { attemptId: parsedValue.attemptId, startedAt: parsedValue.startedAt }
+    } catch {
+        return null
+    }
+}
+
+function clearPendingWalletTopup() {
+    try {
+        window.sessionStorage.removeItem(PENDING_WALLET_TOPUP_KEY)
+    } catch {
+        // Session storage may be unavailable in private browsing modes.
+    }
+}
+
+function reportWalletTopupDiagnostic(attemptId: string | null, event: WalletTopupDiagnosticEvent) {
+    if (!attemptId || !UUID_PATTERN.test(attemptId)) return
+
+    void fetch("/api/wallet/topup/diagnostics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attemptId, event }),
+        keepalive: true,
+    }).catch(() => {
+        // Diagnostics must never block a checkout or payment-status message.
+    })
 }
 
 function isPendingTopUp(entry: WalletActivity) {
@@ -219,17 +278,58 @@ export default function WalletPage() {
     }
 
     useEffect(() => {
+        const reportUnexpectedReturn = () => {
+            const params = new URLSearchParams(window.location.search)
+            const pendingTopup = readPendingWalletTopup()
+            if (!pendingTopup) return
+
+            if (params.get("payment") === "return") {
+                reportWalletTopupDiagnostic(params.get("topup_attempt") ?? pendingTopup.attemptId, "provider_returned")
+                clearPendingWalletTopup()
+                return
+            }
+
+            if (params.has("topup_error")) {
+                reportWalletTopupDiagnostic(params.get("topup_attempt") ?? pendingTopup.attemptId, "server_failure_returned")
+                clearPendingWalletTopup()
+                return
+            }
+
+            const pendingAgeMs = Date.now() - pendingTopup.startedAt
+            clearPendingWalletTopup()
+            if (pendingAgeMs < 0 || pendingAgeMs > 30 * 60 * 1000) return
+
+            reportWalletTopupDiagnostic(pendingTopup.attemptId, "wallet_returned_without_callback")
+            setTopupLoading(false)
+            showStatus(
+                "error",
+                "Checkout was not confirmed",
+                `We returned to the wallet without a Monnify confirmation. If you paid, check your wallet activity before trying again. Support code: ${pendingTopup.attemptId}`
+            )
+        }
+
+        reportUnexpectedReturn()
+        window.addEventListener("pageshow", reportUnexpectedReturn)
+        return () => window.removeEventListener("pageshow", reportUnexpectedReturn)
+    }, [])
+
+    useEffect(() => {
         const params = new URLSearchParams(window.location.search)
         const topupError = params.get("topup_error")
         if (topupError) {
-            showStatus("error", "Top-up failed", topupError)
+            const diagnosticId = params.get("topup_attempt")
+            const supportCode = diagnosticId ? ` Support code: ${diagnosticId}` : ""
+            showStatus("error", "Top-up failed", `${topupError}${supportCode}`)
             params.delete("topup_error")
+            params.delete("topup_attempt")
+            params.delete("topup_code")
             const remainingSearch = params.toString()
             window.history.replaceState(null, "", `${window.location.pathname}${remainingSearch ? `?${remainingSearch}` : ""}${window.location.hash}`)
         }
 
         if (params.get("payment") === "return") {
             const reference = params.get("ref") ?? ""
+            const diagnosticId = params.get("topup_attempt")
             let cancelled = false
 
             showStatus("info", "Checking payment status", "We’re confirming your payment with Monnify. Your wallet will update as soon as it is verified.")
@@ -239,10 +339,32 @@ export default function WalletPage() {
                     if (cancelled) return
 
                     if (reference) {
-                        const result = await verifyWalletTopUp(reference)
+                        let result: Awaited<ReturnType<typeof verifyWalletTopUp>>
+                        try {
+                            result = await verifyWalletTopUp(reference)
+                        } catch {
+                            reportWalletTopupDiagnostic(diagnosticId, "payment_verification_error")
+                            await loadData()
+                            if (!cancelled) {
+                                const supportCode = diagnosticId ? ` Support code: ${diagnosticId}` : ""
+                                showStatus("error", "Payment status could not be checked", `If you paid, check your wallet activity before making another payment.${supportCode}`)
+                            }
+                            return
+                        }
                         if (cancelled) return
 
+                        if (!result.success) {
+                            reportWalletTopupDiagnostic(diagnosticId, "payment_verification_error")
+                            await loadData()
+                            if (!cancelled) {
+                                const supportCode = diagnosticId ? ` Support code: ${diagnosticId}` : ""
+                                showStatus("error", "Payment status could not be checked", `If you paid, check your wallet activity before making another payment.${supportCode}`)
+                            }
+                            return
+                        }
+
                         if (result.success && "status" in result && result.status === "PAID") {
+                            reportWalletTopupDiagnostic(diagnosticId, "payment_verification_complete")
                             await loadData()
                             if (!cancelled) {
                                 showStatus("success", "Wallet topped up", "Your payment is verified and your wallet balance has been updated.")
@@ -277,6 +399,43 @@ export default function WalletPage() {
 
     function showStatus(type: "success" | "error" | "info", title: string, message: string, btnText = "OK") {
         setStatusModal({ open: true, type, title, message, btnText })
+    }
+
+    function handleTopupSubmit(event: FormEvent<HTMLFormElement>) {
+        const attemptId = crypto.randomUUID()
+        const attemptIdInput = event.currentTarget.elements.namedItem("attemptId")
+        if (attemptIdInput instanceof HTMLInputElement) attemptIdInput.value = attemptId
+
+        try {
+            window.sessionStorage.setItem(PENDING_WALLET_TOPUP_KEY, JSON.stringify({
+                attemptId,
+                startedAt: Date.now(),
+            } satisfies PendingWalletTopup))
+        } catch {
+            // The diagnostic id is still submitted in the form when session storage is unavailable.
+        }
+
+        let pageNavigated = false
+        const handlePageHide = () => {
+            pageNavigated = true
+        }
+        window.addEventListener("pagehide", handlePageHide, { once: true })
+
+        window.setTimeout(() => {
+            window.removeEventListener("pagehide", handlePageHide)
+            if (pageNavigated || window.location.pathname.replace(/\/+$/, "") !== "/account/wallet") return
+
+            clearPendingWalletTopup()
+            reportWalletTopupDiagnostic(attemptId, "client_navigation_timeout")
+            setTopupLoading(false)
+            showStatus(
+                "error",
+                "Checkout did not open",
+                `This page did not leave to open secure checkout. If you see this again, share support code ${attemptId} with us. Check your wallet activity before trying again.`
+            )
+        }, 12_000)
+
+        setTopupLoading(true)
     }
 
     async function handleVerifyAccount() {
@@ -453,7 +612,8 @@ export default function WalletPage() {
                                         <div className="flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#F58220] dark:bg-orange-950/30"><ArrowDownToLine className="h-5 w-5" /></div><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#F58220]">Add money</p><h2 className="mt-1 text-xl font-bold text-gray-950 dark:text-white sm:text-2xl">Choose how to fund your wallet</h2><p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Pay securely online or transfer from your bank account.</p></div></div>
                                         <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1.5 dark:bg-zinc-800"><button type="button" aria-pressed={fundingMethod === "online"} onClick={() => setFundingMethod("online")} className={cn("min-h-11 rounded-xl px-3 text-sm font-bold", fundingMethod === "online" ? "bg-white text-gray-950 shadow-sm dark:bg-zinc-700 dark:text-white" : "text-gray-600 dark:text-gray-300")}>Pay online</button><button type="button" aria-pressed={fundingMethod === "transfer"} onClick={() => setFundingMethod("transfer")} className={cn("min-h-11 rounded-xl px-3 text-sm font-bold", fundingMethod === "transfer" ? "bg-white text-gray-950 shadow-sm dark:bg-zinc-700 dark:text-white" : "text-gray-600 dark:text-gray-300")}>Bank transfer</button></div>
                                         {fundingMethod === "online" ? (
-                                            <form action="/api/wallet/topup" method="post" onSubmit={() => setTopupLoading(true)} className="mt-5 space-y-4">
+                                            <form action="/api/wallet/topup" method="post" onSubmit={handleTopupSubmit} className="mt-5 space-y-4">
+                                                <input type="hidden" name="attemptId" value="" />
                                                 <div className="space-y-2"><label htmlFor="wallet-topup-amount" className="text-sm font-semibold text-gray-800 dark:text-gray-200">How much would you like to add?</label><div className="flex h-14 items-center rounded-xl border border-gray-200 bg-gray-50 px-4 focus-within:border-[#F58220] dark:border-zinc-700 dark:bg-zinc-800"><span className="mr-2 text-lg font-bold text-gray-500">₦</span><Input id="wallet-topup-amount" name="amount" type="number" inputMode="decimal" min="100" step="100" placeholder="Enter amount" className="h-full border-0 bg-transparent px-0 text-lg font-semibold shadow-none focus-visible:ring-0 dark:bg-transparent" value={amount} onChange={(event) => setAmount(event.target.value)} required /></div><p className="text-xs text-gray-500 dark:text-gray-400">Minimum top-up is ₦100. You’ll review any fees before you pay.</p></div>
                                                 <div className="flex flex-wrap gap-2">{[5000, 10000, 20000, 50000].map((quickAmount) => <button key={quickAmount} type="button" onClick={() => setAmount(String(quickAmount))} className={cn("min-h-10 rounded-full border px-4 text-sm font-semibold", amount === String(quickAmount) ? "border-[#F58220] bg-orange-50 text-[#c95c00] dark:bg-orange-950/30 dark:text-orange-200" : "border-gray-200 text-gray-700 dark:border-zinc-700 dark:text-gray-200")}>₦{quickAmount.toLocaleString()}</button>)}</div>
                                                 {topupQuote ? <div className="space-y-2 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-800/70"><div className="flex justify-between gap-3"><span>Added to your wallet</span><strong>{formatKobo(topupQuote.walletCreditKobo)}</strong></div><div className="flex justify-between gap-3"><span>Payment fees</span><span>{formatKobo(topupQuote.processorFeeKobo + topupQuote.processorVatKobo + topupQuote.rssFeeKobo)}</span></div><div className="flex justify-between gap-3 border-t border-gray-200 pt-2 text-base dark:border-zinc-700"><strong>Total you’ll pay</strong><strong>{formatKobo(topupQuote.totalChargeKobo)}</strong></div></div> : null}
@@ -514,5 +674,6 @@ export default function WalletPage() {
         </div>
     )
 }
+
 
 
