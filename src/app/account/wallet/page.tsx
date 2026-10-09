@@ -53,6 +53,9 @@ interface BankOption {
 }
 
 type WalletTopupDiagnosticEvent =
+    | "client_submit"
+    | "client_pagehide"
+    | "client_pageshow"
     | "client_navigation_timeout"
     | "wallet_returned_without_callback"
     | "server_failure_returned"
@@ -98,13 +101,28 @@ function clearPendingWalletTopup() {
     }
 }
 
-function reportWalletTopupDiagnostic(attemptId: string | null, event: WalletTopupDiagnosticEvent) {
+function isMonnifyReferrer(referrer: string) {
+    if (!referrer) return false
+
+    try {
+        const hostname = new URL(referrer).hostname.toLowerCase()
+        return hostname === "monnify.com" || hostname.endsWith(".monnify.com")
+    } catch {
+        return false
+    }
+}
+
+function reportWalletTopupDiagnostic(
+    attemptId: string | null,
+    event: WalletTopupDiagnosticEvent,
+    details?: Record<string, string | number | boolean>
+) {
     if (!attemptId || !UUID_PATTERN.test(attemptId)) return
 
     void fetch("/api/wallet/topup/diagnostics", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ attemptId, event }),
+        body: JSON.stringify({ attemptId, event, details }),
         keepalive: true,
     }).catch(() => {
         // Diagnostics must never block a checkout or payment-status message.
@@ -278,19 +296,33 @@ export default function WalletPage() {
     }
 
     useEffect(() => {
-        const reportUnexpectedReturn = () => {
+        const reportUnexpectedReturn = (pageShowEvent?: PageTransitionEvent) => {
             const params = new URLSearchParams(window.location.search)
             const pendingTopup = readPendingWalletTopup()
             if (!pendingTopup) return
 
+            if (pageShowEvent) {
+                reportWalletTopupDiagnostic(pendingTopup.attemptId, "client_pageshow", {
+                    persisted: pageShowEvent.persisted,
+                    visibilityState: document.visibilityState,
+                    returnedFromMonnify: isMonnifyReferrer(document.referrer),
+                    paymentReturnPresent: params.get("payment") === "return",
+                    topupErrorPresent: params.has("topup_error"),
+                })
+            }
+
             if (params.get("payment") === "return") {
-                reportWalletTopupDiagnostic(params.get("topup_attempt") ?? pendingTopup.attemptId, "provider_returned")
+                reportWalletTopupDiagnostic(params.get("topup_attempt") ?? pendingTopup.attemptId, "provider_returned", {
+                    paymentReturnPresent: true,
+                })
                 clearPendingWalletTopup()
                 return
             }
 
             if (params.has("topup_error")) {
-                reportWalletTopupDiagnostic(params.get("topup_attempt") ?? pendingTopup.attemptId, "server_failure_returned")
+                reportWalletTopupDiagnostic(params.get("topup_attempt") ?? pendingTopup.attemptId, "server_failure_returned", {
+                    topupErrorPresent: true,
+                })
                 clearPendingWalletTopup()
                 return
             }
@@ -299,7 +331,13 @@ export default function WalletPage() {
             clearPendingWalletTopup()
             if (pendingAgeMs < 0 || pendingAgeMs > 30 * 60 * 1000) return
 
-            reportWalletTopupDiagnostic(pendingTopup.attemptId, "wallet_returned_without_callback")
+            reportWalletTopupDiagnostic(pendingTopup.attemptId, "wallet_returned_without_callback", {
+                pendingAgeMs,
+                paymentReturnPresent: false,
+                topupErrorPresent: false,
+                persisted: pageShowEvent?.persisted ?? false,
+                returnedFromMonnify: isMonnifyReferrer(document.referrer),
+            })
             setTopupLoading(false)
             showStatus(
                 "error",
@@ -403,6 +441,10 @@ export default function WalletPage() {
 
     function handleTopupSubmit(event: FormEvent<HTMLFormElement>) {
         const attemptId = crypto.randomUUID()
+        reportWalletTopupDiagnostic(attemptId, "client_submit", {
+            visibilityState: document.visibilityState,
+            online: navigator.onLine,
+        })
         const attemptIdInput = event.currentTarget.elements.namedItem("attemptId")
         if (attemptIdInput instanceof HTMLInputElement) attemptIdInput.value = attemptId
 
@@ -418,6 +460,9 @@ export default function WalletPage() {
         let pageNavigated = false
         const handlePageHide = () => {
             pageNavigated = true
+            reportWalletTopupDiagnostic(attemptId, "client_pagehide", {
+                visibilityState: document.visibilityState,
+            })
         }
         window.addEventListener("pagehide", handlePageHide, { once: true })
 
@@ -426,7 +471,10 @@ export default function WalletPage() {
             if (pageNavigated || window.location.pathname.replace(/\/+$/, "") !== "/account/wallet") return
 
             clearPendingWalletTopup()
-            reportWalletTopupDiagnostic(attemptId, "client_navigation_timeout")
+            reportWalletTopupDiagnostic(attemptId, "client_navigation_timeout", {
+                pendingAgeMs: 12_000,
+                visibilityState: document.visibilityState,
+            })
             setTopupLoading(false)
             showStatus(
                 "error",
