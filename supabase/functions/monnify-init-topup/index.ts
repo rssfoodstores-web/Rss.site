@@ -8,6 +8,7 @@ interface TopupRequest {
     customerEmail?: string
     paymentReference: string
     diagnosticId?: string
+    platform?: "ios_webkit" | "android" | "other"
     paymentDescription?: string
     redirectPath?: string
     metadata?: Record<string, unknown>
@@ -21,6 +22,54 @@ serve(async (request) => {
     const startedAt = Date.now()
     let phase = "request_received"
     let diagnosticId: string | null = null
+    let diagnosticPlatform: "ios_webkit" | "android" | "other" = "other"
+    let authenticatedUserId: string | null = null
+
+    const persistDiagnostic = async (
+        event: "provider_request_received" | "monnify_response" | "checkout_created" | "provider_initialization_failed",
+        details: Record<string, string | number | boolean | null> = {},
+    ) => {
+        if (!diagnosticId || !authenticatedUserId) return
+
+        const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+        if (!serviceRoleKey) {
+            console.error("wallet_topup_diagnostic_persist_failed", JSON.stringify({
+                attemptId: diagnosticId,
+                source: "monnify_edge",
+                event,
+                reason: "service_role_key_unavailable",
+            }))
+            return
+        }
+
+        try {
+            const admin = createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceRoleKey, {
+                auth: { persistSession: false, autoRefreshToken: false },
+            })
+            const { error } = await admin.from("wallet_topup_diagnostics").insert({
+                attempt_id: diagnosticId,
+                source: "monnify_edge",
+                event,
+                platform: diagnosticPlatform,
+                details,
+            })
+            if (error) {
+                console.error("wallet_topup_diagnostic_persist_failed", JSON.stringify({
+                    attemptId: diagnosticId,
+                    source: "monnify_edge",
+                    event,
+                    errorCode: error.code,
+                }))
+            }
+        } catch (error) {
+            console.error("wallet_topup_diagnostic_persist_failed", JSON.stringify({
+                attemptId: diagnosticId,
+                source: "monnify_edge",
+                event,
+                errorType: error instanceof Error ? error.name : "unknown",
+            }))
+        }
+    }
 
     try {
         const payload = await request.json() as TopupRequest
@@ -28,12 +77,15 @@ serve(async (request) => {
             && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.diagnosticId)
             ? payload.diagnosticId
             : null
+        diagnosticPlatform = payload.platform === "ios_webkit" || payload.platform === "android"
+            ? payload.platform
+            : "other"
 
         const logEvent = (event: string, fields: Record<string, string | number | boolean | null> = {}) => {
             console.info("wallet_topup_provider_diagnostic", JSON.stringify({ event, diagnosticId, ...fields }))
         }
 
-        logEvent("request_received")
+        logEvent("request_received", { platform: diagnosticPlatform })
         phase = "authentication"
         const authorization = request.headers.get("authorization") ?? ""
         if (!authorization.toLowerCase().startsWith("bearer ")) {
@@ -52,6 +104,8 @@ serve(async (request) => {
         if (authError || !authData.user) {
             throw new Error("Authentication required.")
         }
+        authenticatedUserId = authData.user.id
+        await persistDiagnostic("provider_request_received")
 
         if (!payload.paymentReference) {
             throw new Error("Payment reference is required.")
@@ -128,6 +182,12 @@ serve(async (request) => {
             checkoutUrlPresent: typeof data?.responseBody?.checkoutUrl === "string",
             durationMs: Date.now() - startedAt,
         }))
+        await persistDiagnostic("monnify_response", {
+            httpStatus: response.status,
+            requestSuccessful: Boolean(data?.requestSuccessful),
+            checkoutUrlPresent: typeof data?.responseBody?.checkoutUrl === "string",
+            durationMs: Date.now() - startedAt,
+        })
 
         if (!response.ok || !data?.requestSuccessful) {
             throw new Error(data?.responseMessage ?? "Failed to initialize top-up transaction.")
@@ -142,6 +202,17 @@ serve(async (request) => {
             diagnosticId,
             durationMs: Date.now() - startedAt,
         }))
+        let checkoutHost: string | null = null
+        try {
+            checkoutHost = new URL(data.responseBody.checkoutUrl).hostname
+        } catch {
+            // The app route performs strict checkout URL validation before redirecting.
+        }
+        await persistDiagnostic("checkout_created", {
+            durationMs: Date.now() - startedAt,
+            checkoutHost,
+            returnHasAttemptId: Boolean(diagnosticId),
+        })
 
         return new Response(
             JSON.stringify({
@@ -164,6 +235,11 @@ serve(async (request) => {
             errorType: error instanceof Error ? error.name : "unknown",
             durationMs: Date.now() - startedAt,
         }))
+        await persistDiagnostic("provider_initialization_failed", {
+            phase,
+            errorType: error instanceof Error ? error.name : "unknown",
+            durationMs: Date.now() - startedAt,
+        })
         return new Response(
             JSON.stringify({
                 error: error instanceof Error ? error.message : "Unable to initialize wallet top-up.",

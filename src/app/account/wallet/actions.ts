@@ -339,7 +339,7 @@ async function getWalletWithdrawalSettings(
     return normalizeWalletWithdrawalSettings(data?.value)
 }
 
-export async function initializeTopUp(amount: number, diagnosticId?: string) {
+export async function initializeTopUp(amount: number, diagnosticId?: string, platform?: "ios_webkit" | "android" | "other") {
     const supabase = await getSupabase()
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -379,6 +379,7 @@ export async function initializeTopUp(amount: number, diagnosticId?: string) {
         }>(supabase, "monnify-init-topup", {
             paymentReference: reference,
             diagnosticId,
+            platform,
         })
 
         let checkoutUrl: URL

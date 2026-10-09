@@ -1,29 +1,48 @@
 import { NextRequest, NextResponse } from "next/server"
 import { initializeTopUp } from "@/app/account/wallet/actions"
+import {
+    recordWalletTopupDiagnostic,
+    type WalletTopupDiagnosticEvent,
+    type WalletTopupDiagnosticPlatform,
+} from "@/lib/walletTopupDiagnostics"
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 type SafeFailureCode = "invalid_request" | "topup_initialization_failed" | "invalid_checkout_url"
 
-function classifyPlatform(userAgent: string) {
+function classifyPlatform(userAgent: string): WalletTopupDiagnosticPlatform {
     if (/iPhone|iPad|iPod/i.test(userAgent)) return "ios_webkit"
     if (/Android/i.test(userAgent)) return "android"
     return "other"
 }
 
-function logTopupEvent(
+async function logTopupEvent(
     level: "info" | "error",
-    event: string,
+    event: WalletTopupDiagnosticEvent,
     attemptId: string,
     fields: Record<string, string | number | boolean | null | undefined> = {}
 ) {
     const entry = JSON.stringify({ event, attemptId, ...fields })
     if (level === "error") {
         console.error("wallet_topup_diagnostic", entry)
-        return
+    } else {
+        console.info("wallet_topup_diagnostic", entry)
     }
 
-    console.info("wallet_topup_diagnostic", entry)
+    const platform = fields.platform === "ios_webkit" || fields.platform === "android"
+        ? fields.platform
+        : "other"
+    const details = Object.fromEntries(
+        Object.entries(fields).filter(([, value]) => value !== undefined)
+    ) as Record<string, string | number | boolean | null>
+
+    await recordWalletTopupDiagnostic({
+        attemptId,
+        source: "app_server",
+        event,
+        platform,
+        details,
+    })
 }
 
 export async function POST(request: NextRequest) {
@@ -35,7 +54,7 @@ export async function POST(request: NextRequest) {
     const generatedAttemptId = crypto.randomUUID()
 
     if ((origin && origin !== requestUrl.origin) || (!origin && fetchSite === "cross-site")) {
-        logTopupEvent("error", "request_rejected", generatedAttemptId, { reason: "origin_mismatch", platform })
+        await logTopupEvent("error", "request_rejected", generatedAttemptId, { reason: "origin_mismatch", platform })
         return NextResponse.json(
             { error: "Invalid request origin.", diagnosticId: generatedAttemptId },
             { status: 403, headers: { "Cache-Control": "no-store", "X-Topup-Diagnostic-ID": generatedAttemptId } }
@@ -54,27 +73,27 @@ export async function POST(request: NextRequest) {
         const amountValue = formData.get("amount")
         amount = typeof amountValue === "string" ? Number(amountValue) : Number.NaN
     } catch {
-        logTopupEvent("error", "request_rejected", attemptId, { reason: "invalid_form_data", platform })
+        await logTopupEvent("error", "request_rejected", attemptId, { reason: "invalid_form_data", platform })
         return redirectWithTopupError(requestUrl, attemptId, "We could not read the top-up request. Please try again.", "invalid_request")
     }
 
-    logTopupEvent("info", "request_received", attemptId, {
+    await logTopupEvent("info", "request_received", attemptId, {
         platform,
         fetchSite: fetchSite ?? "unknown",
         amountValid: Number.isFinite(amount) && amount >= 100,
     })
 
     if (!Number.isFinite(amount) || amount < 100) {
-        logTopupEvent("error", "request_rejected", attemptId, { reason: "invalid_amount", platform })
+        await logTopupEvent("error", "request_rejected", attemptId, { reason: "invalid_amount", platform })
         return redirectWithTopupError(requestUrl, attemptId, "Enter a top-up amount of at least ₦100.", "invalid_request")
     }
 
-    logTopupEvent("info", "initialization_started", attemptId, { platform })
+    await logTopupEvent("info", "initialization_started", attemptId, { platform })
     let result: Awaited<ReturnType<typeof initializeTopUp>>
     try {
-        result = await initializeTopUp(amount, attemptId)
+        result = await initializeTopUp(amount, attemptId, platform)
     } catch (error) {
-        logTopupEvent("error", "initialization_threw", attemptId, {
+        await logTopupEvent("error", "initialization_threw", attemptId, {
             platform,
             errorType: error instanceof Error ? error.name : "unknown",
             durationMs: Date.now() - startedAt,
@@ -88,7 +107,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!result.success || !result.checkoutUrl) {
-        logTopupEvent("error", "initialization_returned_without_checkout", attemptId, {
+        await logTopupEvent("error", "initialization_returned_without_checkout", attemptId, {
             platform,
             resultHasError: Boolean(result.error),
             durationMs: Date.now() - startedAt,
@@ -105,7 +124,7 @@ export async function POST(request: NextRequest) {
     try {
         checkoutUrl = new URL(result.checkoutUrl)
     } catch {
-        logTopupEvent("error", "checkout_url_rejected", attemptId, { platform, reason: "invalid_url" })
+        await logTopupEvent("error", "checkout_url_rejected", attemptId, { platform, reason: "invalid_url" })
         return redirectWithTopupError(
             requestUrl,
             attemptId,
@@ -115,7 +134,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (checkoutUrl.protocol !== "https:" || !checkoutUrl.hostname.endsWith(".monnify.com")) {
-        logTopupEvent("error", "checkout_url_rejected", attemptId, {
+        await logTopupEvent("error", "checkout_url_rejected", attemptId, {
             platform,
             reason: "untrusted_checkout_host",
             protocol: checkoutUrl.protocol,
@@ -128,7 +147,7 @@ export async function POST(request: NextRequest) {
         )
     }
 
-    logTopupEvent("info", "redirect_issued", attemptId, {
+    await logTopupEvent("info", "redirect_issued", attemptId, {
         platform,
         checkoutHost: checkoutUrl.hostname,
         responseStatus: 303,
