@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { cn } from "@/lib/utils"
 import { formatKobo } from "@/lib/money"
-import { createWalletDepositAccount, getBanks, getWalletData, initiateWithdrawal, initializeTopUp, verifyAccount, verifyWalletTopUp } from "./actions"
+import { createWalletDepositAccount, getBanks, getWalletData, initiateWithdrawal, verifyAccount, verifyWalletTopUp } from "./actions"
 import { getRewardWalletSnapshot, type RewardWalletSnapshot } from "@/app/account/rewards/actions"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { calculateTopupQuote, calculateWithdrawalQuote, DEFAULT_WALLET_FEE_SETTINGS, type WalletFeeSettings } from "@/lib/walletFees"
@@ -220,6 +220,14 @@ export default function WalletPage() {
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search)
+        const topupError = params.get("topup_error")
+        if (topupError) {
+            showStatus("error", "Top-up failed", topupError)
+            params.delete("topup_error")
+            const remainingSearch = params.toString()
+            window.history.replaceState(null, "", `${window.location.pathname}${remainingSearch ? `?${remainingSearch}` : ""}${window.location.hash}`)
+        }
+
         if (params.get("payment") === "return") {
             const reference = params.get("ref") ?? ""
             let cancelled = false
@@ -269,36 +277,6 @@ export default function WalletPage() {
 
     function showStatus(type: "success" | "error" | "info", title: string, message: string, btnText = "OK") {
         setStatusModal({ open: true, type, title, message, btnText })
-    }
-
-    async function handleTopUp() {
-        const numericAmount = Number.parseFloat(amount)
-        if (Number.isNaN(numericAmount) || numericAmount < 100) {
-            showStatus("error", "Invalid amount", "Minimum top-up is ₦100.")
-            return
-        }
-
-        let navigatingToCheckout = false
-        setTopupLoading(true)
-        try {
-            const result = await initializeTopUp(numericAmount)
-            if (result.success && result.checkoutUrl) {
-                const checkoutUrl = new URL(result.checkoutUrl)
-                if (checkoutUrl.protocol !== "https:" || !checkoutUrl.hostname.endsWith(".monnify.com")) {
-                    throw new Error("Monnify returned an invalid checkout link. Please try again.")
-                }
-
-                navigatingToCheckout = true
-                window.location.assign(checkoutUrl.toString())
-                return
-            }
-
-            showStatus("error", "Top-up failed", result.error || "Unable to start payment.")
-        } catch (error) {
-            showStatus("error", "Top-up failed", error instanceof Error ? error.message : "Unable to start payment. Please check your connection and try again.")
-        } finally {
-            if (!navigatingToCheckout) setTopupLoading(false)
-        }
     }
 
     async function handleVerifyAccount() {
@@ -475,12 +453,12 @@ export default function WalletPage() {
                                         <div className="flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#F58220] dark:bg-orange-950/30"><ArrowDownToLine className="h-5 w-5" /></div><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#F58220]">Add money</p><h2 className="mt-1 text-xl font-bold text-gray-950 dark:text-white sm:text-2xl">Choose how to fund your wallet</h2><p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Pay securely online or transfer from your bank account.</p></div></div>
                                         <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1.5 dark:bg-zinc-800"><button type="button" aria-pressed={fundingMethod === "online"} onClick={() => setFundingMethod("online")} className={cn("min-h-11 rounded-xl px-3 text-sm font-bold", fundingMethod === "online" ? "bg-white text-gray-950 shadow-sm dark:bg-zinc-700 dark:text-white" : "text-gray-600 dark:text-gray-300")}>Pay online</button><button type="button" aria-pressed={fundingMethod === "transfer"} onClick={() => setFundingMethod("transfer")} className={cn("min-h-11 rounded-xl px-3 text-sm font-bold", fundingMethod === "transfer" ? "bg-white text-gray-950 shadow-sm dark:bg-zinc-700 dark:text-white" : "text-gray-600 dark:text-gray-300")}>Bank transfer</button></div>
                                         {fundingMethod === "online" ? (
-                                            <div className="mt-5 space-y-4">
-                                                <div className="space-y-2"><label htmlFor="wallet-topup-amount" className="text-sm font-semibold text-gray-800 dark:text-gray-200">How much would you like to add?</label><div className="flex h-14 items-center rounded-xl border border-gray-200 bg-gray-50 px-4 focus-within:border-[#F58220] dark:border-zinc-700 dark:bg-zinc-800"><span className="mr-2 text-lg font-bold text-gray-500">₦</span><Input id="wallet-topup-amount" type="number" inputMode="decimal" min="100" step="100" placeholder="Enter amount" className="h-full border-0 bg-transparent px-0 text-lg font-semibold shadow-none focus-visible:ring-0 dark:bg-transparent" value={amount} onChange={(event) => setAmount(event.target.value)} /></div><p className="text-xs text-gray-500 dark:text-gray-400">Minimum top-up is ₦100. You’ll review any fees before you pay.</p></div>
+                                            <form action="/api/wallet/topup" method="post" onSubmit={() => setTopupLoading(true)} className="mt-5 space-y-4">
+                                                <div className="space-y-2"><label htmlFor="wallet-topup-amount" className="text-sm font-semibold text-gray-800 dark:text-gray-200">How much would you like to add?</label><div className="flex h-14 items-center rounded-xl border border-gray-200 bg-gray-50 px-4 focus-within:border-[#F58220] dark:border-zinc-700 dark:bg-zinc-800"><span className="mr-2 text-lg font-bold text-gray-500">₦</span><Input id="wallet-topup-amount" name="amount" type="number" inputMode="decimal" min="100" step="100" placeholder="Enter amount" className="h-full border-0 bg-transparent px-0 text-lg font-semibold shadow-none focus-visible:ring-0 dark:bg-transparent" value={amount} onChange={(event) => setAmount(event.target.value)} required /></div><p className="text-xs text-gray-500 dark:text-gray-400">Minimum top-up is ₦100. You’ll review any fees before you pay.</p></div>
                                                 <div className="flex flex-wrap gap-2">{[5000, 10000, 20000, 50000].map((quickAmount) => <button key={quickAmount} type="button" onClick={() => setAmount(String(quickAmount))} className={cn("min-h-10 rounded-full border px-4 text-sm font-semibold", amount === String(quickAmount) ? "border-[#F58220] bg-orange-50 text-[#c95c00] dark:bg-orange-950/30 dark:text-orange-200" : "border-gray-200 text-gray-700 dark:border-zinc-700 dark:text-gray-200")}>₦{quickAmount.toLocaleString()}</button>)}</div>
                                                 {topupQuote ? <div className="space-y-2 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-800/70"><div className="flex justify-between gap-3"><span>Added to your wallet</span><strong>{formatKobo(topupQuote.walletCreditKobo)}</strong></div><div className="flex justify-between gap-3"><span>Payment fees</span><span>{formatKobo(topupQuote.processorFeeKobo + topupQuote.processorVatKobo + topupQuote.rssFeeKobo)}</span></div><div className="flex justify-between gap-3 border-t border-gray-200 pt-2 text-base dark:border-zinc-700"><strong>Total you’ll pay</strong><strong>{formatKobo(topupQuote.totalChargeKobo)}</strong></div></div> : null}
-                                                <Button type="button" className="min-h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#E57210] sm:w-auto sm:min-w-64" onClick={handleTopUp} disabled={topupLoading || !amount || Number(amount) < 100}>{topupLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CreditCard className="mr-2 h-5 w-5" />}{topupLoading ? "Opening secure payment…" : "Continue to secure payment"}</Button>
-                                            </div>
+                                                <Button type="submit" className="min-h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#E87512] sm:w-auto sm:min-w-64" disabled={topupLoading || !amount || Number(amount) < 100}>{topupLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CreditCard className="mr-2 h-5 w-5" />}{topupLoading ? "Opening secure payment…" : "Continue to secure payment"}</Button>
+                                            </form>
                                         ) : (
                                             <div className="mt-5">
                                                 {activeWallet.virtual_account?.accountNumber ? (
@@ -536,4 +514,5 @@ export default function WalletPage() {
         </div>
     )
 }
+
 
