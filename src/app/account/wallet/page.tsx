@@ -184,7 +184,7 @@ function getActivityStatusLabel(entry: WalletActivity) {
         case "successful":
             return "Completed"
         case "pending":
-            return isPendingTopUp(entry) ? "Awaiting payment" : "Processing"
+            return isPendingTopUp(entry) ? "Awaiting confirmation" : "Processing"
         case "failed":
         case "failure":
             return "Failed"
@@ -192,6 +192,23 @@ function getActivityStatusLabel(entry: WalletActivity) {
             return "Reversed"
         default:
             return entry.status.replace(/_/g, " ")
+    }
+}
+
+function getWithdrawalStatusMessage(status: string): { type: "success" | "error" | "info"; title: string; message: string } {
+    switch (status.toLowerCase()) {
+        case "success":
+            return { type: "success", title: "Withdrawal completed", message: "Monnify confirmed this withdrawal as completed. Check your bank account for the credit." }
+        case "failed":
+            return { type: "error", title: "Withdrawal not completed", message: "Monnify reports that this withdrawal failed. Check your wallet activity before submitting another withdrawal." }
+        case "reversed":
+            return { type: "info", title: "Withdrawal reversed", message: "Monnify reports that this withdrawal was reversed. Check your wallet activity for the updated balance." }
+        case "pending_authorization":
+            return { type: "info", title: "Withdrawal awaiting approval", message: "This withdrawal is awaiting authorization. Check your wallet activity for updates before submitting another withdrawal." }
+        case "submitted":
+            return { type: "info", title: "Withdrawal processing", message: "Your withdrawal has been submitted for processing. Check your wallet activity for confirmation." }
+        default:
+            return { type: "info", title: "Withdrawal awaiting confirmation", message: "This withdrawal is not confirmed yet. Check your wallet activity before submitting another withdrawal." }
     }
 }
 
@@ -419,7 +436,7 @@ export default function WalletPage() {
         if (topupError) {
             const diagnosticId = params.get("topup_attempt")
             const supportCode = diagnosticId ? ` Support code: ${diagnosticId}` : ""
-            showStatus("error", "Top-up failed", `${topupError}${supportCode}`)
+            showStatus("error", "Checkout could not be prepared", `${topupError}${supportCode}`)
             params.delete("topup_error")
             params.delete("topup_attempt")
             params.delete("topup_code")
@@ -593,7 +610,7 @@ export default function WalletPage() {
             if (walletMounted.current && activeTopupAttempt.current === attemptId) {
                 clearPendingWalletTopup()
                 activeTopupAttempt.current = null
-                showStatus("error", "Checkout could not be prepared", `We could not prepare your payment link. Please try again. Support code: ${attemptId}`)
+                showStatus("error", "Payment link unavailable", `We could not retrieve your payment link. If you have already paid, check your wallet activity before starting another payment. Support code: ${attemptId}`)
             }
         } finally {
             topupInFlight.current = false
@@ -660,14 +677,15 @@ export default function WalletPage() {
 
             if (result.success) {
                 setIsWithdrawOpen(false)
-                showStatus("success", "Withdrawal submitted", "Your withdrawal request was submitted successfully.")
+                const status = getWithdrawalStatusMessage(result.status ?? "unknown")
+                showStatus(status.type, status.title, status.message)
                 void loadData()
                 return
             }
 
-            showStatus("error", "Withdrawal failed", result.error || "Unable to process the withdrawal.")
+            showStatus("error", "Withdrawal could not be confirmed", result.error || "Check your wallet activity before submitting another withdrawal.")
         } catch {
-            showStatus("error", "Withdrawal failed", "We could not confirm the request. Check your activity before trying again.")
+            showStatus("error", "Withdrawal could not be confirmed", "We could not confirm the request. Check your activity before trying again.")
         } finally {
             setWithdrawLoading(false)
         }
