@@ -48,6 +48,12 @@ function sanitizeDetails(value: unknown) {
     if (typeof candidate.returnedFromMonnify === "boolean") details.returnedFromMonnify = candidate.returnedFromMonnify
     if (typeof candidate.paymentReturnPresent === "boolean") details.paymentReturnPresent = candidate.paymentReturnPresent
     if (typeof candidate.topupErrorPresent === "boolean") details.topupErrorPresent = candidate.topupErrorPresent
+    for (const key of ["broadcastChannelAvailable", "cryptoUUIDAvailable", "checkoutPrepared"]) {
+        if (typeof candidate[key] === "boolean") details[key] = candidate[key]
+    }
+    if (typeof candidate.browserIOSVersion === "string" && /^\d+(?:\.\d+){0,2}$/.test(candidate.browserIOSVersion) && candidate.browserIOSVersion.length <= 12) {
+        details.browserIOSVersion = candidate.browserIOSVersion
+    }
     if (candidate.visibilityState === "visible" || candidate.visibilityState === "hidden") {
         details.visibilityState = candidate.visibilityState
     }
@@ -55,7 +61,7 @@ function sanitizeDetails(value: unknown) {
         typeof candidate.pendingAgeMs === "number"
         && Number.isFinite(candidate.pendingAgeMs)
         && candidate.pendingAgeMs >= 0
-        && candidate.pendingAgeMs <= 30 * 60 * 1000
+        && candidate.pendingAgeMs <= 40 * 60 * 1000
     ) {
         details.pendingAgeMs = Math.round(candidate.pendingAgeMs)
     }
@@ -105,13 +111,14 @@ export async function POST(request: NextRequest) {
         fetchSite: fetchSite ?? "unknown",
         details,
     }))
-    await recordWalletTopupDiagnostic({
+    const saved = await recordWalletTopupDiagnostic({
         attemptId: payload.attemptId,
         source: "client",
         event,
         platform,
         details: { ...details, fetchSite: fetchSite ?? "unknown" },
     })
+    if (!saved.success) return NextResponse.json({ error: "Diagnostic could not be saved." }, { status: 503 })
 
     return new NextResponse(null, { status: 204, headers: { "Cache-Control": "no-store" } })
 }
