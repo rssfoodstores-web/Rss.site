@@ -66,9 +66,25 @@ export async function POST(request: NextRequest) {
     try {
         const formData = await request.formData()
         const submittedAttemptId = formData.get("attemptId")
-        if (typeof submittedAttemptId !== "string" || !UUID_PATTERN.test(submittedAttemptId)) {
+        const bodyAttemptId = typeof submittedAttemptId === "string" && UUID_PATTERN.test(submittedAttemptId)
+            ? submittedAttemptId
+            : null
+        const queryAttemptIdValue = requestUrl.searchParams.get("attemptId")
+        const queryAttemptId = queryAttemptIdValue && UUID_PATTERN.test(queryAttemptIdValue)
+            ? queryAttemptIdValue
+            : null
+        const attemptIdsConflict = bodyAttemptId !== null
+            && queryAttemptId !== null
+            && bodyAttemptId !== queryAttemptId
+        const suppliedAttemptId = bodyAttemptId ?? queryAttemptId
+
+        if (!suppliedAttemptId || attemptIdsConflict) {
             await logTopupEvent("error", "request_rejected", attemptId, {
-                reason: typeof submittedAttemptId === "string" ? "invalid_attempt_id" : "missing_attempt_id",
+                reason: attemptIdsConflict
+                    ? "conflicting_attempt_ids"
+                    : submittedAttemptId === null && queryAttemptIdValue === null
+                        ? "missing_attempt_id"
+                        : "invalid_attempt_id",
                 platform,
             })
             return redirectWithTopupError(
@@ -78,7 +94,7 @@ export async function POST(request: NextRequest) {
                 "invalid_request"
             )
         }
-        attemptId = submittedAttemptId
+        attemptId = suppliedAttemptId
 
         const amountValue = formData.get("amount")
         amount = typeof amountValue === "string" ? Number(amountValue) : Number.NaN

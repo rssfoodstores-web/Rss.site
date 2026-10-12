@@ -440,20 +440,20 @@ export default function WalletPage() {
     }
 
     function handleTopupSubmit(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault()
+        const form = event.currentTarget
         const attemptId = crypto.randomUUID()
         reportWalletTopupDiagnostic(attemptId, "client_submit", {
             visibilityState: document.visibilityState,
             online: navigator.onLine,
         })
-        const attemptIdInput = event.currentTarget.elements.namedItem("attemptId")
+        const attemptIdInput = form.elements.namedItem("attemptId")
         if (!(attemptIdInput instanceof HTMLInputElement)) {
-            event.preventDefault()
             clearPendingWalletTopup()
             setTopupLoading(false)
-            showStatus("error", "Checkout could not start", "Refresh the page and try again. If it repeats, contact support.")
+            showStatus("error", "Checkout could not start", `Refresh the page and try again. Support code: ${attemptId}`)
             return
         }
-        attemptIdInput.value = attemptId
 
         try {
             window.sessionStorage.setItem(PENDING_WALLET_TOPUP_KEY, JSON.stringify({
@@ -491,6 +491,13 @@ export default function WalletPage() {
         }, 12_000)
 
         setTopupLoading(true)
+        window.setTimeout(() => {
+            const actionUrl = new URL(form.action, window.location.href)
+            actionUrl.searchParams.set("attemptId", attemptId)
+            form.action = actionUrl.toString()
+            attemptIdInput.value = attemptId
+            form.submit()
+        }, 0)
     }
 
     async function handleVerifyAccount() {
