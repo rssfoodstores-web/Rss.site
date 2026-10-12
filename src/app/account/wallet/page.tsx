@@ -446,7 +446,14 @@ export default function WalletPage() {
             online: navigator.onLine,
         })
         const attemptIdInput = event.currentTarget.elements.namedItem("attemptId")
-        if (attemptIdInput instanceof HTMLInputElement) attemptIdInput.value = attemptId
+        if (!(attemptIdInput instanceof HTMLInputElement)) {
+            event.preventDefault()
+            clearPendingWalletTopup()
+            setTopupLoading(false)
+            showStatus("error", "Checkout could not start", "Refresh the page and try again. If it repeats, contact support.")
+            return
+        }
+        attemptIdInput.value = attemptId
 
         try {
             window.sessionStorage.setItem(PENDING_WALLET_TOPUP_KEY, JSON.stringify({

@@ -66,9 +66,19 @@ export async function POST(request: NextRequest) {
     try {
         const formData = await request.formData()
         const submittedAttemptId = formData.get("attemptId")
-        if (typeof submittedAttemptId === "string" && UUID_PATTERN.test(submittedAttemptId)) {
-            attemptId = submittedAttemptId
+        if (typeof submittedAttemptId !== "string" || !UUID_PATTERN.test(submittedAttemptId)) {
+            await logTopupEvent("error", "request_rejected", attemptId, {
+                reason: typeof submittedAttemptId === "string" ? "invalid_attempt_id" : "missing_attempt_id",
+                platform,
+            })
+            return redirectWithTopupError(
+                requestUrl,
+                attemptId,
+                "We could not link this checkout to your browser. Refresh the page and try again. If it repeats, share the support code.",
+                "invalid_request"
+            )
         }
+        attemptId = submittedAttemptId
 
         const amountValue = formData.get("amount")
         amount = typeof amountValue === "string" ? Number(amountValue) : Number.NaN
