@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { type FormEvent, useEffect, useMemo, useState } from "react"
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCircle2, Copy, CreditCard, Info, Landmark, Loader2, ShieldCheck, Wallet, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -66,10 +66,43 @@ type WalletTopupDiagnosticEvent =
 interface PendingWalletTopup {
     attemptId: string
     startedAt: number
+    reference?: string
+    checkoutUrl?: string
+    amount?: number
+}
+
+interface ReadyWalletTopup extends PendingWalletTopup {
+    reference: string
+    checkoutUrl: string
 }
 
 const PENDING_WALLET_TOPUP_KEY = "rss-wallet-topup-pending"
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function isTrustedCheckoutUrl(value: unknown): value is string {
+    if (typeof value !== "string") return false
+    try {
+        const url = new URL(value)
+        return url.protocol === "https:" && url.hostname.endsWith(".monnify.com") && !url.username && !url.password
+    } catch {
+        return false
+    }
+}
+
+function isReadyWalletTopup(value: PendingWalletTopup): value is ReadyWalletTopup {
+    return typeof value.reference === "string"
+        && /^WAL-[0-9a-f-]{36}$/i.test(value.reference)
+        && isTrustedCheckoutUrl(value.checkoutUrl)
+}
+
+function createTopupAttemptId() {
+    if (typeof crypto.randomUUID === "function") return crypto.randomUUID()
+    const bytes = crypto.getRandomValues(new Uint8Array(16))
+    bytes[6] = (bytes[6] & 0x0f) | 0x40
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
 
 function readPendingWalletTopup(): PendingWalletTopup | null {
     try {
@@ -87,7 +120,13 @@ function readPendingWalletTopup(): PendingWalletTopup | null {
             return null
         }
 
-        return { attemptId: parsedValue.attemptId, startedAt: parsedValue.startedAt }
+        return {
+            attemptId: parsedValue.attemptId,
+            startedAt: parsedValue.startedAt,
+            reference: typeof parsedValue.reference === "string" ? parsedValue.reference : undefined,
+            checkoutUrl: isTrustedCheckoutUrl(parsedValue.checkoutUrl) ? parsedValue.checkoutUrl : undefined,
+            amount: typeof parsedValue.amount === "number" && Number.isFinite(parsedValue.amount) && parsedValue.amount >= 100 ? parsedValue.amount : undefined,
+        }
     } catch {
         return null
     }
@@ -173,6 +212,11 @@ export default function WalletPage() {
     const [accountName, setAccountName] = useState("")
     const [withdrawAmount, setWithdrawAmount] = useState("")
     const [topupLoading, setTopupLoading] = useState(false)
+    const [readyTopup, setReadyTopup] = useState<ReadyWalletTopup | null>(null)
+    const topupInFlight = useRef(false)
+    const walletMounted = useRef(true)
+    const activeTopupAttempt = useRef<string | null>(null)
+    const paymentCheck = useRef<string | null>(null)
     const [withdrawLoading, setWithdrawLoading] = useState(false)
     const [verifying, setVerifying] = useState(false)
     const [copied, setCopied] = useState(false)
@@ -241,6 +285,7 @@ export default function WalletPage() {
 
     useEffect(() => {
         let cancelled = false
+        walletMounted.current = true
 
         void loadData(true, () => !cancelled)
         void getRewardWalletSnapshot().then((rewardData) => {
@@ -253,6 +298,7 @@ export default function WalletPage() {
 
         return () => {
             cancelled = true
+            walletMounted.current = false
         }
     }, [])
 
@@ -297,6 +343,10 @@ export default function WalletPage() {
 
     useEffect(() => {
         const reportUnexpectedReturn = (pageShowEvent?: PageTransitionEvent) => {
+            // Initial pageshow can arrive after a submit on a slowly loading page.
+            // Only a restored document is a return; a normal load is handled on mount.
+            if (pageShowEvent && !pageShowEvent.persisted) return
+            if (topupInFlight.current) return
             const params = new URLSearchParams(window.location.search)
             const pendingTopup = readPendingWalletTopup()
             if (!pendingTopup) return
@@ -328,8 +378,11 @@ export default function WalletPage() {
             }
 
             const pendingAgeMs = Date.now() - pendingTopup.startedAt
-            clearPendingWalletTopup()
-            if (pendingAgeMs < 0 || pendingAgeMs > 30 * 60 * 1000) return
+            if (pendingAgeMs < 0 || pendingAgeMs > 40 * 60 * 1000) {
+                clearPendingWalletTopup()
+                setReadyTopup(null)
+                return
+            }
 
             reportWalletTopupDiagnostic(pendingTopup.attemptId, "wallet_returned_without_callback", {
                 pendingAgeMs,
@@ -338,18 +391,49 @@ export default function WalletPage() {
                 persisted: pageShowEvent?.persisted ?? false,
                 returnedFromMonnify: isMonnifyReferrer(document.referrer),
             })
+            topupInFlight.current = false
             setTopupLoading(false)
-            showStatus(
-                "error",
-                "Checkout was not confirmed",
-                `We returned to the wallet without a Monnify confirmation. If you paid, check your wallet activity before trying again. Support code: ${pendingTopup.attemptId}`
-            )
+            if (isReadyWalletTopup(pendingTopup)) {
+                activeTopupAttempt.current = pendingTopup.attemptId
+                if (pendingTopup.amount !== undefined) setAmount(String(pendingTopup.amount))
+                setReadyTopup(pendingTopup)
+                void checkPreparedTopup(pendingTopup)
+            } else {
+                clearPendingWalletTopup()
+                showStatus("info", "Checkout was interrupted", `Check your wallet activity before starting another payment. Support code: ${pendingTopup.attemptId}`)
+            }
         }
 
         reportUnexpectedReturn()
         window.addEventListener("pageshow", reportUnexpectedReturn)
         return () => window.removeEventListener("pageshow", reportUnexpectedReturn)
+        // Install once: status checks read the current attempt and mounted refs.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    useEffect(() => {
+        const handlePageHide = () => {
+            const pending = readPendingWalletTopup()
+            if (pending) reportWalletTopupDiagnostic(pending.attemptId, "client_pagehide", {
+                visibilityState: document.visibilityState,
+                checkoutPrepared: isReadyWalletTopup(pending),
+            })
+        }
+        window.addEventListener("pagehide", handlePageHide)
+        return () => window.removeEventListener("pagehide", handlePageHide)
+    }, [])
+
+    useEffect(() => {
+        if (!readyTopup) return
+        const expiresIn = readyTopup.startedAt + 40 * 60 * 1000 - Date.now()
+        const timeout = window.setTimeout(() => {
+            if (activeTopupAttempt.current !== readyTopup.attemptId) return
+            activeTopupAttempt.current = null
+            setReadyTopup(null)
+            clearPendingWalletTopup()
+        }, Math.max(0, expiresIn))
+        return () => window.clearTimeout(timeout)
+    }, [readyTopup])
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search)
@@ -439,21 +523,60 @@ export default function WalletPage() {
         setStatusModal({ open: true, type, title, message, btnText })
     }
 
-    function handleTopupSubmit(event: FormEvent<HTMLFormElement>) {
+    async function checkPreparedTopup(topup: ReadyWalletTopup) {
+        if (paymentCheck.current === topup.attemptId) return
+        paymentCheck.current = topup.attemptId
+        const isCurrent = () => walletMounted.current && activeTopupAttempt.current === topup.attemptId
+        showStatus("info", "Checking payment status", "We’re checking this payment with Monnify before you try again.")
+        let result: Awaited<ReturnType<typeof verifyWalletTopUp>>
+        try {
+            result = await verifyWalletTopUp(topup.reference)
+        } catch {
+            if (isCurrent()) showStatus("info", "Payment status is unavailable", `Check your wallet activity before making another payment. Support code: ${topup.attemptId}`)
+            return
+        } finally {
+            if (paymentCheck.current === topup.attemptId) paymentCheck.current = null
+        }
+        if (!isCurrent()) return
+        await loadData()
+        if (!isCurrent()) return
+        if (result.success && "status" in result && result.status === "PAID") {
+            activeTopupAttempt.current = null
+            clearPendingWalletTopup()
+            setReadyTopup(null)
+            showStatus("success", "Wallet topped up", "Your payment is verified and your wallet balance has been updated.")
+        } else if (result.success && "status" in result && ["FAILED", "EXPIRED", "CANCELLED"].includes(result.status ?? "")) {
+            activeTopupAttempt.current = null
+            clearPendingWalletTopup()
+            setReadyTopup(null)
+            showStatus("info", "Payment not completed", "Monnify confirmed this checkout has ended. You can start a new payment.")
+        } else if (result.success) {
+            showStatus("info", "Payment is not confirmed yet", `You can reopen the same checkout below. If Monnify will not load, use Bank transfer to fund your wallet. Support code: ${topup.attemptId}`)
+        } else {
+            showStatus("info", "Payment status is unavailable", `Check your wallet activity before making another payment. Support code: ${topup.attemptId}`)
+        }
+    }
+
+    async function handleTopupSubmit(event: FormEvent<HTMLFormElement>) {
         event.preventDefault()
+        if (topupInFlight.current) return
+        if (readyTopup && Date.now() - readyTopup.startedAt < 40 * 60 * 1000) return
         const form = event.currentTarget
-        const attemptId = crypto.randomUUID()
+        const attemptId = createTopupAttemptId()
+        activeTopupAttempt.current = attemptId
+        const browserIOSVersion = navigator.userAgent.match(/(?:CPU (?:iPhone )?OS|iPhone OS) ([0-9_]+)/)?.[1]?.replaceAll("_", ".") ?? "unknown"
         reportWalletTopupDiagnostic(attemptId, "client_submit", {
             visibilityState: document.visibilityState,
             online: navigator.onLine,
+            browserIOSVersion,
+            broadcastChannelAvailable: typeof BroadcastChannel !== "undefined",
+            cryptoUUIDAvailable: typeof crypto.randomUUID === "function",
         })
-        const attemptIdInput = form.elements.namedItem("attemptId")
-        if (!(attemptIdInput instanceof HTMLInputElement)) {
-            clearPendingWalletTopup()
-            setTopupLoading(false)
-            showStatus("error", "Checkout could not start", `Refresh the page and try again. Support code: ${attemptId}`)
-            return
-        }
+        const formData = new FormData(form)
+        formData.set("attemptId", attemptId)
+        topupInFlight.current = true
+        setTopupLoading(true)
+        setReadyTopup(null)
 
         try {
             window.sessionStorage.setItem(PENDING_WALLET_TOPUP_KEY, JSON.stringify({
@@ -464,40 +587,40 @@ export default function WalletPage() {
             // The diagnostic id is still submitted in the form when session storage is unavailable.
         }
 
-        let pageNavigated = false
-        const handlePageHide = () => {
-            pageNavigated = true
-            reportWalletTopupDiagnostic(attemptId, "client_pagehide", {
-                visibilityState: document.visibilityState,
-            })
-        }
-        window.addEventListener("pagehide", handlePageHide, { once: true })
-
-        window.setTimeout(() => {
-            window.removeEventListener("pagehide", handlePageHide)
-            if (pageNavigated || window.location.pathname.replace(/\/+$/, "") !== "/account/wallet") return
-
-            clearPendingWalletTopup()
-            reportWalletTopupDiagnostic(attemptId, "client_navigation_timeout", {
-                pendingAgeMs: 12_000,
-                visibilityState: document.visibilityState,
-            })
-            setTopupLoading(false)
-            showStatus(
-                "error",
-                "Checkout did not open",
-                `This page did not leave to open secure checkout. If you see this again, share support code ${attemptId} with us. Check your wallet activity before trying again.`
-            )
-        }, 12_000)
-
-        setTopupLoading(true)
-        window.setTimeout(() => {
+        try {
             const actionUrl = new URL(form.action, window.location.href)
             actionUrl.searchParams.set("attemptId", attemptId)
-            form.action = actionUrl.toString()
-            attemptIdInput.value = attemptId
-            form.submit()
-        }, 0)
+            const response = await fetch(actionUrl, {
+                method: "POST",
+                headers: { Accept: "application/json" },
+                body: formData,
+            })
+            let result: { error?: string; checkoutUrl?: string; reference?: string; attemptId?: string }
+            try {
+                result = await response.json()
+            } catch {
+                throw new Error("Checkout could not be prepared. Please try again.")
+            }
+            if (!walletMounted.current || activeTopupAttempt.current !== attemptId) return
+            if (!response.ok || result.error) throw new Error(result.error || "Checkout could not be prepared.")
+            const prepared = { attemptId, startedAt: Date.now(), reference: result.reference, checkoutUrl: result.checkoutUrl, amount: Number(formData.get("amount")) }
+            if (result.attemptId !== attemptId || !isReadyWalletTopup(prepared)) throw new Error("Monnify did not provide a valid checkout link.")
+            setReadyTopup(prepared)
+            try {
+                window.sessionStorage.setItem(PENDING_WALLET_TOPUP_KEY, JSON.stringify(prepared))
+            } catch {
+                // The direct checkout link remains usable without browser storage.
+            }
+        } catch (error) {
+            if (walletMounted.current && activeTopupAttempt.current === attemptId) {
+                clearPendingWalletTopup()
+                activeTopupAttempt.current = null
+                showStatus("error", "Checkout could not start", `${error instanceof Error ? error.message : "Please try again."} Support code: ${attemptId}`)
+            }
+        } finally {
+            topupInFlight.current = false
+            if (walletMounted.current) setTopupLoading(false)
+        }
     }
 
     async function handleVerifyAccount() {
@@ -676,10 +799,22 @@ export default function WalletPage() {
                                         {fundingMethod === "online" ? (
                                             <form action="/api/wallet/topup" method="post" onSubmit={handleTopupSubmit} className="mt-5 space-y-4">
                                                 <input type="hidden" name="attemptId" defaultValue="" />
-                                                <div className="space-y-2"><label htmlFor="wallet-topup-amount" className="text-sm font-semibold text-gray-800 dark:text-gray-200">How much would you like to add?</label><div className="flex h-14 items-center rounded-xl border border-gray-200 bg-gray-50 px-4 focus-within:border-[#F58220] dark:border-zinc-700 dark:bg-zinc-800"><span className="mr-2 text-lg font-bold text-gray-500">₦</span><Input id="wallet-topup-amount" name="amount" type="number" inputMode="decimal" min="100" step="100" placeholder="Enter amount" className="h-full border-0 bg-transparent px-0 text-lg font-semibold shadow-none focus-visible:ring-0 dark:bg-transparent" value={amount} onChange={(event) => setAmount(event.target.value)} required /></div><p className="text-xs text-gray-500 dark:text-gray-400">Minimum top-up is ₦100. You’ll review any fees before you pay.</p></div>
-                                                <div className="flex flex-wrap gap-2">{[5000, 10000, 20000, 50000].map((quickAmount) => <button key={quickAmount} type="button" onClick={() => setAmount(String(quickAmount))} className={cn("min-h-10 rounded-full border px-4 text-sm font-semibold", amount === String(quickAmount) ? "border-[#F58220] bg-orange-50 text-[#c95c00] dark:bg-orange-950/30 dark:text-orange-200" : "border-gray-200 text-gray-700 dark:border-zinc-700 dark:text-gray-200")}>₦{quickAmount.toLocaleString()}</button>)}</div>
+                                                <div className="space-y-2"><label htmlFor="wallet-topup-amount" className="text-sm font-semibold text-gray-800 dark:text-gray-200">How much would you like to add?</label><div className="flex h-14 items-center rounded-xl border border-gray-200 bg-gray-50 px-4 focus-within:border-[#F58220] dark:border-zinc-700 dark:bg-zinc-800"><span className="mr-2 text-lg font-bold text-gray-500">₦</span><Input id="wallet-topup-amount" name="amount" disabled={topupLoading || readyTopup !== null} type="number" inputMode="decimal" min="100" step="100" placeholder="Enter amount" className="h-full border-0 bg-transparent px-0 text-lg font-semibold shadow-none focus-visible:ring-0 dark:bg-transparent" value={amount} onChange={(event) => setAmount(event.target.value)} required /></div><p className="text-xs text-gray-500 dark:text-gray-400">Minimum top-up is ₦100. You’ll review any fees before you pay.</p></div>
+                                                <div className="flex flex-wrap gap-2">{[5000, 10000, 20000, 50000].map((quickAmount) => <button key={quickAmount} type="button" disabled={topupLoading || readyTopup !== null} onClick={() => setAmount(String(quickAmount))} className={cn("min-h-10 rounded-full border px-4 text-sm font-semibold", amount === String(quickAmount) ? "border-[#F58220] bg-orange-50 text-[#c95c00] dark:bg-orange-950/30 dark:text-orange-200" : "border-gray-200 text-gray-700 dark:border-zinc-700 dark:text-gray-200")}>₦{quickAmount.toLocaleString()}</button>)}</div>
                                                 {topupQuote ? <div className="space-y-2 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-800/70"><div className="flex justify-between gap-3"><span>Added to your wallet</span><strong>{formatKobo(topupQuote.walletCreditKobo)}</strong></div><div className="flex justify-between gap-3"><span>Payment fees</span><span>{formatKobo(topupQuote.processorFeeKobo + topupQuote.processorVatKobo + topupQuote.rssFeeKobo)}</span></div><div className="flex justify-between gap-3 border-t border-gray-200 pt-2 text-base dark:border-zinc-700"><strong>Total you’ll pay</strong><strong>{formatKobo(topupQuote.totalChargeKobo)}</strong></div></div> : null}
-                                                <Button type="submit" className="min-h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#E87512] sm:w-auto sm:min-w-64" disabled={topupLoading || !amount || Number(amount) < 100}>{topupLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CreditCard className="mr-2 h-5 w-5" />}{topupLoading ? "Opening secure payment…" : "Continue to secure payment"}</Button>
+                                                {readyTopup ? (
+                                                    <div className="space-y-3 rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-900/50 dark:bg-orange-950/20">
+                                                        <p className="font-semibold text-gray-900 dark:text-white">Your secure checkout is ready</p>
+                                                        <p className="text-sm text-gray-600 dark:text-gray-300">Open Monnify to complete payment. If it does not open, you can use bank transfer. Reopening this link keeps the same payment.</p>
+                                                        <Button asChild className="min-h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#E87512]">
+                                                            <a href={readyTopup.checkoutUrl} onClick={() => reportWalletTopupDiagnostic(readyTopup.attemptId, "client_submit", { checkoutPrepared: true })}>Open Monnify checkout</a>
+                                                        </Button>
+                                                        <div className="flex flex-wrap gap-3">
+                                                            <button type="button" className="min-h-10 text-sm font-semibold text-orange-800 underline dark:text-orange-300" onClick={() => void checkPreparedTopup(readyTopup)}>Check payment status</button>
+                                                            <button type="button" className="min-h-10 text-sm font-semibold text-orange-800 underline dark:text-orange-300" onClick={() => setFundingMethod("transfer")}>Use bank transfer</button>
+                                                        </div>
+                                                    </div>
+                                                ) : <Button type="submit" className="min-h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#E87512] sm:w-auto sm:min-w-64" disabled={topupLoading || !amount || Number(amount) < 100}>{topupLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CreditCard className="mr-2 h-5 w-5" />}{topupLoading ? "Preparing secure payment…" : "Continue to secure payment"}</Button>}
                                             </form>
                                         ) : (
                                             <div className="mt-5">

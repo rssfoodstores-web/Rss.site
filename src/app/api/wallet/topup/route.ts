@@ -48,6 +48,13 @@ async function logTopupEvent(
 export async function POST(request: NextRequest) {
     const startedAt = Date.now()
     const requestUrl = new URL(request.url)
+    const wantsJson = request.headers.get("accept")?.includes("application/json") ?? false
+    const fail = (attemptId: string, message: string, code: SafeFailureCode) => wantsJson
+        ? NextResponse.json({ error: message, diagnosticId: attemptId, code }, {
+            status: 400,
+            headers: { "Cache-Control": "no-store", "X-Topup-Diagnostic-ID": attemptId },
+        })
+        : redirectWithTopupError(requestUrl, attemptId, message, code)
     const origin = request.headers.get("origin")
     const fetchSite = request.headers.get("sec-fetch-site")
     const platform = classifyPlatform(request.headers.get("user-agent") ?? "")
@@ -87,8 +94,7 @@ export async function POST(request: NextRequest) {
                         : "invalid_attempt_id",
                 platform,
             })
-            return redirectWithTopupError(
-                requestUrl,
+            return fail(
                 attemptId,
                 "We could not link this checkout to your browser. Refresh the page and try again. If it repeats, share the support code.",
                 "invalid_request"
@@ -100,7 +106,7 @@ export async function POST(request: NextRequest) {
         amount = typeof amountValue === "string" ? Number(amountValue) : Number.NaN
     } catch {
         await logTopupEvent("error", "request_rejected", attemptId, { reason: "invalid_form_data", platform })
-        return redirectWithTopupError(requestUrl, attemptId, "We could not read the top-up request. Please try again.", "invalid_request")
+        return fail(attemptId, "We could not read the top-up request. Please try again.", "invalid_request")
     }
 
     await logTopupEvent("info", "request_received", attemptId, {
@@ -111,7 +117,7 @@ export async function POST(request: NextRequest) {
 
     if (!Number.isFinite(amount) || amount < 100) {
         await logTopupEvent("error", "request_rejected", attemptId, { reason: "invalid_amount", platform })
-        return redirectWithTopupError(requestUrl, attemptId, "Enter a top-up amount of at least ₦100.", "invalid_request")
+        return fail(attemptId, "Enter a top-up amount of at least ₦100.", "invalid_request")
     }
 
     await logTopupEvent("info", "initialization_started", attemptId, { platform })
@@ -124,8 +130,7 @@ export async function POST(request: NextRequest) {
             errorType: error instanceof Error ? error.name : "unknown",
             durationMs: Date.now() - startedAt,
         })
-        return redirectWithTopupError(
-            requestUrl,
+        return fail(
             attemptId,
             "We could not prepare Monnify checkout. Please try again and share the support code if it repeats.",
             "topup_initialization_failed"
@@ -138,8 +143,7 @@ export async function POST(request: NextRequest) {
             resultHasError: Boolean(result.error),
             durationMs: Date.now() - startedAt,
         })
-        return redirectWithTopupError(
-            requestUrl,
+        return fail(
             attemptId,
             "We could not prepare Monnify checkout. Please try again and share the support code if it repeats.",
             "topup_initialization_failed"
@@ -151,34 +155,38 @@ export async function POST(request: NextRequest) {
         checkoutUrl = new URL(result.checkoutUrl)
     } catch {
         await logTopupEvent("error", "checkout_url_rejected", attemptId, { platform, reason: "invalid_url" })
-        return redirectWithTopupError(
-            requestUrl,
+        return fail(
             attemptId,
             "Monnify returned an invalid checkout link. Please share the support code with us.",
             "invalid_checkout_url"
         )
     }
 
-    if (checkoutUrl.protocol !== "https:" || !checkoutUrl.hostname.endsWith(".monnify.com")) {
+    if (checkoutUrl.protocol !== "https:" || !checkoutUrl.hostname.endsWith(".monnify.com") || checkoutUrl.username || checkoutUrl.password) {
         await logTopupEvent("error", "checkout_url_rejected", attemptId, {
             platform,
             reason: "untrusted_checkout_host",
             protocol: checkoutUrl.protocol,
         })
-        return redirectWithTopupError(
-            requestUrl,
+        return fail(
             attemptId,
             "Monnify returned an invalid checkout link. Please share the support code with us.",
             "invalid_checkout_url"
         )
     }
 
-    await logTopupEvent("info", "redirect_issued", attemptId, {
+    await logTopupEvent("info", wantsJson ? "checkout_created" : "redirect_issued", attemptId, {
         platform,
         checkoutHost: checkoutUrl.hostname,
-        responseStatus: 303,
+        responseStatus: wantsJson ? 200 : 303,
         durationMs: Date.now() - startedAt,
     })
+
+    if (wantsJson) {
+        return NextResponse.json({ checkoutUrl: result.checkoutUrl, reference: result.reference, attemptId }, {
+            headers: { "Cache-Control": "no-store", "X-Topup-Diagnostic-ID": attemptId },
+        })
+    }
 
     const response = NextResponse.redirect(checkoutUrl, 303)
     response.headers.set("Cache-Control", "no-store")
