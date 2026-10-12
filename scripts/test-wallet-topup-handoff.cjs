@@ -87,7 +87,8 @@ function findPageFunctions(node) {
 }
 findPageFunctions(pageAst)
 const helperNames = ["isTrustedCheckoutUrl", "isReadyWalletTopup", "createTopupAttemptId", "readPendingWalletTopup",
-    "clearPendingWalletTopup", "isMonnifyReferrer", "checkPreparedTopup", "handleTopupSubmit"]
+    "clearPendingWalletTopup", "isMonnifyReferrer", "isPendingTopUp", "getActivityStatusLabel", "getWithdrawalStatusMessage",
+    "checkPreparedTopup", "handleTopupSubmit"]
 for (const name of helperNames) if (!pageFunctions.has(name)) throw new Error(`Missing actual page function: ${name}`)
 if (!returnHandler) throw new Error("Missing actual page return handler")
 const pageHandlers = compile(`${helperNames.map((name) => pageFunctions.get(name)).join("\n")}\n${returnHandler}
@@ -296,6 +297,40 @@ test("UI", "legacy interrupted attempts show neutral status without creating ano
     f.handlers.reportUnexpectedReturn()
     assert.equal(f.pending, null); assert.equal(f.context.readyTopup, null)
     assert.equal(f.statuses.at(-1)[0], "info"); assert.equal(f.fetches.length, 0)
+})
+test("UI", "pending top-ups await confirmation without claiming the customer has not paid", () => {
+    const f = uiFixture(), topup = { source: "wallet_transaction", direction: "credit", status: "pending", description: "Wallet top-up" }
+    assert.equal(f.handlers.getActivityStatusLabel(topup), "Awaiting confirmation")
+    assert.equal(f.handlers.getActivityStatusLabel({ ...topup, status: "PENDING" }), "Awaiting confirmation")
+    assert.equal(f.handlers.getActivityStatusLabel({ ...topup, direction: "debit", description: "Withdrawal" }), "Processing")
+    assert.equal(f.handlers.getActivityStatusLabel({ ...topup, status: "success" }), "Completed")
+})
+test("UI", "unconfirmed withdrawals never display successful submission or completion", () => {
+    const f = uiFixture()
+    for (const status of ["submission_unknown", "submitting", "pending_submission", "unknown", ""]) {
+        const message = f.handlers.getWithdrawalStatusMessage(status)
+        assert.equal(message.type, "info")
+        assert.equal(message.title, "Withdrawal awaiting confirmation")
+        assert.match(message.message, /not confirmed yet/i)
+        assert.match(message.message, /before submitting another withdrawal/i)
+        assert.doesNotMatch(message.message, /submitted for processing|submitted successfully|completed/i)
+    }
+})
+test("UI", "withdrawal messages distinguish provider completion, failure, reversal, and processing", () => {
+    const f = uiFixture()
+    for (const [status, type, title] of [
+        ["success", "success", "Withdrawal completed"],
+        ["failed", "error", "Withdrawal not completed"],
+        ["reversed", "info", "Withdrawal reversed"],
+        ["pending_authorization", "info", "Withdrawal awaiting approval"],
+        ["submitted", "info", "Withdrawal processing"],
+    ]) {
+        const message = f.handlers.getWithdrawalStatusMessage(status)
+        assert.equal(message.type, type)
+        assert.equal(message.title, title)
+        assert.ok(message.message.length > 0)
+    }
+    assert.equal(f.handlers.getWithdrawalStatusMessage("SUCCESS").type, "success")
 })
 test("UI", "a mismatched preparation response cannot attach a different checkout", async () => {
     const f = uiFixture(); f.context.fetch = async () => ({ ok: true, async json() {

@@ -2,13 +2,14 @@
 
 import Link from "next/link"
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDownToLine, ArrowUpFromLine, Check, CheckCircle2, Copy, CreditCard, Info, Landmark, Loader2, ShieldCheck, Wallet, XCircle } from "lucide-react"
+import { ArrowDownToLine, ArrowUpFromLine, CheckCircle2, CreditCard, Info, Loader2, ShieldCheck, Wallet, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ProfileSidebar } from "@/components/account/ProfileSidebar"
+import { WalletCheckoutProgress } from "@/components/account/WalletCheckoutProgress"
 import { cn } from "@/lib/utils"
 import { formatKobo } from "@/lib/money"
-import { createWalletDepositAccount, getBanks, getWalletData, initiateWithdrawal, verifyAccount, verifyWalletTopUp } from "./actions"
+import { getBanks, getWalletData, initiateWithdrawal, verifyAccount, verifyWalletTopUp } from "./actions"
 import { getRewardWalletSnapshot, type RewardWalletSnapshot } from "@/app/account/rewards/actions"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { calculateTopupQuote, calculateWithdrawalQuote, DEFAULT_WALLET_FEE_SETTINGS, type WalletFeeSettings } from "@/lib/walletFees"
@@ -183,7 +184,7 @@ function getActivityStatusLabel(entry: WalletActivity) {
         case "successful":
             return "Completed"
         case "pending":
-            return isPendingTopUp(entry) ? "Awaiting payment" : "Processing"
+            return isPendingTopUp(entry) ? "Awaiting confirmation" : "Processing"
         case "failed":
         case "failure":
             return "Failed"
@@ -191,6 +192,23 @@ function getActivityStatusLabel(entry: WalletActivity) {
             return "Reversed"
         default:
             return entry.status.replace(/_/g, " ")
+    }
+}
+
+function getWithdrawalStatusMessage(status: string): { type: "success" | "error" | "info"; title: string; message: string } {
+    switch (status.toLowerCase()) {
+        case "success":
+            return { type: "success", title: "Withdrawal completed", message: "Monnify confirmed this withdrawal as completed. Check your bank account for the credit." }
+        case "failed":
+            return { type: "error", title: "Withdrawal not completed", message: "Monnify reports that this withdrawal failed. Check your wallet activity before submitting another withdrawal." }
+        case "reversed":
+            return { type: "info", title: "Withdrawal reversed", message: "Monnify reports that this withdrawal was reversed. Check your wallet activity for the updated balance." }
+        case "pending_authorization":
+            return { type: "info", title: "Withdrawal awaiting approval", message: "This withdrawal is awaiting authorization. Check your wallet activity for updates before submitting another withdrawal." }
+        case "submitted":
+            return { type: "info", title: "Withdrawal processing", message: "Your withdrawal has been submitted for processing. Check your wallet activity for confirmation." }
+        default:
+            return { type: "info", title: "Withdrawal awaiting confirmation", message: "This withdrawal is not confirmed yet. Check your wallet activity before submitting another withdrawal." }
     }
 }
 
@@ -203,9 +221,7 @@ export default function WalletPage() {
     const [banks, setBanks] = useState<BankOption[]>([])
     const [banksLoading, setBanksLoading] = useState(false)
     const [banksError, setBanksError] = useState("")
-    const [depositAccountLoading, setDepositAccountLoading] = useState(false)
     const [rewardLoading, setRewardLoading] = useState(true)
-    const [fundingMethod, setFundingMethod] = useState<"online" | "transfer">("online")
     const [amount, setAmount] = useState("")
     const [selectedBank, setSelectedBank] = useState("")
     const [accountNumber, setAccountNumber] = useState("")
@@ -219,7 +235,6 @@ export default function WalletPage() {
     const paymentCheck = useRef<string | null>(null)
     const [withdrawLoading, setWithdrawLoading] = useState(false)
     const [verifying, setVerifying] = useState(false)
-    const [copied, setCopied] = useState(false)
     const [isWithdrawOpen, setIsWithdrawOpen] = useState(false)
     const [walletFeeSettings, setWalletFeeSettings] = useState<WalletFeeSettings>(DEFAULT_WALLET_FEE_SETTINGS)
     const [statusModal, setStatusModal] = useState({ open: false, type: "success" as "success" | "error" | "info", title: "", message: "", btnText: "OK" })
@@ -318,26 +333,6 @@ export default function WalletPage() {
             setBanksError("Bank list is temporarily unavailable.")
         } finally {
             setBanksLoading(false)
-        }
-    }
-
-    async function setupDepositAccount() {
-        if (depositAccountLoading) return
-
-        setDepositAccountLoading(true)
-        try {
-            const result = await createWalletDepositAccount()
-            if (result.success && result.account) {
-                setWallets((currentWallets) => currentWallets.map((wallet) => (
-                    wallet.type === "customer" ? { ...wallet, virtual_account: result.account } : wallet
-                )))
-            } else {
-                showStatus("error", "Account setup incomplete", result.error || "We could not create your transfer account.")
-            }
-        } catch {
-            showStatus("error", "Account setup incomplete", "We could not create your transfer account. Please try again.")
-        } finally {
-            setDepositAccountLoading(false)
         }
     }
 
@@ -441,7 +436,7 @@ export default function WalletPage() {
         if (topupError) {
             const diagnosticId = params.get("topup_attempt")
             const supportCode = diagnosticId ? ` Support code: ${diagnosticId}` : ""
-            showStatus("error", "Top-up failed", `${topupError}${supportCode}`)
+            showStatus("error", "Checkout could not be prepared", `${topupError}${supportCode}`)
             params.delete("topup_error")
             params.delete("topup_attempt")
             params.delete("topup_code")
@@ -497,7 +492,7 @@ export default function WalletPage() {
                         if (result.success && "status" in result && ["FAILED", "EXPIRED", "CANCELLED"].includes(result.status ?? "")) {
                             await loadData()
                             if (!cancelled) {
-                                showStatus("error", "Payment not completed", "Monnify did not confirm this payment. You can try again when you’re ready.")
+                                showStatus("error", "Payment not completed", "This checkout has ended without a confirmed payment. If you were debited, check your wallet activity before making another payment.")
                             }
                             return
                         }
@@ -508,7 +503,7 @@ export default function WalletPage() {
 
                 await loadData()
                 if (!cancelled) {
-                    showStatus("info", "Payment still processing", "Your wallet history is refreshed. If you completed payment, it will update as soon as Monnify confirms it.")
+                    showStatus("info", "Awaiting payment confirmation", "No payment confirmation is available yet. If you have already paid, check your wallet activity before starting another payment.")
                 }
             }
 
@@ -549,9 +544,9 @@ export default function WalletPage() {
             activeTopupAttempt.current = null
             clearPendingWalletTopup()
             setReadyTopup(null)
-            showStatus("info", "Payment not completed", "Monnify confirmed this checkout has ended. You can start a new payment.")
+            showStatus("info", "Payment not completed", "This checkout has ended. If you were debited, check your wallet activity before starting another payment.")
         } else if (result.success) {
-            showStatus("info", "Payment is not confirmed yet", `You can reopen the same checkout below. If Monnify will not load, use Bank transfer to fund your wallet. Support code: ${topup.attemptId}`)
+            showStatus("info", "Payment is not confirmed yet", `Monnify has not confirmed this payment yet. You can reopen the same checkout below. If you have already paid, check your wallet activity before paying again. Support code: ${topup.attemptId}`)
         } else {
             showStatus("info", "Payment status is unavailable", `Check your wallet activity before making another payment. Support code: ${topup.attemptId}`)
         }
@@ -611,11 +606,11 @@ export default function WalletPage() {
             } catch {
                 // The direct checkout link remains usable without browser storage.
             }
-        } catch (error) {
+        } catch {
             if (walletMounted.current && activeTopupAttempt.current === attemptId) {
                 clearPendingWalletTopup()
                 activeTopupAttempt.current = null
-                showStatus("error", "Checkout could not start", `${error instanceof Error ? error.message : "Please try again."} Support code: ${attemptId}`)
+                showStatus("error", "Payment link unavailable", `We could not retrieve your payment link. If you have already paid, check your wallet activity before starting another payment. Support code: ${attemptId}`)
             }
         } finally {
             topupInFlight.current = false
@@ -682,28 +677,17 @@ export default function WalletPage() {
 
             if (result.success) {
                 setIsWithdrawOpen(false)
-                showStatus("success", "Withdrawal submitted", "Your withdrawal request was submitted successfully.")
+                const status = getWithdrawalStatusMessage(result.status ?? "unknown")
+                showStatus(status.type, status.title, status.message)
                 void loadData()
                 return
             }
 
-            showStatus("error", "Withdrawal failed", result.error || "Unable to process the withdrawal.")
+            showStatus("error", "Withdrawal could not be confirmed", result.error || "Check your wallet activity before submitting another withdrawal.")
         } catch {
-            showStatus("error", "Withdrawal failed", "We could not confirm the request. Check your activity before trying again.")
+            showStatus("error", "Withdrawal could not be confirmed", "We could not confirm the request. Check your activity before trying again.")
         } finally {
             setWithdrawLoading(false)
-        }
-    }
-
-    async function copyToClipboard() {
-        const account = activeWallet?.virtual_account?.accountNumber
-        if (!account) return
-        try {
-            await navigator.clipboard.writeText(account)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
-        } catch {
-            showStatus("error", "Could not copy account number", "Press and hold the account number to copy it manually.")
         }
     }
 
@@ -770,7 +754,7 @@ export default function WalletPage() {
                                         <h2 className="mt-1 break-words text-4xl font-bold tracking-tight sm:text-5xl">{formatKobo(activeWallet.balance)}</h2>
                                         <p className="mt-3 max-w-2xl text-sm text-white/75">{activeWallet.description}</p>
                                         <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap">
-                                            {activeWallet.canTopUp ? <Button className="h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#e87512] sm:w-auto sm:min-w-44" onClick={() => { setFundingMethod("online"); document.getElementById("add-money")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }) }}><ArrowDownToLine className="mr-2 h-5 w-5" />Add money</Button> : null}
+                                            {activeWallet.canTopUp ? <Button className="h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#e87512] sm:w-auto sm:min-w-44" onClick={() => { document.getElementById("add-money")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }) }}><ArrowDownToLine className="mr-2 h-5 w-5" />Add money</Button> : null}
                                             {activeWallet.canWithdraw ? (
                                                 <Dialog open={isWithdrawOpen} onOpenChange={(open) => { setIsWithdrawOpen(open); if (open) void loadBanks() }}>
                                                     <DialogTrigger asChild><Button variant="outline" className="h-12 w-full rounded-xl border-white/25 bg-white/10 text-base font-bold text-white hover:bg-white/20 sm:w-auto sm:min-w-44" disabled={!activeWallet.withdrawAvailableNow}><ArrowUpFromLine className="mr-2 h-5 w-5" />{activeWallet.withdrawAvailableNow ? "Withdraw to bank" : "Withdrawals locked"}</Button></DialogTrigger>
@@ -794,37 +778,26 @@ export default function WalletPage() {
 
                                 {activeWallet.canTopUp ? (
                                     <section id="add-money" className="scroll-mt-5 rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-7">
-                                        <div className="flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#F58220] dark:bg-orange-950/30"><ArrowDownToLine className="h-5 w-5" /></div><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#F58220]">Add money</p><h2 className="mt-1 text-xl font-bold text-gray-950 dark:text-white sm:text-2xl">Choose how to fund your wallet</h2><p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Pay securely online or transfer from your bank account.</p></div></div>
-                                        <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1.5 dark:bg-zinc-800"><button type="button" aria-pressed={fundingMethod === "online"} onClick={() => setFundingMethod("online")} className={cn("min-h-11 rounded-xl px-3 text-sm font-bold", fundingMethod === "online" ? "bg-white text-gray-950 shadow-sm dark:bg-zinc-700 dark:text-white" : "text-gray-600 dark:text-gray-300")}>Pay online</button><button type="button" aria-pressed={fundingMethod === "transfer"} onClick={() => setFundingMethod("transfer")} className={cn("min-h-11 rounded-xl px-3 text-sm font-bold", fundingMethod === "transfer" ? "bg-white text-gray-950 shadow-sm dark:bg-zinc-700 dark:text-white" : "text-gray-600 dark:text-gray-300")}>Bank transfer</button></div>
-                                        {fundingMethod === "online" ? (
+                                        <div className="flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#F58220] dark:bg-orange-950/30"><ArrowDownToLine className="h-5 w-5" /></div><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#F58220]">Add money</p><h2 className="mt-1 text-xl font-bold text-gray-950 dark:text-white sm:text-2xl">Top up your wallet online</h2><p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Review your top-up amount, then continue to Monnify to complete payment.</p></div></div>
                                             <form action="/api/wallet/topup" method="post" onSubmit={handleTopupSubmit} className="mt-5 space-y-4">
                                                 <input type="hidden" name="attemptId" defaultValue="" />
                                                 <div className="space-y-2"><label htmlFor="wallet-topup-amount" className="text-sm font-semibold text-gray-800 dark:text-gray-200">How much would you like to add?</label><div className="flex h-14 items-center rounded-xl border border-gray-200 bg-gray-50 px-4 focus-within:border-[#F58220] dark:border-zinc-700 dark:bg-zinc-800"><span className="mr-2 text-lg font-bold text-gray-500">₦</span><Input id="wallet-topup-amount" name="amount" disabled={topupLoading || readyTopup !== null} type="number" inputMode="decimal" min="100" step="100" placeholder="Enter amount" className="h-full border-0 bg-transparent px-0 text-lg font-semibold shadow-none focus-visible:ring-0 dark:bg-transparent" value={amount} onChange={(event) => setAmount(event.target.value)} required /></div><p className="text-xs text-gray-500 dark:text-gray-400">Minimum top-up is ₦100. You’ll review any fees before you pay.</p></div>
                                                 <div className="flex flex-wrap gap-2">{[5000, 10000, 20000, 50000].map((quickAmount) => <button key={quickAmount} type="button" disabled={topupLoading || readyTopup !== null} onClick={() => setAmount(String(quickAmount))} className={cn("min-h-10 rounded-full border px-4 text-sm font-semibold", amount === String(quickAmount) ? "border-[#F58220] bg-orange-50 text-[#c95c00] dark:bg-orange-950/30 dark:text-orange-200" : "border-gray-200 text-gray-700 dark:border-zinc-700 dark:text-gray-200")}>₦{quickAmount.toLocaleString()}</button>)}</div>
-                                                {topupQuote ? <div className="space-y-2 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-800/70"><div className="flex justify-between gap-3"><span>Added to your wallet</span><strong>{formatKobo(topupQuote.walletCreditKobo)}</strong></div><div className="flex justify-between gap-3"><span>Payment fees</span><span>{formatKobo(topupQuote.processorFeeKobo + topupQuote.processorVatKobo + topupQuote.rssFeeKobo)}</span></div><div className="flex justify-between gap-3 border-t border-gray-200 pt-2 text-base dark:border-zinc-700"><strong>Total you’ll pay</strong><strong>{formatKobo(topupQuote.totalChargeKobo)}</strong></div></div> : null}
+                                                {topupQuote ? <div className="space-y-2 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-800/70"><div className="flex justify-between gap-3"><span>Wallet credit</span><strong>{formatKobo(topupQuote.walletCreditKobo)}</strong></div><div className="flex justify-between gap-3"><span>Payment fees</span><span>{formatKobo(topupQuote.processorFeeKobo + topupQuote.processorVatKobo + topupQuote.rssFeeKobo)}</span></div><div className="flex justify-between gap-3 border-t border-gray-200 pt-2 text-base dark:border-zinc-700"><strong>Total you’ll pay</strong><strong>{formatKobo(topupQuote.totalChargeKobo)}</strong></div></div> : null}
+                                                {topupLoading ? <WalletCheckoutProgress /> : null}
                                                 {readyTopup ? (
                                                     <div className="space-y-3 rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-900/50 dark:bg-orange-950/20">
                                                         <p className="font-semibold text-gray-900 dark:text-white">Your secure checkout is ready</p>
-                                                        <p className="text-sm text-gray-600 dark:text-gray-300">Open Monnify to complete payment. If it does not open, you can use bank transfer. Reopening this link keeps the same payment.</p>
+                                                        <p className="text-sm text-gray-600 dark:text-gray-300">Open Monnify to complete payment. Reopening this link uses the same checkout. If you have already paid, check the payment status before paying again.</p>
                                                         <Button asChild className="min-h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#E87512]">
                                                             <a href={readyTopup.checkoutUrl} onClick={() => reportWalletTopupDiagnostic(readyTopup.attemptId, "client_submit", { checkoutPrepared: true })}>Open Monnify checkout</a>
                                                         </Button>
                                                         <div className="flex flex-wrap gap-3">
                                                             <button type="button" className="min-h-10 text-sm font-semibold text-orange-800 underline dark:text-orange-300" onClick={() => void checkPreparedTopup(readyTopup)}>Check payment status</button>
-                                                            <button type="button" className="min-h-10 text-sm font-semibold text-orange-800 underline dark:text-orange-300" onClick={() => setFundingMethod("transfer")}>Use bank transfer</button>
                                                         </div>
                                                     </div>
                                                 ) : <Button type="submit" className="min-h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#E87512] sm:w-auto sm:min-w-64" disabled={topupLoading || !amount || Number(amount) < 100}>{topupLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CreditCard className="mr-2 h-5 w-5" />}{topupLoading ? "Preparing secure payment…" : "Continue to secure payment"}</Button>}
                                             </form>
-                                        ) : (
-                                            <div className="mt-5">
-                                                {activeWallet.virtual_account?.accountNumber ? (
-                                                    <div className="rounded-2xl bg-gradient-to-br from-zinc-950 to-zinc-800 p-5 text-white sm:p-6"><div className="flex items-start gap-3"><Landmark className="mt-1 h-5 w-5 shrink-0 text-orange-300" /><div><p className="text-sm font-bold">{activeWallet.virtual_account.bankName}</p><p className="mt-0.5 text-xs text-white/65">{activeWallet.virtual_account.accountName}</p></div></div><div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-3 sm:p-4"><span className="break-all font-mono text-xl font-bold tracking-wider text-orange-300 sm:text-2xl">{activeWallet.virtual_account.accountNumber}</span><Button type="button" variant="ghost" aria-label="Copy transfer account number" className="h-11 w-11 shrink-0 rounded-xl text-white hover:bg-white/10 hover:text-orange-300" onClick={copyToClipboard}>{copied ? <Check className="h-5 w-5" /> : <Copy className="h-5 w-5" />}</Button></div><p className="mt-3 text-xs leading-relaxed text-white/65">Transfer to this dedicated account. Your wallet updates after payment is confirmed.</p>{copied ? <p role="status" className="mt-2 text-xs font-semibold text-emerald-300">Account number copied</p> : null}</div>
-                                                ) : (
-                                                    <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-5 dark:border-zinc-700 dark:bg-zinc-800/50 sm:p-6"><h3 className="font-bold text-gray-900 dark:text-white">Get your personal transfer details</h3><p className="mt-1 text-sm leading-relaxed text-gray-600 dark:text-gray-400">We’ll create a dedicated bank account for your wallet. Transfer to it whenever you want to add money.</p><Button className="mt-4 min-h-11 w-full rounded-xl bg-[#F58220] font-bold text-white hover:bg-[#E57210] sm:w-auto" onClick={() => void setupDepositAccount()} disabled={depositAccountLoading}>{depositAccountLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Landmark className="mr-2 h-4 w-4" />}{depositAccountLoading ? "Setting up account…" : "Create transfer details"}</Button></div>
-                                                )}
-                                            </div>
-                                        )}
                                     </section>
                                 ) : <section className="flex items-start gap-3 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200"><Info className="mt-0.5 h-5 w-5 shrink-0" /><p>{activeWallet.label} is funded automatically from completed orders or role payouts. Withdrawals follow this schedule: {activeWallet.withdrawPolicyHint}</p></section>}
 
