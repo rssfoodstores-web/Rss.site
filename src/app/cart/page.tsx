@@ -550,7 +550,8 @@ export default function CartPage() {
                                             {confirmingGps ? (
                                                 <DeliveryAddressForm
                                                     key={`${destination.location.lat},${destination.location.lng}`}
-                                                    initial={{ label: "Current location", ...destination.location }}
+                                                    initial={{ label: destination.details?.area || "Current location", address: destination.details?.address, ...destination.location }}
+                                                    initialState={destination.state}
                                                     onSaved={(address) => {
                                                         selectDestination({ kind: "address", id: address.id })
                                                         setConfirmingGps(false)
@@ -607,7 +608,7 @@ export default function CartPage() {
                                         <span className="font-bold text-gray-900 dark:text-white">{formatKobo(subtotalKobo)}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-[#6B7280] dark:text-gray-400 font-medium pb-5 border-b border-gray-100 dark:border-zinc-800 text-lg">
-                                        <span>Delivery Fee</span>
+                                        <span>Delivery fee <span className="block text-xs font-normal">Base charge + distance per store</span></span>
                                         {isCalculatingFee ? (
                                             <span className="flex items-center text-[#F58220] font-black italic animate-pulse">
                                                 <Loader2 className="h-4 w-4 animate-spin mr-2" />

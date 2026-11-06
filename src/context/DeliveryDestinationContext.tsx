@@ -7,6 +7,7 @@ import { isDeliveryPoint, type DeliveryAddress, type ShoppingDestination } from 
 
 interface DeliveryDestinationContextValue {
     addresses: DeliveryAddress[]
+    selectionReady: boolean
     addressError: boolean
     loadingAddresses: boolean
     destination: ShoppingDestination | null
@@ -63,6 +64,7 @@ export function DeliveryDestinationProvider({ children }: { children: ReactNode 
     return (
         <DeliveryDestinationContext.Provider value={{
             addresses,
+            selectionReady: selection?.key === storageKey,
             addressError: addressState?.userId === userId && Boolean(addressState?.error),
             loadingAddresses: Boolean(userId && addressState?.userId !== userId),
             destination,
@@ -70,7 +72,7 @@ export function DeliveryDestinationProvider({ children }: { children: ReactNode 
             selectDestination: (value) => {
                 setSelection({ key: storageKey, value })
                 try {
-                    sessionStorage.setItem(storageKey, JSON.stringify(value))
+                    sessionStorage.setItem(storageKey, JSON.stringify(value.kind === "gps" ? { ...value, details: undefined } : value))
                     if (userId && value.kind === "address") localStorage.setItem(storageKey, JSON.stringify(value))
                 } catch { /* Optional browser persistence. */ }
             },
