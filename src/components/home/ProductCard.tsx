@@ -34,6 +34,7 @@ export interface Product {
     isSale?: boolean
     stock?: number
     merchantId?: string
+    distanceKm?: number | null
     reviewSummary?: ProductReviewSummary | null
 }
 
@@ -116,6 +117,7 @@ export function ProductCard({ product }: { product: Product }) {
                         <h3 className="line-clamp-2 min-h-10 text-sm font-semibold leading-snug text-gray-900 transition-colors group-hover:text-[#F58220] dark:text-white md:min-h-[2.5rem] md:text-base lg:text-lg">
                             {product.name}
                         </h3>
+                        {product.distanceKm != null && <p className="text-xs text-muted-foreground">{product.distanceKm.toFixed(1)} km from your delivery location</p>}
 
                     </div>
                 </Link>

@@ -19,6 +19,9 @@ interface OrderItemInput {
 
 interface BaseOrderParams {
     userId: string
+    addressId?: string
+    checkoutAttemptId?: string
+    quotedSubtotal?: number
     items: OrderItemInput[]
     deliveryLocation: {
         type: "Point"
@@ -33,6 +36,7 @@ interface OrderActionResult {
     success?: boolean
     orderId?: string
     checkoutUrl?: string
+    resetAttempt?: boolean
     reference?: string
     error?: string
     message?: string
@@ -226,6 +230,10 @@ async function getVerifiedCheckoutPayload({
 }
 
 export async function processWalletPayment({
+    addressId,
+    checkoutAttemptId,
+    quotedSubtotal,
+    deliveryFeeKobo,
     items,
     deliveryLocation,
     contactNumbers,
@@ -239,12 +247,23 @@ export async function processWalletPayment({
         return { error: "Authentication required." }
     }
 
-    const verifiedPayload = await getVerifiedCheckoutPayload({ items, deliveryLocation })
+    const verifiedPayload = addressId
+        ? { sanitizedItems: sanitizeItems(items), deliveryFeeKobo, error: undefined }
+        : await getVerifiedCheckoutPayload({ items, deliveryLocation })
     if (verifiedPayload.error) {
         return { error: verifiedPayload.error }
     }
 
-    const { data, error } = await supabase.rpc("create_paid_order", {
+    const { data, error } = await (addressId ? supabase.rpc("checkout_delivery_address", {
+        p_address_id: addressId,
+        p_items: verifiedPayload.sanitizedItems,
+        p_quoted_fee: deliveryFeeKobo,
+        p_quoted_subtotal: quotedSubtotal,
+        p_contacts: sanitizeContactNumbers(contactNumbers),
+        p_points: sanitizeRewardPoints(rewardPointsToRedeem),
+        p_method: "wallet",
+        p_attempt_id: checkoutAttemptId,
+    }) : supabase.rpc("create_paid_order", {
         p_user_id: authenticatedUserId,
         p_items: verifiedPayload.sanitizedItems,
         p_delivery_location: deliveryLocation,
@@ -252,7 +271,7 @@ export async function processWalletPayment({
         p_contact_numbers: sanitizeContactNumbers(contactNumbers),
         p_payment_reference: null,
         p_points_to_redeem: sanitizeRewardPoints(rewardPointsToRedeem),
-    })
+    }))
 
     if (error) {
         console.error("create_paid_order RPC error:", error)
@@ -277,6 +296,10 @@ export async function processWalletPayment({
 }
 
 export async function processGiftCardPayment({
+    addressId,
+    checkoutAttemptId,
+    quotedSubtotal,
+    deliveryFeeKobo,
     items,
     deliveryLocation,
     contactNumbers,
@@ -290,12 +313,23 @@ export async function processGiftCardPayment({
         return { error: "Authentication required." }
     }
 
-    const verifiedPayload = await getVerifiedCheckoutPayload({ items, deliveryLocation })
+    const verifiedPayload = addressId
+        ? { sanitizedItems: sanitizeItems(items), deliveryFeeKobo, error: undefined }
+        : await getVerifiedCheckoutPayload({ items, deliveryLocation })
     if (verifiedPayload.error) {
         return { error: verifiedPayload.error }
     }
 
-    const { data, error } = await supabase.rpc("create_paid_order_with_gift_card", {
+    const { data, error } = await (addressId ? supabase.rpc("checkout_delivery_address", {
+        p_address_id: addressId,
+        p_items: verifiedPayload.sanitizedItems,
+        p_quoted_fee: deliveryFeeKobo,
+        p_quoted_subtotal: quotedSubtotal,
+        p_contacts: sanitizeContactNumbers(contactNumbers),
+        p_points: sanitizeRewardPoints(rewardPointsToRedeem),
+        p_method: "gift",
+        p_attempt_id: checkoutAttemptId,
+    }) : supabase.rpc("create_paid_order_with_gift_card", {
         p_user_id: authenticatedUserId,
         p_items: verifiedPayload.sanitizedItems,
         p_delivery_location: deliveryLocation,
@@ -303,7 +337,7 @@ export async function processGiftCardPayment({
         p_contact_numbers: sanitizeContactNumbers(contactNumbers),
         p_payment_reference: null,
         p_points_to_redeem: sanitizeRewardPoints(rewardPointsToRedeem),
-    })
+    }))
 
     if (error) {
         console.error("create_paid_order_with_gift_card RPC error:", error)
@@ -329,6 +363,10 @@ export async function processGiftCardPayment({
 }
 
 export async function initiateDirectPayment({
+    addressId,
+    checkoutAttemptId,
+    quotedSubtotal,
+    deliveryFeeKobo,
     items,
     deliveryLocation,
     contactNumbers,
@@ -342,13 +380,24 @@ export async function initiateDirectPayment({
         return { error: "Authentication required." }
     }
 
-    const paymentReference = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`
-    const verifiedPayload = await getVerifiedCheckoutPayload({ items, deliveryLocation })
+    let paymentReference = `ORD-${crypto.randomUUID()}`
+    const verifiedPayload = addressId
+        ? { sanitizedItems: sanitizeItems(items), deliveryFeeKobo, error: undefined }
+        : await getVerifiedCheckoutPayload({ items, deliveryLocation })
     if (verifiedPayload.error) {
         return { error: verifiedPayload.error }
     }
 
-    const pendingOrder = await supabase.rpc("create_pending_order", {
+    const pendingOrder = await (addressId ? supabase.rpc("checkout_delivery_address", {
+        p_address_id: addressId,
+        p_items: verifiedPayload.sanitizedItems,
+        p_quoted_fee: deliveryFeeKobo,
+        p_quoted_subtotal: quotedSubtotal,
+        p_contacts: sanitizeContactNumbers(contactNumbers),
+        p_points: sanitizeRewardPoints(rewardPointsToRedeem),
+        p_method: "direct",
+        p_attempt_id: checkoutAttemptId,
+    }) : supabase.rpc("create_pending_order", {
         p_user_id: authenticatedUserId,
         p_items: verifiedPayload.sanitizedItems,
         p_delivery_location: deliveryLocation,
@@ -356,7 +405,7 @@ export async function initiateDirectPayment({
         p_contact_numbers: sanitizeContactNumbers(contactNumbers),
         p_payment_reference: paymentReference,
         p_points_to_redeem: sanitizeRewardPoints(rewardPointsToRedeem),
-    })
+    }))
 
     if (pendingOrder.error) {
         console.error("create_pending_order RPC error:", pendingOrder.error)
@@ -367,20 +416,28 @@ export async function initiateDirectPayment({
         return { error: pendingOrder.data?.error ?? "Unable to create pending order." }
     }
 
+    paymentReference = pendingOrder.data.payment_reference ?? paymentReference
     const { data: orderRow, error: orderRowError } = await supabase
         .from("orders")
-        .select("total_amount")
+        .select("total_amount, payment_status")
         .eq("id", pendingOrder.data.order_id)
         .single()
 
     if (orderRowError || !orderRow) {
         console.error("Failed to fetch pending order total:", orderRowError)
-        await cancelPendingOrderReservation(supabase, pendingOrder.data.order_id)
+        if (!addressId) await cancelPendingOrderReservation(supabase, pendingOrder.data.order_id)
         return {
             error: "Pending order was created but its payment total could not be loaded.",
             orderId: pendingOrder.data.order_id,
             reference: paymentReference,
         }
+    }
+
+    if (orderRow.payment_status === "paid") {
+        return { success: true, orderId: pendingOrder.data.order_id, reference: paymentReference }
+    }
+    if (orderRow.payment_status === "failed" || orderRow.payment_status === "refunded") {
+        return { resetAttempt: true, error: "This payment attempt is closed. Review your cart and try again." }
     }
 
     const { data: profile } = await supabase
@@ -396,7 +453,7 @@ export async function initiateDirectPayment({
 
     try {
         const response = await invokeMonnifyInit(supabase, {
-            amount: koboToNaira(orderRow.total_amount ?? 0),
+            amount: koboToNaira(pendingOrder.data.total_kobo ?? orderRow.total_amount ?? 0),
             customerName: profile?.full_name ?? "RSS Foods Customer",
             customerEmail: user?.email,
             paymentReference,
@@ -412,7 +469,7 @@ export async function initiateDirectPayment({
         functionResult = response.data ?? {}
     } catch (error) {
         console.error("monnify-init invoke error:", error)
-        await cancelPendingOrderReservation(supabase, pendingOrder.data.order_id)
+        if (!addressId) await cancelPendingOrderReservation(supabase, pendingOrder.data.order_id)
         return {
             error: error instanceof Error ? error.message : "Unable to initialize direct payment.",
             orderId: pendingOrder.data.order_id,
@@ -423,7 +480,7 @@ export async function initiateDirectPayment({
     const checkoutUrl = functionResult.checkoutUrl ?? functionResult.checkout_url
 
     if (!checkoutUrl) {
-        await cancelPendingOrderReservation(supabase, pendingOrder.data.order_id)
+        if (!addressId) await cancelPendingOrderReservation(supabase, pendingOrder.data.order_id)
         return {
             error: "Unable to initialize direct payment.",
             orderId: pendingOrder.data.order_id,

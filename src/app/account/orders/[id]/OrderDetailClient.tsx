@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils"
 import { formatKobo } from "@/lib/money"
 import { formatOrderStatus, formatPaymentStatus, getCustomerOrderTimeline, getOrderStatusTone, getPaymentStatusTone } from "@/lib/orders"
 import { parseCoordinates } from "@/lib/directions"
+import { useCart } from "@/context/CartContext"
 import { RiderRouteMap } from "@/components/rider/dashboard/RiderRouteMap"
 
 interface OrderPerson {
@@ -56,6 +57,7 @@ interface OrderDetail {
     total_amount: number
     delivery_code: string | null
     delivery_location: OrderDeliveryLocation | null
+    delivery_address_snapshot?: { address_label?: string } | null
     order_items: OrderItem[]
     rider: OrderPerson | null
     agent: OrderPerson | null
@@ -73,6 +75,19 @@ interface OrderDetailClientProps {
 export function OrderDetailClient({ order, user }: OrderDetailClientProps) {
     const [supabase] = useState(() => createClient())
     const router = useRouter()
+    const { items, clearCart } = useCart()
+    const cartKey = JSON.stringify(items.map(({ id, quantity }) => ({ product_id: id, quantity })))
+
+    useEffect(() => {
+        if (order.payment_status !== "paid" || cartKey === "[]") return
+        try {
+            const pending = JSON.parse(sessionStorage.getItem("rss-pending-order") ?? "null")
+            if (pending?.orderId !== order.id) return
+            if (pending.itemsKey === cartKey) clearCart()
+            sessionStorage.removeItem("rss-pending-order")
+            sessionStorage.removeItem("rss-checkout-attempt")
+        } catch { /* The order is still available even without browser storage. */ }
+    }, [cartKey, clearCart, order.id, order.payment_status])
     const [isCancelling, startCancelling] = useTransition()
     const [riderLocation, setRiderLocation] = useState(() => parseCoordinates(order.rider?.location ?? null))
 
@@ -410,7 +425,7 @@ export function OrderDetailClient({ order, user }: OrderDetailClientProps) {
                                     <div>
                                         <h4 className="font-medium text-gray-900 dark:text-white">Delivery Address</h4>
                                         <p className="text-gray-500 text-sm mt-1">
-                                            {user ? order.delivery_location?.address || "Address details hidden" : "Address details hidden"}
+                                            {user ? order.delivery_address_snapshot?.address_label || order.delivery_location?.address || "Address details unavailable" : "Address details hidden"}
                                         </p>
                                     </div>
                                 </div>

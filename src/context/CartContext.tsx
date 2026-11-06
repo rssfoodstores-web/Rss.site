@@ -28,7 +28,6 @@ interface CartProductInput {
 
 interface CartContextType {
     items: CartItem[]
-    cartMerchantId: string | null
     addToCart: (product: CartProductInput) => void
     removeFromCart: (productId: string) => void
     updateQuantity: (productId: string, quantity: number) => void
@@ -50,15 +49,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const [isLoaded, setIsLoaded] = useState(false)
 
     useEffect(() => {
-        const savedCart = localStorage.getItem(CART_STORAGE_KEY)
         let parsedItems: CartItem[] = []
 
-        if (savedCart) {
-            try {
-                parsedItems = JSON.parse(savedCart) as CartItem[]
-            } catch (error) {
-                console.error("Failed to parse cart", error)
-            }
+        try {
+            const raw: unknown = JSON.parse(localStorage.getItem(CART_STORAGE_KEY) ?? "[]")
+            if (Array.isArray(raw)) parsedItems = raw.filter((item) => item &&
+                typeof item.id === "string" && typeof item.merchantId === "string" &&
+                Number.isSafeInteger(item.quantity) && item.quantity > 0 &&
+                Number.isSafeInteger(item.price) && item.price >= 0)
+        } catch {
+            // An unreadable saved cart should not prevent shopping.
         }
 
         const frame = window.requestAnimationFrame(() => {
@@ -71,7 +71,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         if (isLoaded) {
-            localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items))
+            try { localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items)) } catch { /* Session cart is still usable. */ }
         }
     }, [isLoaded, items])
 
@@ -91,34 +91,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
         }
 
         setItems((previousItems) => {
-            const existingMerchantId = previousItems[0]?.merchantId ?? null
-
-            if (existingMerchantId && existingMerchantId !== merchantId) {
-                const confirmed = window.confirm(
-                    "Your cart can only contain items from one merchant at a time. Clear the current cart and add this item?"
-                )
-
-                if (!confirmed) {
-                    return previousItems
-                }
-
-                toast.info("Cart cleared for a new merchant order.")
-
-                return [
-                    {
-                        id: product.id,
-                        name: product.name,
-                        price: product.price,
-                        image: product.imageUrl ?? product.image ?? undefined,
-                        quantity: availableStock !== null
-                            ? Math.min(requestedQuantity, availableStock)
-                            : requestedQuantity,
-                        merchantId,
-                        maxStock: availableStock ?? undefined,
-                    },
-                ]
-            }
-
             const existingItem = previousItems.find((item) => item.id === product.id)
 
             if (existingItem) {
@@ -201,13 +173,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
     const cartTotal = items.reduce((total, item) => total + item.price * item.quantity, 0)
     const itemCount = items.reduce((count, item) => count + item.quantity, 0)
-    const cartMerchantId = items[0]?.merchantId ?? null
 
     return (
         <CartContext.Provider
             value={{
                 items,
-                cartMerchantId,
                 addToCart,
                 removeFromCart,
                 updateQuantity,

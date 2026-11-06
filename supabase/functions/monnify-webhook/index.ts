@@ -216,6 +216,39 @@ serve(async (request) => {
             return new Response("Wallet top-up processed", { status: 200, headers: corsHeaders })
         }
 
+        if (metaData?.type === "order_payment" && metaData?.checkout_group_id) {
+            const { data: group, error: groupError } = await supabase
+                .from("delivery_checkout_groups")
+                .select("id, order_ids, payment_reference, total_kobo")
+                .eq("id", metaData.checkout_group_id)
+                .eq("method", "direct")
+                .single()
+
+            if (groupError || !group || !paymentReference || group.payment_reference !== paymentReference ||
+                group.order_ids[0] !== metaData.order_id) {
+                console.error("Checkout payment reference mismatch", groupError)
+                return new Response("Order payment validation failed", { status: 400, headers: corsHeaders })
+            }
+
+            const verified = await verifyTransaction(paymentReference)
+            const verifiedAmountKobo = Math.round(Number(verified.amountPaid ?? 0) * 100)
+            if (verified.paymentReference !== group.payment_reference || verified.paymentStatus !== "PAID" ||
+                verifiedAmountKobo !== group.total_kobo || Math.round(amountPaid * 100) !== group.total_kobo) {
+                return new Response("Order payment validation failed", { status: 400, headers: corsHeaders })
+            }
+
+            const { data, error } = await supabase.rpc("confirm_delivery_checkout_payment", {
+                p_group_id: group.id,
+                p_reference: paymentReference,
+                p_amount_kobo: verifiedAmountKobo,
+            })
+            if (error || !data?.success) {
+                console.error("Checkout payment processing failed", error ?? data)
+                return new Response("Order payment processing failed", { status: 500, headers: corsHeaders })
+            }
+            return new Response("Order payment processed", { status: 200, headers: corsHeaders })
+        }
+
         if (metaData?.type === "order_payment" && metaData?.order_id) {
             const { data: order, error: orderError } = await supabase
                 .from("orders")

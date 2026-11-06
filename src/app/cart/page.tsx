@@ -13,18 +13,19 @@ import {
     CreditCard,
     Home,
     Loader2,
-    AlertCircle,
-    CheckCircle2,
     Wallet,
     Gift,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useCart } from "@/context/CartContext"
+import { buildOptimizedImageUrl } from "@/lib/imageDelivery"
 import { formatKobo } from "@/lib/money"
 import { useUser } from "@/context/UserContext"
 import { toast } from "sonner"
-import Script from "next/script"
-import { calculateDeliveryFee } from "@/app/actions/delivery"
+import { quoteDeliveryAddress, type MerchantDeliveryQuote } from "@/app/actions/deliveryAddresses"
+import { DeliveryAddressForm } from "@/components/account/DeliveryAddressForm"
+import { DeliveryDestinationPicker } from "@/components/account/DeliveryDestinationPicker"
+import { useDeliveryDestination } from "@/context/DeliveryDestinationContext"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
@@ -32,18 +33,13 @@ import {
     type RewardCheckoutSummary,
 } from "@/app/account/rewards/actions"
 import { initiateDirectPayment, processGiftCardPayment, processWalletPayment } from "@/app/actions/orderActions"
-import type { DeliverySettings } from "@/app/actions/settingsActions"
 
-type UserLocation = { lat: number; lng: number }
 type PaymentMethod = "direct" | "wallet" | "giftCard"
 type OrderPayload = Parameters<typeof processWalletPayment>[0]
 type PaymentOptionColor = "orange" | "violet"
 
 interface CartLocationResponse {
-    address: string
-    location: UserLocation | null
     phone_numbers: string[]
-    settings: DeliverySettings
 }
 
 interface CartBalancesResponse {
@@ -75,22 +71,28 @@ function normalizeContactNumbers(numbers: string[] | undefined) {
 }
 
 export default function CartPage() {
-    const { items: cartItems, cartMerchantId, removeFromCart, updateQuantity, cartTotal, clearCart } = useCart()
+    const { items: cartItems, removeFromCart, updateQuantity, cartTotal, clearCart } = useCart()
     const { user } = useUser()
     const router = useRouter()
-    const [mapLoaded, setMapLoaded] = useState(false)
-    const [mapInstance, setMapInstance] = useState<LeafletMapInstance | null>(null)
-    const [markerInstance, setMarkerInstance] = useState<LeafletMarkerInstance | null>(null)
-    const mapRef = useRef<HTMLDivElement>(null)
-
-    // User Location & Delivery State
-    const [userLocation, setUserLocation] = useState<UserLocation | null>(null)
-    const [savedProfileAddress, setSavedProfileAddress] = useState<string>("")
-    const [deliveryFeeKobo, setDeliveryFeeKobo] = useState<number>(0)
-    const [isCalculatingFee, setIsCalculatingFee] = useState(false)
-    const [deliverySettings, setDeliverySettings] = useState<DeliverySettings | null>(null)
-    const [distanceKm, setDistanceKm] = useState<number>(0)
-    const [deliveryFeeError, setDeliveryFeeError] = useState<string | null>(null)
+    const { destination, selectedAddress, selectDestination } = useDeliveryDestination()
+    const [confirmingGps, setConfirmingGps] = useState(false)
+    const [quote, setQuote] = useState<{ key: string; fee: number; subtotal: number; groups: MerchantDeliveryQuote[]; error?: string } | null>(null)
+    const [quoteRevision, setQuoteRevision] = useState(0)
+    const paymentAttempt = useRef<{ key: string; id: string } | null>(null)
+    const submissionLock = useRef(false)
+    const itemsKey = JSON.stringify(cartItems.map(({ id, quantity }) => ({ product_id: id, quantity })))
+    const addressId = selectedAddress?.id
+    const quoteKey = selectedAddress ? JSON.stringify([selectedAddress, itemsKey, quoteRevision]) : null
+    const activeQuote = quoteKey && quote?.key === quoteKey ? quote : null
+    const deliveryFeeKobo = activeQuote?.fee ?? 0
+    const multiStore = new Set(cartItems.map(({ merchantId }) => merchantId)).size > 1
+    const subtotalKobo = activeQuote && !activeQuote.error ? activeQuote.subtotal : cartTotal
+    const storeByMerchant = new Map(activeQuote?.groups.map((group) => [group.merchant_id, group.store_name]))
+    const quotedPrices = new Map(activeQuote?.groups.flatMap((group) => group.items.map((item) => [item.product_id, item.price] as const)))
+    const displayedItems = cartItems.map((item) => ({ ...item, price: quotedPrices.get(item.id) ?? item.price }))
+        .sort((a, b) => a.merchantId.localeCompare(b.merchantId))
+    const deliveryFeeError = activeQuote?.error
+    const isCalculatingFee = Boolean(quoteKey && !activeQuote)
     const [contactNumbers, setContactNumbers] = useState<string[]>(EMPTY_CONTACT_NUMBERS)
 
     // Checkout State
@@ -107,43 +109,31 @@ export default function CartPage() {
     const [rewardPointsInput, setRewardPointsInput] = useState<string>("")
     const [rewardDiscountKobo, setRewardDiscountKobo] = useState<number>(0)
 
-    // Fetch User Data & Settings
     useEffect(() => {
-        const fetchData = async () => {
-            if (!user) {
-                setDeliverySettings(null)
-                setRewardSummary(null)
-                setSavedProfileAddress("")
-                setUserLocation(null)
-                setContactNumbers(EMPTY_CONTACT_NUMBERS)
-                return
-            }
+        if (!user) return
+        let active = true
+        fetch("/api/user/profile-location", { cache: "no-store" })
+            .then(async (response) => {
+                if (!response.ok || !active) return
+                const data = await response.json() as CartLocationResponse
+                if (active) setContactNumbers(normalizeContactNumbers(data.phone_numbers))
+            }).catch(() => undefined)
+        return () => { active = false }
+    }, [user])
 
-            try {
-                const [rewards, response] = await Promise.all([
-                    cartTotal > 0 ? getRewardCheckoutSummary(cartTotal) : Promise.resolve(null),
-                    fetch("/api/user/profile-location", { cache: "no-store" }),
-                ])
-
-                setRewardSummary(rewards)
-
-                if (response.ok) {
-                    const data = await response.json() as CartLocationResponse
-                    setUserLocation(data.location ?? null)
-                    setSavedProfileAddress(data.address ?? "")
-                    setContactNumbers(normalizeContactNumbers(data.phone_numbers))
-                    setDeliverySettings(data.settings)
-                }
-            } catch (error) {
-                console.error("Error fetching cart init data:", error)
-            }
+    useEffect(() => {
+        let active = true
+        if (user && !multiStore && subtotalKobo > 0) {
+            getRewardCheckoutSummary(subtotalKobo)
+                .then((summary) => { if (active) setRewardSummary(summary) })
+                .catch(() => { if (active) setRewardSummary(null) })
         }
-        void fetchData()
-    }, [cartTotal, user])
+        return () => { active = false }
+    }, [multiStore, subtotalKobo, user])
 
     // Calculate Rewards Discount
     useEffect(() => {
-        if (!rewardSummary?.enabled || !rewardPointsInput) {
+        if (multiStore || !rewardSummary?.enabled || !rewardPointsInput) {
             setRewardDiscountKobo(0)
             return
         }
@@ -156,7 +146,7 @@ export default function CartPage() {
 
         const clampedPoints = Math.min(points, rewardSummary.maxRedeemablePoints)
         setRewardDiscountKobo(clampedPoints * rewardSummary.pointValueKobo)
-    }, [rewardPointsInput, rewardSummary])
+    }, [multiStore, rewardPointsInput, rewardSummary])
 
     // Fetch Balances when Checkout Opens
     useEffect(() => {
@@ -181,73 +171,18 @@ export default function CartPage() {
         }
     }, [isCheckoutOpen, user])
 
-    // Calculate Delivery Fee
     useEffect(() => {
-        const getFee = async () => {
-            if (userLocation && deliverySettings && cartMerchantId) {
-                setIsCalculatingFee(true)
-                setDeliveryFeeError(null)
-                try {
-                    const result = await calculateDeliveryFee(userLocation.lat, userLocation.lng, cartMerchantId)
-
-                    if (result.error) {
-                        setDeliveryFeeKobo(0)
-                        setDistanceKm(0)
-                        setDeliveryFeeError(result.error)
-                        toast.error(result.error)
-                        return
-                    }
-
-                    setDeliveryFeeKobo(result.fee)
-                    setDistanceKm(Number(result.distance.toFixed(2)))
-                } catch (error) {
-                    console.error("Error calculating fee:", error)
-                    setDeliveryFeeError("Could not calculate delivery fee.")
-                    toast.error("Could not calculate delivery fee.")
-                } finally {
-                    setIsCalculatingFee(false)
-                }
-            } else {
-                setDeliveryFeeKobo(0)
-                setDistanceKm(0)
-                setDeliveryFeeError(null)
-            }
-        }
-        void getFee()
-    }, [cartMerchantId, userLocation, deliverySettings])
-
-    // Leaflet Map Initialization
-    useEffect(() => {
-        if (mapLoaded && mapRef.current && !mapInstance && userLocation) {
-            const leaflet = window.L
-            const map = leaflet.map(mapRef.current).setView([userLocation.lat, userLocation.lng], 13)
-            leaflet.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            }).addTo(map)
-
-            const icon = leaflet.icon({
-                iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-                shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-                iconSize: [25, 41],
-                iconAnchor: [12, 41],
+        if (!addressId || !quoteKey || itemsKey === "[]") return
+        let active = true
+        quoteDeliveryAddress(addressId, JSON.parse(itemsKey))
+            .then((result) => { if (active) setQuote({ key: quoteKey, ...result }) })
+            .catch(() => {
+                if (active) setQuote({ key: quoteKey, fee: 0, subtotal: 0, groups: [], error: "Could not calculate delivery. Please try again." })
             })
+        return () => { active = false }
+    }, [addressId, itemsKey, quoteKey])
 
-            const marker = leaflet.marker([userLocation.lat, userLocation.lng], { icon }).addTo(map)
-            setMapInstance(map)
-            setMarkerInstance(marker)
-        } else if (mapInstance && userLocation && markerInstance) {
-            markerInstance.setLatLng([userLocation.lat, userLocation.lng])
-            mapInstance.setView([userLocation.lat, userLocation.lng], 13)
-        }
-    }, [mapInstance, mapLoaded, markerInstance, userLocation])
-
-    useEffect(() => {
-        return () => {
-            mapInstance?.remove()
-        }
-    }, [mapInstance])
-
-    const total = Math.max(0, (cartTotal - rewardDiscountKobo) + deliveryFeeKobo)
+    const total = Math.max(0, (subtotalKobo - (multiStore ? 0 : rewardDiscountKobo)) + deliveryFeeKobo)
 
     const handleProceedToCheckout = () => {
         if (!user) {
@@ -255,10 +190,7 @@ export default function CartPage() {
             router.push('/login?callback=/cart')
             return
         }
-        if (!userLocation) {
-            toast.error("Please set your delivery location in your profile")
-            return
-        }
+        if (!selectedAddress || !activeQuote) return
         if (deliveryFeeError) {
             toast.error(deliveryFeeError)
             return
@@ -267,28 +199,45 @@ export default function CartPage() {
     }
 
     const getCommonPayload = (): OrderPayload | null => {
-        if (!user) {
-            return null
-        }
+        if (!user || !selectedAddress || !activeQuote || activeQuote.error) return null
 
+        const points = multiStore ? 0 : Math.min(
+            Math.max(Number.parseInt(rewardPointsInput, 10) || 0, 0),
+            rewardSummary?.enabled ? rewardSummary.maxRedeemablePoints : 0,
+        )
+        const attemptKey = JSON.stringify([user.id, addressId, itemsKey, subtotalKobo, deliveryFeeKobo, points])
+        if (paymentAttempt.current?.key !== attemptKey) {
+            const storageKey = "rss-checkout-attempt"
+            let id = crypto.randomUUID()
+            try {
+                const stored = JSON.parse(sessionStorage.getItem(storageKey) ?? "null")
+                if (stored?.key === attemptKey && typeof stored.id === "string") id = stored.id
+                sessionStorage.setItem(storageKey, JSON.stringify({ key: attemptKey, id }))
+            } catch { /* Checkout also works without browser storage. */ }
+            paymentAttempt.current = { key: attemptKey, id }
+        }
         return {
             userId: user.id,
+            checkoutAttemptId: paymentAttempt.current.id,
+            quotedSubtotal: subtotalKobo,
             items: cartItems.map((item) => ({
                 product_id: item.id,
                 quantity: item.quantity,
             })),
-            deliveryLocation: userLocation ? {
+            addressId: selectedAddress.id,
+            deliveryLocation: {
                 type: "Point" as const,
-                coordinates: [userLocation.lng, userLocation.lat] as [number, number],
-            } : null,
+                coordinates: [selectedAddress.lng, selectedAddress.lat],
+            },
             deliveryFeeKobo,
             contactNumbers: contactNumbers.filter((number) => number.trim() !== ""),
-            rewardPointsToRedeem: Number.parseInt(rewardPointsInput, 10) || 0,
+            rewardPointsToRedeem: points,
         }
     }
 
     const handleWalletPayment = async () => {
-        if (!user) return
+        if (!user || submissionLock.current) return
+        submissionLock.current = true
         setIsProcessing(true)
         try {
             const payload = getCommonPayload()
@@ -298,20 +247,25 @@ export default function CartPage() {
             if (result.success) {
                 toast.success("Order placed successfully using wallet balance!")
                 clearCart()
+                paymentAttempt.current = null
+                try { sessionStorage.removeItem("rss-checkout-attempt") } catch { /* Optional browser persistence. */ }
                 router.push(`/account/orders?orderId=${result.orderId}`)
             } else {
+                setQuoteRevision((revision) => revision + 1)
                 toast.error(result.error || "Failed to process wallet payment")
             }
         } catch {
             toast.error("An unexpected error occurred")
         } finally {
+            submissionLock.current = false
             setIsProcessing(false)
             setIsCheckoutOpen(false)
         }
     }
 
     const handleGiftCardPayment = async () => {
-        if (!user) return
+        if (!user || submissionLock.current) return
+        submissionLock.current = true
         setIsProcessing(true)
         try {
             const payload = getCommonPayload()
@@ -321,20 +275,25 @@ export default function CartPage() {
             if (result.success) {
                 toast.success("Order placed successfully using gift card balance!")
                 clearCart()
+                paymentAttempt.current = null
+                try { sessionStorage.removeItem("rss-checkout-attempt") } catch { /* Optional browser persistence. */ }
                 router.push(`/account/orders?orderId=${result.orderId}`)
             } else {
+                setQuoteRevision((revision) => revision + 1)
                 toast.error(result.error || "Failed to process gift card payment")
             }
         } catch {
             toast.error("An unexpected error occurred")
         } finally {
+            submissionLock.current = false
             setIsProcessing(false)
             setIsCheckoutOpen(false)
         }
     }
 
     const handleDirectPayment = async () => {
-        if (!user) return
+        if (!user || submissionLock.current) return
+        submissionLock.current = true
         setIsProcessing(true)
         try {
             const payload = getCommonPayload()
@@ -343,14 +302,26 @@ export default function CartPage() {
 
             if (result.success && result.checkoutUrl) {
                 toast.success("Redirecting to payment gateway...")
-                clearCart()
+                try { sessionStorage.setItem("rss-pending-order", JSON.stringify({ orderId: result.orderId, itemsKey })) }
+                catch { /* The order remains visible in Order History. */ }
                 window.location.href = result.checkoutUrl
+            } else if (result.success && result.orderId) {
+                clearCart()
+                paymentAttempt.current = null
+                try { sessionStorage.removeItem("rss-checkout-attempt") } catch { /* Optional browser persistence. */ }
+                router.push(`/account/orders/${result.orderId}`)
             } else {
+                if (result.resetAttempt) {
+                    paymentAttempt.current = null
+                    try { sessionStorage.removeItem("rss-checkout-attempt") } catch { /* Optional browser persistence. */ }
+                }
+                setQuoteRevision((revision) => revision + 1)
                 toast.error(result.error || "Failed to initialize direct payment")
             }
         } catch {
             toast.error("An unexpected error occurred")
         } finally {
+            submissionLock.current = false
             setIsProcessing(false)
             setIsCheckoutOpen(false)
         }
@@ -408,13 +379,6 @@ export default function CartPage() {
 
     return (
         <>
-            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossOrigin="" />
-            <Script
-                src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-                integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-                crossOrigin=""
-                onLoad={() => setMapLoaded(true)}
-            />
 
             <div className="min-h-screen bg-white dark:bg-black py-8 lg:py-12 font-sans text-[#1A1A1A] dark:text-white">
                 <div className="container mx-auto px-4 lg:px-6">
@@ -449,18 +413,21 @@ export default function CartPage() {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
-                                            {cartItems.map((item) => (
+                                            {displayedItems.map((item) => (
                                                 <tr key={item.id} className="group hover:bg-gray-50/50 dark:hover:bg-zinc-800/30 transition-colors">
                                                     <td className="p-6">
                                                         <div className="flex items-center gap-4">
                                                             <div className="h-20 w-20 rounded-xl flex-shrink-0 flex items-center justify-center overflow-hidden bg-gray-50 dark:bg-zinc-800 border border-gray-100 dark:border-zinc-800 group-hover:shadow-md transition-shadow">
                                                                 {item.image ? (
-                                                                    <img src={item.image} alt={item.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                                                                    <Image src={buildOptimizedImageUrl(item.image, { width: 160 })} alt={item.name} fill unoptimized className="object-cover transition-transform duration-500 group-hover:scale-110" />
                                                                 ) : (
                                                                     <div className="h-10 w-10 bg-gray-200 dark:bg-zinc-700 rounded-full" />
                                                                 )}
                                                             </div>
-                                                            <span className="font-bold text-lg max-w-[240px] truncate tracking-tight text-gray-900 dark:text-white">{item.name}</span>
+                                                            <div className="min-w-0">
+                                                            <p className="truncate font-bold">{item.name}</p>
+                                                            {multiStore && <p className="text-xs text-muted-foreground">{storeByMerchant.get(item.merchantId) ?? "Store"}</p>}
+                                                        </div>
                                                         </div>
                                                     </td>
                                                     <td className="p-6 text-[#6B7280] dark:text-gray-400 font-medium">
@@ -502,13 +469,13 @@ export default function CartPage() {
 
                                 {/* Mobile Card View */}
                                 <div className="md:hidden divide-y divide-gray-100 dark:divide-zinc-800">
-                                    {cartItems.map((item) => (
+                                    {displayedItems.map((item) => (
                                         <div key={item.id} className="p-4 relative transition-colors hover:bg-gray-50/30 dark:hover:bg-zinc-800/30">
                                             <div className="flex gap-4">
                                                 {/* Image Container */}
                                                 <div className="h-20 w-20 xs:h-24 xs:w-24 rounded-2xl flex-shrink-0 flex items-center justify-center overflow-hidden bg-gray-50 dark:bg-zinc-800 border border-gray-100 dark:border-zinc-800 shadow-sm relative group">
                                                     {item.image ? (
-                                                        <img src={item.image} alt={item.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                                                        <Image src={buildOptimizedImageUrl(item.image, { width: 160 })} alt={item.name} fill unoptimized className="object-cover transition-transform duration-500 group-hover:scale-110" />
                                                     ) : (
                                                         <div className="h-10 w-10 bg-gray-200 dark:bg-zinc-700 rounded-full animate-pulse" />
                                                     )}
@@ -518,7 +485,10 @@ export default function CartPage() {
                                                 <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
                                                     <div>
                                                         <div className="flex justify-between items-start mb-1">
-                                                            <h3 className="font-bold text-gray-900 dark:text-white text-base truncate pr-6 tracking-tight">{item.name}</h3>
+                                                            <div className="min-w-0">
+                                                                <h3 className="truncate pr-6 font-bold">{item.name}</h3>
+                                                                {multiStore && <p className="text-xs text-muted-foreground">{storeByMerchant.get(item.merchantId) ?? "Store"}</p>}
+                                                            </div>
                                                             <button
                                                                 onClick={() => removeFromCart(item.id)}
                                                                 className="absolute top-4 right-4 h-8 w-8 rounded-full bg-gray-50/80 dark:bg-zinc-800/80 border border-gray-100/50 dark:border-zinc-700/50 flex items-center justify-center text-gray-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 dark:hover:bg-red-900/10 transition-all shadow-sm active:scale-90 backdrop-blur-sm"
@@ -572,80 +542,36 @@ export default function CartPage() {
                                 </h3>
 
                                 <div className="space-y-6">
-                                    {!userLocation ? (
-                                        <div className="text-center py-10 bg-gray-50 dark:bg-zinc-800/50 rounded-2xl border-2 border-dashed border-gray-200 dark:border-zinc-700">
-                                            <div className="mb-6 text-gray-500 text-lg font-medium">
-                                                {deliverySettings
-                                                    ? "Set your delivery location on your profile before checkout."
-                                                    : "Loading delivery settings..."}
-                                            </div>
-                                            <Button asChild className="w-full bg-[#F58220] hover:bg-[#F58220]/90 text-white px-6 py-4 md:px-8 md:py-6 rounded-2xl h-auto text-base md:text-lg font-bold shadow-xl shadow-orange-500/20">
-                                                <Link href="/account/profile">
-                                                    <MapPin className="mr-2 h-5 w-5" />
-                                                    Set My Location
-                                                </Link>
-                                            </Button>
-                                            <div className="mt-6 text-sm text-gray-400 max-w-sm mx-auto">
-                                                Orders will be delivered to the location saved on your profile for maximum security.
-                                            </div>
+                                    <DeliveryDestinationPicker />
+                                    {selectedAddress && <p className="text-sm font-medium">{selectedAddress.address}</p>}
+                                    {destination?.kind === "gps" && (
+                                        <div className="space-y-3">
+                                            <p>Deliver to your current location?</p>
+                                            {confirmingGps ? (
+                                                <DeliveryAddressForm
+                                                    key={`${destination.location.lat},${destination.location.lng}`}
+                                                    initial={{ label: "Current location", ...destination.location }}
+                                                    onSaved={(address) => {
+                                                        selectDestination({ kind: "address", id: address.id })
+                                                        setConfirmingGps(false)
+                                                    }}
+                                                />
+                                            ) : <Button type="button" onClick={() => setConfirmingGps(true)}>Confirm delivery address</Button>}
                                         </div>
-                                    ) : (
+                                    )}
+                                    {deliveryFeeError && (
+                                        <div className="space-y-2">
+                                            <p role="alert" className="text-sm text-red-600">{deliveryFeeError}</p>
+                                            <Button type="button" variant="outline" size="sm" onClick={() => setQuoteRevision((revision) => revision + 1)}>Recalculate delivery</Button>
+                                        </div>
+                                    )}
+                                    {selectedAddress && (
                                         <>
-                                            <div className="flex flex-col sm:flex-row justify-between items-start gap-4 p-4 md:p-5 bg-gray-50 dark:bg-zinc-800/50 rounded-2xl border border-gray-100 dark:border-zinc-800">
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-2 text-[10px] md:text-sm uppercase tracking-wider mb-2">
-                                                        <CheckCircle2 className="h-3.5 w-3.5 md:h-4 md:w-4" />
-                                                        Verified Location
-                                                    </p>
-                                                    {savedProfileAddress && (
-                                                        <p className="text-base md:text-lg font-bold text-gray-900 dark:text-white leading-tight mb-2 truncate md:whitespace-normal">
-                                                            {savedProfileAddress}
-                                                        </p>
-                                                    )}
-                                                    <div className="flex flex-wrap items-center gap-3 md:gap-4 text-xs md:text-sm font-bold text-gray-500">
-                                                        <span className="flex items-center gap-1.5 whitespace-nowrap">
-                                                            <div className="w-1.5 h-1.5 bg-[#F58220] rounded-full" />
-                                                            Pickup distance: {distanceKm} km
-                                                        </span>
-                                                        <span className="flex items-center gap-1.5 whitespace-nowrap">
-                                                            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
-                                                            Rider Ready
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                <Button variant="outline" size="sm" asChild className="w-full sm:w-auto rounded-xl border-2 border-gray-200 dark:border-zinc-700 font-black hover:bg-white transition-all shadow-sm py-5 sm:py-2">
-                                                    <Link href="/account/profile">Change</Link>
-                                                </Button>
-                                            </div>
-
-                                            <div className="rounded-2xl border-2 border-amber-200/50 bg-amber-50/50 px-5 py-4 text-sm text-amber-900 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-100 backdrop-blur-sm">
-                                                <div className="flex gap-3">
-                                                    <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-                                                    <p className="font-medium">
-                                                        Delivery is strictly tied to this saved location. Ensure it&apos;s accurate because our riders are dispatched using these exact coordinates.
-                                                    </p>
-                                                </div>
-                                            </div>
-
-                                            {deliveryFeeError ? (
-                                                <div className="rounded-2xl border-2 border-red-200/70 bg-red-50/70 px-5 py-4 text-sm text-red-900 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-100">
-                                                    <div className="flex gap-3">
-                                                        <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
-                                                        <p className="font-medium">{deliveryFeeError}</p>
-                                                    </div>
-                                                </div>
-                                            ) : null}
-
-                                            {/* Map Container */}
-                                            <div className="h-72 w-full rounded-2xl overflow-hidden border-4 border-white dark:border-zinc-800 shadow-xl relative z-0">
-                                                <div id="leaflet-map" ref={mapRef} className="h-full w-full" />
-                                            </div>
-
                                             {/* Contact Numbers */}
                                             <div className="mt-8">
                                                 <h4 className="font-black text-sm mb-4 flex items-center gap-2 uppercase tracking-widest text-gray-400">
                                                     <Smartphone className="h-4 w-4 text-[#F58220]" />
-                                                    Contact Rider Via
+                                                    Phone for delivery
                                                 </h4>
                                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                     {contactNumbers.map((num, idx) => (
@@ -678,7 +604,7 @@ export default function CartPage() {
                                 <div className="space-y-5 mb-8">
                                     <div className="flex justify-between text-[#6B7280] dark:text-gray-400 font-medium text-lg">
                                         <span>Subtotal</span>
-                                        <span className="font-bold text-gray-900 dark:text-white">{formatKobo(cartTotal)}</span>
+                                        <span className="font-bold text-gray-900 dark:text-white">{formatKobo(subtotalKobo)}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-[#6B7280] dark:text-gray-400 font-medium pb-5 border-b border-gray-100 dark:border-zinc-800 text-lg">
                                         <span>Delivery Fee</span>
@@ -687,8 +613,8 @@ export default function CartPage() {
                                                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
                                                 CALCULATING
                                             </span>
-                                        ) : deliveryFeeError ? (
-                                            <span className="font-black text-red-600 dark:text-red-400">UNAVAILABLE</span>
+                                        ) : deliveryFeeError || !selectedAddress ? (
+                                            <span className="text-sm font-semibold">{deliveryFeeError ? "Unavailable" : "Select an address"}</span>
                                         ) : (
                                             <span className={`font-black ${deliveryFeeKobo > 0 ? "text-gray-900 dark:text-white" : "text-emerald-500"}`}>
                                                 {deliveryFeeKobo > 0 ? formatKobo(deliveryFeeKobo) : "FREE"}
@@ -703,11 +629,22 @@ export default function CartPage() {
 
                                 <Button
                                     onClick={handleProceedToCheckout}
-                                    disabled={!userLocation || !deliverySettings || isCalculatingFee || Boolean(deliveryFeeError)}
+                                    disabled={Boolean(user && (!selectedAddress || !activeQuote || deliveryFeeError))}
                                     className="w-full rounded-2xl bg-[#F58220] hover:bg-[#F58220]/90 text-white font-black py-6 md:py-8 text-lg md:text-xl shadow-2xl shadow-orange-500/30 mb-6 transition-all hover:scale-[1.03] active:scale-95 disabled:opacity-50 disabled:scale-100 h-auto"
                                 >
                                     PAY NOW
                                 </Button>
+                                {multiStore && activeQuote?.groups.length ? (
+                                    <div className="mb-4 space-y-2 text-sm">
+                                        <p className="font-semibold">Separate deliveries by store</p>
+                                        {activeQuote.groups.map((group, index) => (
+                                            <div key={group.merchant_id} className="flex justify-between gap-2">
+                                                <span>{group.store_name === "Store" ? `Store ${index + 1}` : group.store_name}</span>
+                                                <span>{formatKobo(group.fee)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : null}
                                 <p className="text-xs text-center text-gray-400 font-bold opacity-60">100% Secure Checkout · SSL Encrypted</p>
                             </div>
                         </div>
@@ -715,7 +652,7 @@ export default function CartPage() {
                 </div>
 
                 {/* Checkout Dialog - rendered outside the layout grid to avoid sticky/overflow issues */}
-                <Dialog open={isCheckoutOpen} onOpenChange={setIsCheckoutOpen}>
+                <Dialog open={isCheckoutOpen} onOpenChange={(open) => { if (!isProcessing) setIsCheckoutOpen(open) }}>
                     <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] max-w-[480px] flex-col overflow-hidden rounded-2xl border-none bg-white p-0 shadow-2xl dark:bg-zinc-950 sm:w-full sm:rounded-[2rem]">
                         {/* Compact Header */}
                         <div className="relative bg-[#F58220] px-4 py-3 text-white sm:px-6 sm:py-4 flex-shrink-0">
@@ -736,7 +673,7 @@ export default function CartPage() {
                         {/* Scrollable Content */}
                         <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-6 sm:py-4">
                             <div className="space-y-3 sm:space-y-4">
-                                {/* Rewards Section - Collapsible-style */}
+                                {multiStore ? <p className="text-xs text-muted-foreground">Reward points can be used on single-store orders.</p> : (
                                 <div className="group relative overflow-hidden rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 dark:border-emerald-900/30 dark:bg-emerald-950/20 sm:p-4">
                                     <div className="relative z-10 flex items-center justify-between gap-3">
                                         <div className="min-w-0">
@@ -774,6 +711,7 @@ export default function CartPage() {
                                     ) : null}
                                 </div>
 
+                                )}
                                 {/* Payment Methods Label */}
                                 <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 px-1">Choose payment</p>
 
@@ -817,7 +755,7 @@ export default function CartPage() {
                         {/* Sticky Footer */}
                         <div className="border-t border-gray-100 bg-gray-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/50 sm:px-6 sm:py-4 flex-shrink-0">
                             <Button
-                                disabled={!paymentMethod || isProcessing}
+                                disabled={!paymentMethod || isProcessing || !activeQuote || Boolean(deliveryFeeError)}
                                 onClick={
                                     paymentMethod === 'wallet'
                                         ? handleWalletPayment

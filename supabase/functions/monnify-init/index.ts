@@ -100,13 +100,27 @@ serve(async (request) => {
                 throw new Error("Order payment details are incomplete.")
             }
 
-            payload.amount = order.total_amount / 100
+            const { data: group, error: groupError } = await supabase
+                .from("delivery_checkout_groups")
+                .select("id, order_ids, payment_reference, total_kobo, payment_processed")
+                .contains("order_ids", [order.id])
+                .eq("customer_id", authData.user.id)
+                .eq("method", "direct")
+                .maybeSingle()
+            if (groupError) throw new Error("Could not load the order payment details.")
+            if (group && (group.order_ids[0] !== order.id || group.payment_processed ||
+                group.payment_reference !== order.payment_ref || group.total_kobo <= 0)) {
+                throw new Error("This checkout is not awaiting payment.")
+            }
+
+            payload.amount = (group?.total_kobo ?? order.total_amount) / 100
             payload.paymentReference = order.payment_ref
             payload.paymentDescription = `Order ${order.id} payment`
             payload.redirectPath = `/account/orders/${order.id}`
             payload.metadata = {
                 type: "order_payment",
                 order_id: order.id,
+                ...(group ? { checkout_group_id: group.id } : {}),
                 user_id: authData.user.id,
             }
         } else {
