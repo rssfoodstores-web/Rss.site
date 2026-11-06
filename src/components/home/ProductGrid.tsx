@@ -3,6 +3,8 @@
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { DeliveryDestinationPicker } from "@/components/account/DeliveryDestinationPicker"
+import { useDeliveryDestination } from "@/context/DeliveryDestinationContext"
 import { createPublicStorefrontClient } from "@/lib/supabase/client"
 import { ProductCard, type Product } from "@/components/home/ProductCard"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -35,6 +37,8 @@ interface ProductRow {
     name: string
     price: number
     stock_level: number | null
+    distance_km?: number | null
+    total_count?: number
 }
 
 interface ProductReviewQueryRow extends ProductReviewRow {
@@ -121,6 +125,10 @@ function getVisiblePaginationItems(currentPage: number, totalPages: number) {
 }
 
 export function ProductGrid({ forcedCategory = null, salesType, title }: ProductGridProps) {
+    const { selectedAddress, destination } = useDeliveryDestination()
+    const point = selectedAddress ?? (destination?.kind === "gps" ? destination.location : null)
+    const lat = point?.lat
+    const lng = point?.lng
     const pathname = usePathname()
     const router = useRouter()
     const searchParams = useSearchParams()
@@ -191,7 +199,24 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                 query = query.in("state", getNigerianStateFilterCandidates(locationFilter))
             }
 
-            const { data, error, count } = await query
+            const result = lat !== undefined && lng !== undefined && !searchParams.get("sort")
+                ? await (async () => {
+                    const args = {
+                        p_lat: lat, p_lng: lng, p_category: categoryFilter,
+                        p_sales_type: salesType ?? null, p_search: normalizedSearch || null,
+                        p_states: locationFilter === "all" ? null : getNigerianStateFilterCandidates(locationFilter),
+                    }
+                    const rpc = (offset: number) => supabase.rpc("nearby_catalog" as never, { ...args, p_offset: offset } as never)
+                    const { data, error } = await rpc((currentPage - 1) * PRODUCTS_PER_PAGE)
+                    const rows = (data ?? []) as ProductRow[]
+                    if (!error && rows.length === 0 && currentPage > 1) {
+                        const firstPage = await rpc(0)
+                        return { data: rows, error: firstPage.error, count: (firstPage.data as ProductRow[] | null)?.[0]?.total_count ?? 0 }
+                    }
+                    return { data: rows, error, count: rows[0]?.total_count ?? 0 }
+                })()
+                : await query
+            const { data, error, count } = result
 
             if (!isMountedRef.current || requestId !== requestIdRef.current) return
 
@@ -227,6 +252,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                     category: item.category,
                     stock: item.stock_level ?? 0,
                     merchantId: item.merchant_id,
+                    distanceKm: item.distance_km,
                     reviewSummary: null,
                 })))
                 setHasLoadedProducts(true)
@@ -278,7 +304,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                 setLoading(false)
             }
         }
-    }, [categoryFilter, currentPage, locationFilter, pathname, router, salesType, searchParams, searchQuery, sortOption, supabase])
+    }, [categoryFilter, currentPage, lat, lng, locationFilter, pathname, router, salesType, searchParams, searchQuery, sortOption, supabase])
 
     useEffect(() => {
         isMountedRef.current = true
@@ -401,6 +427,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
 
     return (
         <section className="scroll-mt-24 py-8 md:py-12" id="product-grid" aria-busy={loading}>
+            <DeliveryDestinationPicker shopping nearby={!searchParams.get("sort")} />
             <div className="container mx-auto px-4 md:px-8">
                 <div className="mb-6 overflow-hidden rounded-3xl border border-gray-200/80 bg-white shadow-sm shadow-gray-900/[0.03] dark:border-zinc-800 dark:bg-zinc-900">
                     <div className="flex flex-col gap-5 p-5 md:p-7 lg:flex-row lg:items-end lg:justify-between">

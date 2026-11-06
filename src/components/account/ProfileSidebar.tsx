@@ -68,6 +68,7 @@ interface NavSection {
 const accountItems: NavItem[] = [
     { label: "My Account", href: "/account", icon: User },
     { label: "Edit Profile", href: "/account/profile", icon: User },
+    { label: "Delivery Addresses", href: "/account/address", icon: MapPin },
     { label: "Order History", href: "/account/orders", icon: RefreshCcw },
     { label: "My Referrals", href: "/account/referrals", icon: Users },
     { label: "My Cook-Off", href: "/account/cook-off", icon: Trophy },

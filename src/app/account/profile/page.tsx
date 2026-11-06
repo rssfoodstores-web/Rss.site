@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client"
 import { Database } from "@/types/database.types"
 import { updateProfileDetailed } from "@/app/account/actions"
 import { Loader2, MapPin } from "lucide-react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { createEmptyProfileRow } from "@/lib/profile"
@@ -23,6 +24,11 @@ export default function EditProfilePage() {
         typeof currentUser?.user_metadata?.full_name === "string"
             ? currentUser.user_metadata.full_name
             : ""
+
+    const roles = currentUser?.app_metadata?.roles
+    const hasOperationalRole = Array.isArray(roles) && roles.some((role) =>
+        ["merchant", "agent", "rider", "admin", "sub_admin", "supa_admin"].includes(role),
+    )
 
     // Helper to get initial data
     const [profile, setProfile] = useState<Database["public"]["Tables"]["profiles"]["Row"] | null>(null)
@@ -233,6 +239,7 @@ export default function EditProfilePage() {
 
                     <main className="min-w-0 flex-1 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-8">
                         <form action={handleSubmit} className="space-y-6">
+                            {hasOperationalRole && <>
                             <input type="hidden" name="latitude" id="lat" />
                             <input type="hidden" name="longitude" id="lng" />
 
@@ -261,6 +268,8 @@ export default function EditProfilePage() {
                                 </Button>
                             </div>
 
+                            </>}
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">First name</label>
@@ -288,6 +297,8 @@ export default function EditProfilePage() {
                                 </div>
                             </div>
 
+                            {hasOperationalRole ? (
+                                <>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">State</label>
@@ -319,6 +330,13 @@ export default function EditProfilePage() {
                                 <label className="text-sm font-medium">House Number</label>
                                 <Input id="house_number" name="house_number" defaultValue={profile.house_number || ""} />
                             </div>
+
+                                </>
+                            ) : (
+                                <Button type="button" asChild variant="outline">
+                                    <Link href="/account/address">Manage delivery addresses</Link>
+                                </Button>
+                            )}
 
                             <div className="pt-4 flex gap-4">
                                 <Button type="submit" className="bg-[#F58220] hover:bg-[#F58220]/90 text-white flex-1" disabled={loading}>
