@@ -5,6 +5,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { useTheme } from "next-themes"
 import { Search, ShoppingCart, Heart, User, Phone, Menu, Sun, Moon, LogOut, Bell } from "lucide-react"
+import { DeliveryDestinationPicker } from "@/components/account/DeliveryDestinationPicker"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -327,6 +328,18 @@ export function Header() {
                     </div>
                 </div>
             </div>
+            {isStorefrontPage && (
+                <div className="border-t border-border/70">
+                    <div className="container mx-auto flex items-center gap-4 px-4 py-2 md:px-8">
+                        <DeliveryDestinationPicker firstVisit onDestinationChange={() => {
+                            if (searchParams.has("state") || searchParams.has("page")) {
+                                router.replace(createStorefrontHref({ pathname, searchParams, patch: { state: null, page: null } }), { scroll: false })
+                            }
+                        }} />
+                        <p className="hidden text-sm text-muted-foreground sm:block">See nearby stores and estimated delivery for this address.</p>
+                    </div>
+                </div>
+            )}
         </header>
     )
 }

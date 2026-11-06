@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { ShoppingCart, Heart, MessageSquareQuote } from "lucide-react"
+import { ShoppingCart, Heart, MessageSquareQuote, Truck } from "lucide-react"
 import { motion, useReducedMotion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -18,6 +18,7 @@ import { ReviewStars } from "@/components/ui/ReviewStars"
 import { useCart } from "@/context/CartContext"
 import { useWishlist } from "@/context/WishlistContext"
 import { cn } from "@/lib/utils"
+import type { DeliverySettings } from "@/app/actions/settingsActions"
 import { formatKobo } from "@/lib/money"
 import type { ProductReviewSummary } from "@/lib/productReviews"
 import { formatProductReviewDate } from "@/lib/productReviews"
@@ -35,16 +36,24 @@ export interface Product {
     stock?: number
     merchantId?: string
     distanceKm?: number | null
+    storeName?: string
     reviewSummary?: ProductReviewSummary | null
 }
 
-export function ProductCard({ product }: { product: Product }) {
+export function ProductCard({ product, deliverySettings }: {
+    product: Product
+    deliverySettings?: Pick<DeliverySettings, "baseFareKobo" | "distanceRateKoboPerKm"> | null
+}) {
     const reduceMotion = useReducedMotion() ?? false
     const { addToCart } = useCart()
     const { toggleWishlist, isInWishlist } = useWishlist()
     const isWishlisted = isInWishlist(product.id)
     const [reviewsOpen, setReviewsOpen] = useState(false)
 
+    const distance = product.distanceKm
+    const estimatedFee = distance != null && deliverySettings
+        ? deliverySettings.baseFareKobo + Math.round(distance * deliverySettings.distanceRateKoboPerKm)
+        : null
     const reviewSummary = product.reviewSummary ?? null
     const productImageSrc = buildOptimizedImageUrl(product.imageUrl, { width: 960 })
     const bypassNextImageOptimizer = shouldBypassNextImageOptimizer(product.imageUrl)
@@ -117,7 +126,7 @@ export function ProductCard({ product }: { product: Product }) {
                         <h3 className="line-clamp-2 min-h-10 text-sm font-semibold leading-snug text-gray-900 transition-colors group-hover:text-[#F58220] dark:text-white md:min-h-[2.5rem] md:text-base lg:text-lg">
                             {product.name}
                         </h3>
-                        {product.distanceKm != null && <p className="text-xs text-muted-foreground">{product.distanceKm.toFixed(1)} km from your delivery location</p>}
+                        {product.storeName && <p className="truncate text-xs text-muted-foreground">{product.storeName}</p>}
 
                     </div>
                 </Link>
@@ -158,20 +167,28 @@ export function ProductCard({ product }: { product: Product }) {
                         )}
                     </button>
 
-                    <div className="flex items-center justify-between gap-2 pt-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                             <span className="text-sm font-extrabold tracking-tight text-[#F58220] sm:text-base md:text-xl">
                                 {formatKobo(product.price)}
                             </span>
                             <Button
                                 size="sm"
                                 aria-label={`Add ${product.name} to cart`}
-                                className="h-10 w-10 shrink-0 rounded-full bg-[#F58220] p-0 text-white shadow-md transition-all hover:bg-[#E57210] hover:shadow-lg active:scale-95 md:h-10 md:w-auto md:px-4"
+                                className="h-10 shrink-0 rounded-full bg-[#F58220] px-2.5 text-white shadow-md transition-colors hover:bg-[#E57210] motion-safe:transition-transform motion-safe:active:scale-[0.97] md:px-4"
                                 onClick={handleAddToCart}
                             >
-                                <ShoppingCart className="h-4 w-4 md:mr-2 shrink-0" />
-                                <span className="hidden md:inline font-semibold">Add</span>
+                                <ShoppingCart className="hidden h-4 w-4 shrink-0 sm:inline md:mr-1" />
+                                <span className="font-semibold">Add</span>
                             </Button>
                     </div>
+                    {estimatedFee !== null && distance != null && (
+                        <p className="flex items-start gap-1.5 border-t border-border/60 pt-2 text-xs leading-5 text-muted-foreground">
+                            <Truck className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                            <span><span className="font-medium text-foreground">Est. delivery {formatKobo(estimatedFee)}</span>
+                                <span className="whitespace-nowrap"> · {distance < 0.1 ? "Under 100 m" : `${distance.toFixed(1)} km`}</span>
+                            </span>
+                        </p>
+                    )}
                 </div>
 
                 <DialogContent className="max-w-2xl rounded-3xl border-orange-100 p-0">

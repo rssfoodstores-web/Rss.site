@@ -3,7 +3,9 @@
 import Link from "next/link"
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { DeliveryDestinationPicker } from "@/components/account/DeliveryDestinationPicker"
+import { getDeliverySettings, type DeliverySettings } from "@/app/actions/settingsActions"
+import { deliveryState } from "@/lib/deliveryAddresses"
+import { parseCoordinates, type Coordinates } from "@/lib/directions"
 import { useDeliveryDestination } from "@/context/DeliveryDestinationContext"
 import { createPublicStorefrontClient } from "@/lib/supabase/client"
 import { ProductCard, type Product } from "@/components/home/ProductCard"
@@ -47,12 +49,22 @@ interface ProductReviewQueryRow extends ProductReviewRow {
     } | null
 }
 
+function distanceFromStore(destination: Coordinates, origin?: Coordinates | null) {
+    if (!origin) return null
+    const radians = Math.PI / 180
+    const halfLat = (destination.lat - origin.lat) * radians / 2
+    const halfLng = (destination.lng - origin.lng) * radians / 2
+    const a = Math.sin(halfLat) ** 2 +
+        Math.cos(origin.lat * radians) * Math.cos(destination.lat * radians) * Math.sin(halfLng) ** 2
+    return 12742 * Math.asin(Math.sqrt(Math.min(a, 1)))
+}
+
 const PRODUCTS_PER_PAGE = 20
-const PRODUCT_SORT_OPTIONS = ["newest", "price_asc", "price_desc"] as const
+const PRODUCT_SORT_OPTIONS = ["nearest", "newest", "price_asc", "price_desc"] as const
 type ProductSortOption = (typeof PRODUCT_SORT_OPTIONS)[number]
 
-function getProductSortOption(value: string | null): ProductSortOption {
-    return PRODUCT_SORT_OPTIONS.find((option) => option === value) ?? "newest"
+function getProductSortOption(value: string | null, fallback: ProductSortOption): ProductSortOption {
+    return PRODUCT_SORT_OPTIONS.find((option) => option === value) ?? fallback
 }
 
 function isAbortLikeError(error: unknown) {
@@ -136,8 +148,21 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
     const activeCategory = forcedCategory ?? getActiveStorefrontCategory(pathname, searchParams)
     const categoryFilter = activeCategory
     const searchQuery = searchParams.get("q")?.trim() ?? ""
-    const locationFilter = searchParams.get("state")?.trim() ?? "all"
-    const sortOption = getProductSortOption(searchParams.get("sort"))
+    const defaultState = (selectedAddress ? deliveryState(selectedAddress.address) : destination?.kind === "gps" ? destination.state : null) || "all"
+    const locationFilter = searchParams.get("state")?.trim() || defaultState
+    const defaultSort = point ? "nearest" : "newest"
+    const requestedSort = getProductSortOption(searchParams.get("sort"), defaultSort)
+    const sortOption = requestedSort === "nearest" && !point ? "newest" : requestedSort
+    const [deliverySettings, setDeliverySettings] = useState<DeliverySettings | null>(null)
+
+    useEffect(() => {
+        if (lat === undefined || lng === undefined) return
+        let active = true
+        getDeliverySettings().then((settings) => {
+            if (active) setDeliverySettings(settings)
+        }).catch(() => undefined)
+        return () => { active = false }
+    }, [lat, lng])
     const currentPage = getPageFromSearchParams(searchParams)
     const hasCanonicalCategoryRoute = Boolean(forcedCategory ?? routeCategory)
 
@@ -199,7 +224,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                 query = query.in("state", getNigerianStateFilterCandidates(locationFilter))
             }
 
-            const result = lat !== undefined && lng !== undefined && !searchParams.get("sort")
+            const result = lat !== undefined && lng !== undefined && sortOption === "nearest"
                 ? await (async () => {
                     const args = {
                         p_lat: lat, p_lng: lng, p_category: categoryFilter,
@@ -244,6 +269,14 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                 const productRows = data as unknown as ProductRow[]
                 const productIds = productRows.map((item) => item.id)
 
+                const merchantIds = [...new Set(productRows.map((row) => row.merchant_id))]
+                const { data: merchants } = merchantIds.length
+                    ? await supabase.from("merchants" as never).select("id,location,store_name").in("id", merchantIds)
+                    : { data: [] }
+                if (!isMountedRef.current || requestId !== requestIdRef.current) return
+                const stores = new Map(((merchants ?? []) as { id: string; location: unknown; store_name: string | null }[])
+                    .map((entry) => [entry.id, entry] as const))
+
                 setProducts(productRows.map((item) => ({
                     id: item.id,
                     name: item.name,
@@ -252,7 +285,10 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                     category: item.category,
                     stock: item.stock_level ?? 0,
                     merchantId: item.merchant_id,
-                    distanceKm: item.distance_km,
+                    storeName: stores.get(item.merchant_id)?.store_name ?? undefined,
+                    distanceKm: item.distance_km ?? (lat !== undefined && lng !== undefined
+                        ? distanceFromStore({ lat, lng }, parseCoordinates(stores.get(item.merchant_id)?.location))
+                        : null),
                     reviewSummary: null,
                 })))
                 setHasLoadedProducts(true)
@@ -315,7 +351,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
         }
     }, [fetchProducts, retryCount])
 
-    const hasAnyFilter = Boolean(searchQuery || locationFilter !== "all" || sortOption !== "newest" || (!hasCanonicalCategoryRoute && categoryFilter))
+    const hasAnyFilter = Boolean(searchQuery || searchParams.has("state") || sortOption !== defaultSort || (!hasCanonicalCategoryRoute && categoryFilter))
     const categoryTitle = getStorefrontCategoryLabel(categoryFilter)
     const categoryDescription = getStorefrontCategoryDescription(categoryFilter)
     const searchTitle = searchQuery ? `Search results for "${searchQuery}"` : null
@@ -374,7 +410,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
             pathname,
             searchParams,
             patch: {
-                sort: nextValue === "newest" ? null : nextValue,
+                sort: nextValue === defaultSort ? null : nextValue,
                 page: null,
             },
         }), { scroll: false })
@@ -401,16 +437,16 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                 label: categoryTitle,
             }
             : null,
-        locationFilter !== "all"
+        searchParams.has("state") && locationFilter !== defaultState
             ? {
                 key: "state",
-                label: locationFilter,
+                label: locationFilter === "all" ? "All locations" : locationFilter,
             }
             : null,
-        sortOption !== "newest"
+        sortOption !== defaultSort
             ? {
                 key: "sort",
-                label: sortOption === "price_asc" ? "Price: low to high" : "Price: high to low",
+                label: { nearest: "Nearest first", newest: "Newest first", price_asc: "Price: low to high", price_desc: "Price: high to low" }[sortOption],
             }
             : null,
     ].filter(Boolean) as Array<{ key: "q" | "category" | "state" | "sort"; label: string }>
@@ -427,7 +463,6 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
 
     return (
         <section className="scroll-mt-24 py-8 md:py-12" id="product-grid" aria-busy={loading}>
-            <DeliveryDestinationPicker shopping nearby={!searchParams.get("sort")} />
             <div className="container mx-auto px-4 md:px-8">
                 <div className="mb-6 overflow-hidden rounded-3xl border border-gray-200/80 bg-white shadow-sm shadow-gray-900/[0.03] dark:border-zinc-800 dark:bg-zinc-900">
                     <div className="flex flex-col gap-5 p-5 md:p-7 lg:flex-row lg:items-end lg:justify-between">
@@ -445,7 +480,7 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                                 {displayTitle}
                             </h2>
                             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-gray-500 dark:text-gray-400">
-                                {displaySubtitle}
+                                {sortOption === "nearest" && point ? "Showing stores closest to your delivery address." : displaySubtitle}
                             </p>
                         </div>
 
@@ -471,10 +506,11 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                                 <select
                                     aria-label="Sort products"
                                     value={sortOption}
-                                    onChange={(event) => handleSortChange(getProductSortOption(event.target.value))}
+                                    onChange={(event) => handleSortChange(getProductSortOption(event.target.value, defaultSort))}
                                     className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none"
                                 >
-                                    <option value="newest">Sort: newest</option>
+                                    {point && <option value="nearest">Nearest first</option>}
+                                    <option value="newest">Newest first</option>
                                     <option value="price_asc">Price: low to high</option>
                                     <option value="price_desc">Price: high to low</option>
                                 </select>
@@ -601,12 +637,12 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                     <>
                         <div className={cn("grid grid-cols-2 gap-3 transition-opacity duration-200 md:hidden", loading && "opacity-60")}>
                             {products.map((product) => (
-                                <ProductCard key={product.id} product={product} />
+                                <ProductCard key={product.id} product={product} deliverySettings={point ? deliverySettings : null} />
                             ))}
                         </div>
                         <div className={cn("hidden text-left transition-opacity duration-200 md:grid md:grid-cols-3 md:gap-4 lg:grid-cols-4 md:gap-6", loading && "opacity-60")}>
                             {products.map((product) => (
-                                <ProductCard key={product.id} product={product} />
+                                <ProductCard key={product.id} product={product} deliverySettings={point ? deliverySettings : null} />
                             ))}
                         </div>
                         {totalPages > 1 ? (

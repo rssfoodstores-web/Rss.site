@@ -179,7 +179,7 @@ export function createStorefrontHref({
 
         const value = rawValue?.trim()
 
-        if (!value || value === "all") {
+        if (!value || (value === "all" && key !== "state")) {
             params.delete(key)
             continue
         }
