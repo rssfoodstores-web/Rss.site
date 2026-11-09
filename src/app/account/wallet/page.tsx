@@ -5,7 +5,6 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDownToLine, ArrowUpFromLine, CheckCircle2, CreditCard, Info, Loader2, ShieldCheck, Wallet, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { WalletCheckoutProgress } from "@/components/account/WalletCheckoutProgress"
 import { cn } from "@/lib/utils"
 import { formatKobo } from "@/lib/money"
@@ -700,8 +699,8 @@ export default function WalletPage() {
                     <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 sm:text-base">Add money, withdraw to your bank, and track every transaction.</p>
                 </header>
 
-                <div className="grid min-w-0 gap-4 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-7">
-                    <aside className="min-w-0"><ProfileSidebar /></aside>
+                <div className="min-w-0">
+
                     <main className="min-w-0 space-y-4 sm:space-y-6">
                         {loading ? (
                             <div role="status" aria-label="Loading your wallet" className="space-y-4 sm:space-y-6">

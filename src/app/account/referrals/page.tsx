@@ -1,5 +1,4 @@
 import { format } from "date-fns"
-import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { ReferralCard } from "@/components/account/ReferralCard"
 import { getReferralData } from "./actions"
 
@@ -40,10 +39,8 @@ export default async function ReferralPage() {
                     </p>
                 </div>
 
-                <div className="flex flex-col gap-5 sm:gap-6 lg:flex-row lg:gap-8">
-                    <aside className="w-full flex-shrink-0 lg:sticky lg:top-4 lg:z-10 lg:w-80">
-                        <ProfileSidebar />
-                    </aside>
+                <div className="min-w-0">
+
 
                     <main className="min-w-0 flex-1 space-y-6">
                         <ReferralCard

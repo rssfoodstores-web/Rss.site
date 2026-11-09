@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js"
-import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { Bell, Check, Trash2, Clock, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { markAsRead, markAllAsRead, deleteNotification } from "./actions"
@@ -172,10 +171,8 @@ export function NotificationsClient({
                     ) : null}
                 </div>
 
-                <div className="flex flex-col gap-5 sm:gap-6 lg:flex-row lg:gap-8">
-                    <aside className="w-full flex-shrink-0 lg:sticky lg:top-4 lg:z-10 lg:w-80">
-                        <ProfileSidebar />
-                    </aside>
+                <div className="min-w-0">
+
                     <main className="min-w-0 flex-1">
                         <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
                             <div className="flex gap-3 overflow-x-auto border-b border-gray-100 px-4 py-4 [scrollbar-width:none] dark:border-zinc-800 sm:flex-wrap sm:px-6 [&::-webkit-scrollbar]:hidden">

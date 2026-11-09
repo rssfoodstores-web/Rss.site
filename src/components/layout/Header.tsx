@@ -41,7 +41,7 @@ export function Header() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
     const supabase = createClient()
 
-    const { isMerchant, isRider } = roles
+    const { isMerchant, isAgent, isRider } = roles
     const isStorefrontPage = isStorefrontPath(pathname)
     const isHomePage = pathname === "/"
     const isAccountPage = pathname?.startsWith("/account") ?? false
@@ -129,7 +129,7 @@ export function Header() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="bg-white dark:bg-zinc-950 border shadow-lg z-50">
                                 <DropdownMenuItem asChild>
-                                    <Link href="/account/profile">Profile</Link>
+                                    <Link href="/account">My Account</Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem asChild>
                                     <Link href="/account/orders">My Orders</Link>
@@ -139,6 +139,7 @@ export function Header() {
                                         <Link href="/merchant" className="font-bold text-[#F58220]">Merchant Dashboard</Link>
                                     </DropdownMenuItem>
                                 )}
+                                {isAgent && <DropdownMenuItem asChild><Link href="/agent">Agent workspace</Link></DropdownMenuItem>}
                                 {isRider && (
                                     <DropdownMenuItem asChild>
                                         <Link href="/rider" className="font-bold text-[#F58220]">Rider Dashboard</Link>
@@ -197,11 +198,25 @@ export function Header() {
                     {/* Icons & Contact */}
                     <div className="flex items-center gap-1 md:gap-6">
                         <div className="flex items-center gap-0.5 sm:gap-1">
-                            <Link href="/account">
-                                <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl hover:bg-orange-50 dark:hover:bg-zinc-800 sm:h-11 sm:w-11">
-                                    <User className="h-5 w-5" />
+                            {user ? (
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="h-11 w-11 rounded-xl" aria-label="Account menu"><User className="size-5" /></Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuItem asChild><Link href="/account">My Account</Link></DropdownMenuItem>
+                                        {isMerchant && <DropdownMenuItem asChild><Link href="/merchant">Merchant workspace</Link></DropdownMenuItem>}
+                                        {isAgent && <DropdownMenuItem asChild><Link href="/agent">Agent workspace</Link></DropdownMenuItem>}
+                                        {isRider && <DropdownMenuItem asChild><Link href="/rider">Rider workspace</Link></DropdownMenuItem>}
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem onClick={handleSignOut} disabled={isSigningOut}><LogOut className="mr-2 size-4" />{isSigningOut ? "Signing out…" : "Sign out"}</DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            ) : (
+                                <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
+                                    <Link href="/account" aria-label="Account"><User className="size-5" /></Link>
                                 </Button>
-                            </Link>
+                            )}
                             <Link href="/cart">
                                 <Button variant="ghost" size="icon" className="relative h-10 w-10 rounded-xl hover:bg-orange-50 dark:hover:bg-zinc-800 sm:h-11 sm:w-11">
                                     <ShoppingCart className="h-5 w-5" />

@@ -1,5 +1,4 @@
 import Link from "next/link"
-import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { ChevronLeft, ChevronRight, Package, AlertCircle } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
@@ -56,10 +55,8 @@ export default async function OrderHistoryPage() {
                     <p className="text-sm text-gray-500 dark:text-gray-400 sm:text-base">View and manage your past orders.</p>
                 </div>
 
-                <div className="flex flex-col gap-5 sm:gap-6 lg:flex-row lg:gap-8">
-                    <aside className="w-full lg:w-80 flex-shrink-0">
-                        <ProfileSidebar />
-                    </aside>
+                <div className="min-w-0">
+
                     <main className="min-w-0 flex-1">
                         <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-gray-100 dark:border-zinc-800 overflow-hidden shadow-sm">
                             {error ? (
