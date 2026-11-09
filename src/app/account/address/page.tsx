@@ -3,7 +3,6 @@
 import { useState } from "react"
 import { deleteDeliveryAddress } from "@/app/actions/deliveryAddresses"
 import { DeliveryAddressForm } from "@/components/account/DeliveryAddressForm"
-import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { Button } from "@/components/ui/button"
 import { useDeliveryDestination } from "@/context/DeliveryDestinationContext"
 import type { DeliveryAddress } from "@/lib/deliveryAddresses"
@@ -30,8 +29,8 @@ export default function AddressPage() {
     }
 
     return (
-        <div className="container mx-auto flex flex-col gap-6 px-4 py-8 lg:flex-row">
-            <aside className="shrink-0 lg:w-80"><ProfileSidebar /></aside>
+        <div className="container mx-auto px-4 py-6 sm:px-6">
+
             <main className="w-full max-w-2xl space-y-4">
                 <h1 className="text-2xl font-bold">Delivery Addresses</h1>
                 <p className="text-sm text-muted-foreground">Manage the places you shop for and receive orders.</p>

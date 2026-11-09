@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Bell, ChevronRight } from "lucide-react"
+import { Bell, ChevronRight, LogOut, MapPin, MessageCircle, Package, UserRound, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { performLogout } from "@/lib/auth/performLogout"
 import { createClient } from "@/lib/supabase/client"
 import { useUser } from "@/context/UserContext"
 import { useDeliveryDestination } from "@/context/DeliveryDestinationContext"
@@ -76,12 +77,14 @@ export function AccountUpdatesBell() {
     )
 }
 
+const attentionTypes = new Set(["order_message", "order_issue", "wallet_issue", "payment_failed", "payment_issue"])
+
 const destinations = [
-    { name: "Orders", href: "/account/orders", detail: "Active deliveries and past orders" },
-    { name: "Messages", href: "/account/messages", detail: "Order conversations" },
-    { name: "Delivery addresses", href: "/account/address", detail: "Manage your saved destinations" },
-    { name: "Wallet", href: "/account/wallet", detail: "Balance and transactions" },
-    { name: "Personal details", href: "/account/profile", detail: "Name, email and phone" },
+    { name: "Orders", href: "/account/orders", detail: "Track and view past orders", icon: Package },
+    { name: "Messages", href: "/account/messages", detail: "Order conversations", icon: MessageCircle },
+    { name: "Delivery addresses", href: "/account/address", detail: "Choose where to deliver", icon: MapPin },
+    { name: "Wallet", href: "/account/wallet", detail: "Balance and gift cards", icon: Wallet },
+    { name: "Personal details", href: "/account/profile", detail: "Contact details and sign-in", icon: UserRound },
 ]
 
 function getDestination(row: AppNotification) {
@@ -106,8 +109,22 @@ export function CustomerAccount({ name, updates, order }: {
 }) {
     const { selectedAddress } = useDeliveryDestination()
     const openUpdate = useOpenUpdate()
-    const featured = updates.find((entry) => updateHref(entry) && getDestination(entry))
-    const remaining = updates.filter((entry) => entry.id !== featured?.id)
+    const [signingOut, setSigningOut] = useState(false)
+    const [signOutError, setSignOutError] = useState(false)
+    const actionable = updates.filter((entry) => attentionTypes.has(entry.type ?? "") && getDestination(entry))
+    const featured = actionable[0]
+    const remaining = actionable.slice(1)
+    const unreadMessages = updates.filter((entry) => entry.type === "order_message").length
+
+    async function signOut() {
+        if (signingOut) return
+        setSigningOut(true)
+        setSignOutError(false)
+        if (!await performLogout(createClient())) {
+            setSignOutError(true)
+            setSigningOut(false)
+        }
+    }
     const delivery = order?.status === "out_for_delivery"
     const pending = order?.status === "pending"
     const active = featured ? getDestination(featured) : order ? destinations[0] : undefined
@@ -115,20 +132,25 @@ export function CustomerAccount({ name, updates, order }: {
 
     return (
         <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:py-12">
+            <p className="mb-1 text-xs font-bold uppercase tracking-widest text-emerald-800 dark:text-emerald-300">Your RSS Foods account</p>
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">My Account</h1>
             <p className="mt-1 text-sm text-muted-foreground">Welcome back, {name}.</p>
-            <div className="mt-6 grid items-start gap-5 md:grid-cols-[1.15fr_1fr]">
-                <section className="space-y-3 rounded-2xl border bg-card p-5">
-                    <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-orange-800 dark:text-orange-300">
+            <div className="mt-6 space-y-6">
+                <section className="space-y-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-5 dark:border-emerald-900 dark:bg-emerald-950/30 sm:p-6">
+                    <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+                    <div className="min-w-0 space-y-2">
+                    <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
                         {Icon && <Icon className="size-4" aria-hidden="true" />}
                         {featured ? `${active?.name} · New update` : order ? "Active order" : "Ready to shop"}
                     </p>
                     <h2 className="text-xl font-semibold tracking-tight">{featured?.title ?? (delivery ? "Your order is on the way" : pending ? "Payment pending" : order ? "Your order is in progress" : "What are you shopping for today?")}</h2>
                     {featured && <p className="text-sm text-muted-foreground">{featured.message}</p>}
+                    </div>
                     <div className="flex flex-wrap items-center gap-2">
                         {featured ? <Button onClick={() => void openUpdate(featured)}>{getAction(featured)}</Button>
                             : <Button asChild><Link href={order ? `/account/orders/${order.id}` : "/"}>{delivery ? "Track delivery" : pending ? "View payment status" : order ? "View order" : "Continue shopping"}</Link></Button>}
                         {active && <Button variant="ghost" asChild><Link href={active.href}>{active.name === "Orders" || active.name === "Messages" ? `All ${active.name.toLowerCase()}` : active.name}</Link></Button>}
+                    </div>
                     </div>
                     {remaining.length > 0 && (
                         <details className="border-t pt-3">
@@ -137,14 +159,30 @@ export function CustomerAccount({ name, updates, order }: {
                         </details>
                     )}
                 </section>
-                <nav aria-label="Account destinations" className="divide-y rounded-2xl border bg-card px-4">
-                    {destinations.filter((item) => item.href !== active?.href).map((item) => (
-                        <Link key={item.href} href={item.href} className="flex min-h-14 items-center justify-between gap-3 py-3">
-                            <span><strong className="block text-sm">{item.name}</strong><span className="text-xs text-muted-foreground">{item.name === "Delivery addresses" && selectedAddress ? selectedAddress.label : item.detail}</span></span>
-                            <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                        </Link>
-                    ))}
-                </nav>
+                <section aria-labelledby="quick-access">
+                    <h2 id="quick-access" className="mb-3 text-base font-semibold">Quick access</h2>
+                    <nav aria-label="Account destinations" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {destinations.filter((item) => item.href !== active?.href).map((item) => {
+                            const Icon = item.icon
+                            const detail = item.name === "Delivery addresses" && selectedAddress ? selectedAddress.label
+                                : item.name === "Messages" && unreadMessages ? `${unreadMessages} unread ${unreadMessages === 1 ? "message" : "messages"}`
+                                : item.detail
+                            return (
+                                <Link key={item.href} href={item.href} className="flex min-h-16 items-center gap-3 rounded-xl border bg-card p-3 hover:bg-muted/50">
+                                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"><Icon className="size-4" aria-hidden="true" /></span>
+                                    <span className="min-w-0 flex-1"><strong className="block text-sm">{item.name}</strong><span className="block truncate text-xs text-muted-foreground">{detail}</span></span>
+                                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                                </Link>
+                            )
+                        })}
+                    </nav>
+                </section>
+                <div className="border-t pt-3">
+                    <Button variant="ghost" onClick={() => void signOut()} disabled={signingOut}>
+                        <LogOut className="size-4" aria-hidden="true" /> {signingOut ? "Signing out…" : "Sign out"}
+                    </Button>
+                    {signOutError && <p role="alert" className="text-sm text-destructive">Couldn’t sign out. Please try again.</p>}
+                </div>
             </div>
         </main>
     )

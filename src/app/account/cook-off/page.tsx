@@ -1,4 +1,3 @@
-import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { CookOffProfileClient } from "./CookOffProfileClient"
 import { getCookOffProfileData } from "./actions"
 
@@ -17,10 +16,8 @@ export default async function AccountCookOffPage() {
                     </p>
                 </div>
 
-                <div className="flex flex-col gap-5 sm:gap-6 lg:flex-row lg:gap-8">
-                    <aside className="w-full flex-shrink-0 lg:w-80">
-                        <ProfileSidebar />
-                    </aside>
+                <div className="min-w-0">
+
 
                     <main className="min-w-0 flex-1">
                         <CookOffProfileClient initialData={data} />

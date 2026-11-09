@@ -6,7 +6,6 @@ import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import Link from "next/link"
-import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { CustomerDeliveryCodeWidget } from "@/components/account/CustomerDeliveryCodeWidget"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -177,10 +176,8 @@ export function OrderDetailClient({ order, user }: OrderDetailClientProps) {
                     <p className="text-sm text-gray-500 dark:text-gray-400 sm:text-base">Manage and track order #{order.id.slice(0, 8)}</p>
                 </div>
 
-                <div className="flex flex-col gap-5 sm:gap-6 lg:flex-row lg:gap-8">
-                    <aside className="w-full flex-shrink-0 lg:w-80">
-                        <ProfileSidebar />
-                    </aside>
+                <div className="min-w-0">
+
                     <main className="min-w-0 flex-1 space-y-6">
 
                         <CustomerDeliveryCodeWidget

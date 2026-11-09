@@ -1,6 +1,5 @@
 import Link from "next/link"
 import { AlertCircle, Clock3, Coins, Gift, TimerReset } from "lucide-react"
-import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { Button } from "@/components/ui/button"
 import { formatKobo } from "@/lib/money"
 import { getRewardDashboardData } from "./actions"
@@ -58,10 +57,8 @@ export default async function RewardsPage() {
                     </p>
                 </div>
 
-                <div className="flex flex-col gap-5 sm:gap-6 lg:flex-row lg:gap-8">
-                    <aside className="w-full flex-shrink-0 lg:w-80">
-                        <ProfileSidebar />
-                    </aside>
+                <div className="min-w-0">
+
 
                     <main className="min-w-0 flex-1 space-y-6">
                         <div className="grid gap-4 md:grid-cols-3">

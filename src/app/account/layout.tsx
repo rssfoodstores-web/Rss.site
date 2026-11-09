@@ -1,3 +1,4 @@
+import { CustomerAccountBack } from "@/components/account/CustomerAccountBack"
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
@@ -36,6 +37,7 @@ export default async function AccountLayout({
                     },
                 ]}
             />
+            <CustomerAccountBack />
             <div className="w-full min-w-0 max-w-full overflow-x-clip">{children}</div>
         </>
     )

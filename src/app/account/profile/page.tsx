@@ -6,30 +6,23 @@ import { Input } from "@/components/ui/input"
 import { createClient } from "@/lib/supabase/client"
 import { Database } from "@/types/database.types"
 import { updateProfileDetailed } from "@/app/account/actions"
-import { Loader2, MapPin } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import Link from "next/link"
+import { ChangePasswordForm } from "../password/PasswordSettingsClient"
 import { canUpdateAccountPassword } from "@/lib/authProviders"
 import { useRouter } from "next/navigation"
-import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { createEmptyProfileRow } from "@/lib/profile"
 import { useUser } from "@/context/UserContext"
 
 export default function EditProfilePage() {
     const [loading, setLoading] = useState(false)
-    const [locating, setLocating] = useState(false)
     const [initializing, setInitializing] = useState(true)
-    const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
     const router = useRouter()
     const { profile: cachedProfile, user: currentUser } = useUser()
     const currentUserDisplayName =
         typeof currentUser?.user_metadata?.full_name === "string"
             ? currentUser.user_metadata.full_name
             : ""
-
-    const roles = currentUser?.app_metadata?.roles
-    const hasOperationalRole = Array.isArray(roles) && roles.some((role) =>
-        ["merchant", "agent", "rider", "admin", "sub_admin", "supa_admin"].includes(role),
-    )
 
     // Helper to get initial data
     const [profile, setProfile] = useState<Database["public"]["Tables"]["profiles"]["Row"] | null>(null)
@@ -119,79 +112,6 @@ export default function EditProfilePage() {
         return () => { mounted = false }
     }, [currentUser, currentUserDisplayName, router])
 
-    const getGPSPosition = (): Promise<GeolocationPosition> => {
-        return new Promise((resolve, reject) => {
-            if (!navigator.geolocation) {
-                alert("Geolocation is not supported by your browser")
-                reject("Not supported")
-            }
-            navigator.geolocation.getCurrentPosition(resolve, reject)
-        })
-    }
-
-    const handleGetGeolocation = async () => {
-        setLocating(true)
-        try {
-            const position = await getGPSPosition()
-            const { latitude, longitude } = position.coords
-            setCoords({ lat: latitude, lng: longitude })
-
-            // Set hidden inputs
-            const latInput = document.getElementById("lat") as HTMLInputElement
-            const lngInput = document.getElementById("lng") as HTMLInputElement
-            if (latInput) latInput.value = latitude.toString()
-            if (lngInput) lngInput.value = longitude.toString()
-        } catch (err) {
-            console.error(err)
-            alert("Unable to retrieve location.")
-        }
-        setLocating(false)
-    }
-
-    const handleUseAddress = async () => {
-        setLocating(true)
-        try {
-            let lat = coords?.lat
-            let lng = coords?.lng
-
-            if (!lat || !lng) {
-                const position = await getGPSPosition()
-                lat = position.coords.latitude
-                lng = position.coords.longitude
-                setCoords({ lat, lng })
-
-                const latInput = document.getElementById("lat") as HTMLInputElement
-                const lngInput = document.getElementById("lng") as HTMLInputElement
-                if (latInput) latInput.value = lat.toString()
-                if (lngInput) lngInput.value = lng.toString()
-            }
-
-            // Reverse Geocoding
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
-            const data = await res.json()
-
-            if (data && data.address) {
-                const addr = data.address
-
-                const inputs = {
-                    zip_code: addr.postcode,
-                    state: addr.state || addr.region || addr.county,
-                    street_address: addr.road || addr.suburb || addr.neighbourhood,
-                    house_number: addr.house_number || ""
-                }
-
-                Object.entries(inputs).forEach(([id, value]) => {
-                    const el = document.getElementById(id) as HTMLInputElement
-                    if (el) el.value = value || ""
-                })
-            }
-        } catch (e) {
-            console.error("Geocoding error:", e)
-            alert("Could not fetch address details automatically.")
-        }
-        setLocating(false)
-    }
-
     async function handleSubmit(formData: FormData) {
         setLoading(true)
         try {
@@ -233,44 +153,11 @@ export default function EditProfilePage() {
                     <p className="text-sm text-gray-500 dark:text-gray-400 sm:text-base">Update your personal information.</p>
                 </div>
 
-                <div className="flex flex-col gap-5 sm:gap-6 lg:flex-row lg:gap-8">
-                    <aside className="w-full lg:w-80 flex-shrink-0">
-                        <ProfileSidebar />
-                    </aside>
+                <div className="min-w-0">
 
-                    <main className="min-w-0 flex-1 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-8">
+
+                    <main className="max-w-2xl min-w-0 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-8">
                         <form action={handleSubmit} className="space-y-6">
-                            {hasOperationalRole && <>
-                            <input type="hidden" name="latitude" id="lat" />
-                            <input type="hidden" name="longitude" id="lng" />
-
-                            {/* Geolocation Section */}
-                            <div className="p-4 bg-[#F58220]/5 rounded-xl border border-[#F58220]/10 flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                                <div>
-                                    <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                                        <MapPin className="h-4 w-4 text-[#F58220]" />
-                                        Smart Location
-                                    </h3>
-                                    <p className="text-xs text-gray-500">
-                                        {coords
-                                            ? `Captured: ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`
-                                            : "Link your precise GPS coordinates for better delivery."
-                                        }
-                                    </p>
-                                </div>
-                                <Button
-                                    type="button"
-                                    onClick={handleGetGeolocation}
-                                    className="bg-[#F58220] hover:bg-[#F58220]/90 text-white text-xs h-9"
-                                    disabled={locating}
-                                >
-                                    {locating ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : <MapPin className="h-3 w-3 mr-2" />}
-                                    Get Geolocation
-                                </Button>
-                            </div>
-
-                            </>}
-
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">First name</label>
@@ -298,48 +185,6 @@ export default function EditProfilePage() {
                                 </div>
                             </div>
 
-                            {hasOperationalRole ? (
-                                <>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium">State</label>
-                                    <Input id="state" name="state" defaultValue={profile.state || ""} />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium">Zip Code</label>
-                                    <Input id="zip_code" name="zip_code" defaultValue={profile.zip_code || ""} />
-                                </div>
-                            </div>
-
-                            <div className="space-y-2">
-                                <div className="flex justify-between items-center">
-                                    <label className="text-sm font-medium">Street Address</label>
-                                    <button
-                                        type="button"
-                                        onClick={handleUseAddress}
-                                        className="text-[#F58220] text-xs font-bold uppercase flex items-center gap-1 hover:underline"
-                                        disabled={locating}
-                                    >
-                                        {locating ? <Loader2 className="h-3 w-3 animate-spin" /> : <MapPin className="h-3 w-3" />}
-                                        Use Current Address
-                                    </button>
-                                </div>
-                                <Input id="street_address" name="street_address" defaultValue={profile.street_address || ""} />
-                            </div>
-
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">House Number</label>
-                                <Input id="house_number" name="house_number" defaultValue={profile.house_number || ""} />
-                            </div>
-
-                                </>
-                            ) : (
-                                <div className="flex flex-wrap gap-2">
-                                    <Button type="button" asChild variant="outline"><Link href="/account/address">Manage delivery addresses</Link></Button>
-                                    {canUpdateAccountPassword(currentUser) && <Button type="button" asChild variant="outline"><Link href="/account/password">Password settings</Link></Button>}
-                                </div>
-                            )}
-
                             <div className="pt-4 flex gap-4">
                                 <Button type="submit" className="bg-[#F58220] hover:bg-[#F58220]/90 text-white flex-1" disabled={loading}>
                                     {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -355,6 +200,16 @@ export default function EditProfilePage() {
                                 </Button>
                             </div>
                         </form>
+                        <div className="mt-5 border-t pt-4">
+                            <Link href="/account/address" className="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Manage delivery addresses</Link>
+                        </div>
+                        {currentUser && canUpdateAccountPassword(currentUser) && (
+                            <details className="mt-4 rounded-xl border px-4 py-2">
+                                <summary className="flex min-h-11 cursor-pointer items-center font-semibold">Change password</summary>
+                                <p className="mb-4 text-sm text-muted-foreground">Update the password you use to sign in to RSS Foods.</p>
+                                <ChangePasswordForm />
+                            </details>
+                        )}
                     </main>
                 </div>
             </div>

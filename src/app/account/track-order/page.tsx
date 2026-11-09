@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { Package, Search, Truck, CheckCircle2, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -58,10 +57,8 @@ export default function TrackOrderPage() {
                     <p className="text-sm text-gray-500 dark:text-gray-400 sm:text-base">Enter your order ID to see real-time delivery status.</p>
                 </div>
 
-                <div className="flex flex-col gap-5 sm:gap-6 lg:flex-row lg:gap-8">
-                    <aside className="w-full flex-shrink-0 lg:sticky lg:top-4 lg:z-10 lg:w-80">
-                        <ProfileSidebar />
-                    </aside>
+                <div className="min-w-0">
+
                     <main className="min-w-0 flex-1 space-y-6">
                         {/* Search Card */}
                         <div className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-8">

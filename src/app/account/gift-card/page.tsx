@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
-import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { GiftCardClient } from "./GiftCardClient"
 
 export default async function GiftCardPage() {
@@ -23,10 +22,8 @@ export default async function GiftCardPage() {
                     </p>
                 </div>
 
-                <div className="flex flex-col gap-5 sm:gap-6 lg:flex-row lg:gap-8">
-                    <aside className="w-full flex-shrink-0 lg:w-80">
-                        <ProfileSidebar />
-                    </aside>
+                <div className="min-w-0">
+
 
                     <main className="min-w-0 flex-1">
                         <GiftCardClient />

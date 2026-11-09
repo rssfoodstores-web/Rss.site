@@ -216,9 +216,10 @@ export default function LoginPage() {
                                 <p className="text-sm text-gray-500">
                                     Don&apos;t have account?{" "}
                                     <Link href="/register" className="font-bold text-[#1A1A1A] hover:text-[#F58220] transition-colors dark:text-white dark:hover:text-[#F58220]">
-                                        Register
+                                        Create an account
                                     </Link>
                                 </p>
+                                <Link href="/" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold hover:underline">Continue shopping</Link>
                             </div>
                         </form>
                     </div>
