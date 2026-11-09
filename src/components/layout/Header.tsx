@@ -4,7 +4,8 @@ import { FormEvent, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { useTheme } from "next-themes"
-import { Search, ShoppingCart, Heart, User, Phone, Menu, Sun, Moon, LogOut, Bell } from "lucide-react"
+import { Search, ShoppingCart, Heart, User, Phone, Menu, Sun, Moon, LogOut } from "lucide-react"
+import { AccountUpdatesBell } from "@/components/account/AccountUpdates"
 import { DeliveryDestinationPicker } from "@/components/account/DeliveryDestinationPicker"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -32,7 +33,7 @@ export function Header() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const { setTheme, theme } = useTheme()
-    const { user, roles, unreadCount } = useUser()
+    const { user, roles } = useUser()
     const { itemCount } = useCart()
     const { items: wishlistItems } = useWishlist()
     const contactContent = usePublicContactPageContent()
@@ -211,16 +212,7 @@ export function Header() {
                                     )}
                                 </Button>
                             </Link>
-                            <Link href="/account/notifications">
-                                <Button variant="ghost" size="icon" className="relative h-10 w-10 rounded-xl hover:bg-orange-50 dark:hover:bg-zinc-800 sm:h-11 sm:w-11">
-                                    <Bell className="h-5 w-5" />
-                                    {unreadCount > 0 && (
-                                        <span className="absolute top-0 right-0 h-4 w-4 bg-red-500 text-white text-[10px] flex items-center justify-center rounded-full">
-                                            {unreadCount > 9 ? '9+' : unreadCount}
-                                        </span>
-                                    )}
-                                </Button>
-                            </Link>
+                            <AccountUpdatesBell />
                             <Link href="/wishlist">
                                 <Button variant="ghost" size="icon" className="relative h-10 w-10 rounded-xl hover:bg-orange-50 dark:hover:bg-zinc-800 sm:h-11 sm:w-11">
                                     <Heart className="h-5 w-5" />

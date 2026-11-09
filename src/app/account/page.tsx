@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
+import { CustomerAccount } from "@/components/account/AccountUpdates"
 import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { DashboardStats } from "@/components/account/DashboardStats"
 import { AccountDetailsCards } from "@/components/account/AccountDetailsCards"
@@ -53,6 +54,20 @@ export default async function AccountPage() {
         .from("user_roles")
         .select("role")
         .eq("user_id", user.id)
+
+    const hasWorkspace = userRoles?.some(({ role }) => ["merchant", "agent", "rider", "admin", "sub_admin", "supa_admin"].includes(role))
+    if (!hasWorkspace) {
+        const [{ data: updates }, { data: orders }] = await Promise.all([
+            supabase.from("notifications").select("*").eq("user_id", user.id)
+                .or("read.is.null,read.eq.false").order("created_at", { ascending: false }).limit(12),
+            supabase.from("orders").select("id,status").eq("customer_id", user.id)
+                .in("status", ["pending", "awaiting_agent_acceptance", "awaiting_merchant_confirmation", "processing", "ready_for_pickup", "out_for_delivery", "rescheduled"])
+                .order("created_at", { ascending: false }).limit(20),
+        ])
+        const order = orders?.find((entry) => entry.status === "out_for_delivery") ??
+            orders?.find((entry) => entry.status === "pending") ?? orders?.[0] ?? null
+        return <CustomerAccount name={profile?.full_name?.trim().split(/\s+/)[0] || "there"} updates={updates ?? []} order={order} />
+    }
 
     // Fetch Order Stats
     const { count: totalOrders } = await supabase

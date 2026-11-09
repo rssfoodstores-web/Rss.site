@@ -67,7 +67,7 @@ interface NavSection {
 
 const accountItems: NavItem[] = [
     { label: "My Account", href: "/account", icon: User },
-    { label: "Edit Profile", href: "/account/profile", icon: User },
+    { label: "Personal details", href: "/account/profile", icon: User },
     { label: "Delivery Addresses", href: "/account/address", icon: MapPin },
     { label: "Order History", href: "/account/orders", icon: RefreshCcw },
     { label: "My Referrals", href: "/account/referrals", icon: Users },
@@ -200,9 +200,12 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
             (["merchant", "agent", "rider"] as const).filter((role) => workspaceStatuses[role] === "approved"),
         [workspaceStatuses]
     )
+    const shopperOnly = !["merchant", "agent", "rider", "admin", "sub_admin", "supa_admin"].some((role) => roleSet.has(role))
     const visibleAccountItems = useMemo(
-        () => accountItems.filter((item) => item.href !== "/account/password" || canUpdateAccountPassword(user)),
-        [user]
+        () => accountItems.filter((item) => shopperOnly
+            ? ["/account", "/account/profile", "/account/address", "/account/orders"].includes(item.href)
+            : item.href !== "/account/password" || canUpdateAccountPassword(user)),
+        [shopperOnly, user]
     )
 
     const withNotificationBadge = useCallback((item: NavItem): NavItem => {
@@ -239,13 +242,9 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                 matchHrefs: messageMatchHrefs.filter((href) => href !== messagesHref),
             },
             { label: "Wallet", href: "/account/wallet", icon: Wallet },
-            {
-                label: "Notifications",
-                href: "/account/notifications",
-                icon: Bell,
-            },
+            ...(!shopperOnly ? [{ label: "Notifications", href: "/account/notifications", icon: Bell }] : []),
         ]
-    }, [approvedRoles, pathname])
+    }, [approvedRoles, pathname, shopperOnly])
 
     const sections = useMemo<NavSection[]>(
         () => [
