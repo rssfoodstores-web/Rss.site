@@ -29,6 +29,7 @@ export default async function AccountLayout({
             <RouteRefreshBridge
                 channelName={`account-orders-${user.id}`}
                 subscriptions={[
+                    { table: "notifications", filter: `user_id=eq.${user.id}` },
                     {
                         table: "orders",
                         filter: `customer_id=eq.${user.id}`,

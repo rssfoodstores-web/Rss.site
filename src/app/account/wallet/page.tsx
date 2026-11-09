@@ -753,6 +753,7 @@ export default function WalletPage() {
                                         <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-white/60">Available balance</p>
                                         <h2 className="mt-1 break-words text-4xl font-bold tracking-tight sm:text-5xl">{formatKobo(activeWallet.balance)}</h2>
                                         <p className="mt-3 max-w-2xl text-sm text-white/75">{activeWallet.description}</p>
+                                        {activeWallet.canTopUp && <Link href="/account/gift-card" className="mt-2 inline-block text-sm font-semibold text-white underline underline-offset-4">Gift cards</Link>}
                                         <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap">
                                             {activeWallet.canTopUp ? <Button className="h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#e87512] sm:w-auto sm:min-w-44" onClick={() => { document.getElementById("add-money")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }) }}><ArrowDownToLine className="mr-2 h-5 w-5" />Add money</Button> : null}
                                             {activeWallet.canWithdraw ? (

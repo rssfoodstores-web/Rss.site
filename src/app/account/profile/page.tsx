@@ -8,6 +8,7 @@ import { Database } from "@/types/database.types"
 import { updateProfileDetailed } from "@/app/account/actions"
 import { Loader2, MapPin } from "lucide-react"
 import Link from "next/link"
+import { canUpdateAccountPassword } from "@/lib/authProviders"
 import { useRouter } from "next/navigation"
 import { ProfileSidebar } from "@/components/account/ProfileSidebar"
 import { createEmptyProfileRow } from "@/lib/profile"
@@ -228,7 +229,7 @@ export default function EditProfilePage() {
         <div className="min-h-screen bg-gray-50/50 py-6 dark:bg-black sm:py-8 lg:py-12">
             <div className="container mx-auto px-4 sm:px-6">
                 <div className="mb-6 sm:mb-8">
-                    <h1 className="mb-2 text-2xl font-bold text-gray-900 dark:text-white sm:text-3xl">Edit Profile</h1>
+                    <h1 className="mb-2 text-2xl font-bold text-gray-900 dark:text-white sm:text-3xl">Personal details</h1>
                     <p className="text-sm text-gray-500 dark:text-gray-400 sm:text-base">Update your personal information.</p>
                 </div>
 
@@ -333,9 +334,10 @@ export default function EditProfilePage() {
 
                                 </>
                             ) : (
-                                <Button type="button" asChild variant="outline">
-                                    <Link href="/account/address">Manage delivery addresses</Link>
-                                </Button>
+                                <div className="flex flex-wrap gap-2">
+                                    <Button type="button" asChild variant="outline"><Link href="/account/address">Manage delivery addresses</Link></Button>
+                                    {canUpdateAccountPassword(currentUser) && <Button type="button" asChild variant="outline"><Link href="/account/password">Password settings</Link></Button>}
+                                </div>
                             )}
 
                             <div className="pt-4 flex gap-4">
