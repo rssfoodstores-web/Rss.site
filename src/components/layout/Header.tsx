@@ -44,7 +44,7 @@ export function Header() {
     const { isMerchant, isAgent, isRider } = roles
     const isStorefrontPage = isStorefrontPath(pathname)
     const isHomePage = pathname === "/"
-    const isAccountPage = pathname?.startsWith("/account") ?? false
+    const isDashboardPage = /^\/(account|agent|rider|merchant)(\/|$)/.test(pathname ?? "")
     const currentQuery = searchParams.get("q") ?? ""
     const primaryPhoneMethod = getContactMethodByType(contactContent.methods, "phone")
 
@@ -171,7 +171,7 @@ export function Header() {
                     </Link>
 
                     {/* Search Bar - Figma Spec: Frame 8:391 */}
-                    {!isHomePage && !isAccountPage && (
+                    {!isHomePage && !isDashboardPage && (
                         <div className="hidden md:flex flex-1 items-center justify-center">
                             <form
                                 key={`desktop-${pathname}-${currentQuery}`}
@@ -276,7 +276,7 @@ export function Header() {
             </div>
 
             {/* Navigation Bar - Figma Spec: Frame 8:363 */}
-            <div className={`border-b border-black/5 bg-white dark:bg-zinc-950 dark:border-zinc-800 ${isAccountPage ? "hidden md:block" : ""}`}>
+            <div className={`border-b border-black/5 bg-white dark:bg-zinc-950 dark:border-zinc-800 ${isDashboardPage ? "hidden md:block" : ""}`}>
                 <div className="mx-auto w-full max-w-[1440px] px-3 sm:px-4 md:px-8">
                     <div className="flex h-[48px] items-center justify-end md:h-[58px]">
 

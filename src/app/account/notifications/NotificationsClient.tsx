@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js"
 import { Bell, Check, Trash2, Clock, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { markAsRead, markAllAsRead, deleteNotification } from "./actions"
+import { markAllAsRead, deleteNotification } from "./actions"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { formatDistanceToNow } from "date-fns"
@@ -28,7 +28,7 @@ export function NotificationsClient({
         initialNotifications
     )
     const [activeFilter, setActiveFilter] = useState<NotificationFilter>("all")
-    const { refreshUnreadCount } = useUser()
+    const { markNotificationsRead, refreshUnreadCount } = useUser()
     const [supabase] = useState(() => createClient())
     const router = useRouter()
 
@@ -81,7 +81,7 @@ export function NotificationsClient({
     }, [currentUserId, supabase])
 
     const handleMarkAsRead = async (id: string) => {
-        const { success } = await markAsRead(id)
+        const success = await markNotificationsRead([id])
         if (success) {
             setNotifications((current) => current.map((notification) => (
                 notification.id === id ? { ...notification, read: true } : notification
@@ -113,8 +113,8 @@ export function NotificationsClient({
 
     const handleOpen = async (notification: AppNotification) => {
         if (!isNotificationRead(notification)) {
-            await markAsRead(notification.id)
-            setNotifications((current) =>
+            const success = await markNotificationsRead([notification.id])
+            if (success) setNotifications((current) =>
                 current.map((entry) =>
                     entry.id === notification.id ? { ...entry, read: true } : entry
                 )

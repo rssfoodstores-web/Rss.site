@@ -6,10 +6,10 @@ import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js"
 import { toast } from "sonner"
 import { createClient } from "@/lib/supabase/client"
 import { useUser } from "@/context/UserContext"
-import { matchesNotificationPath, type AppNotification } from "@/lib/notifications"
+import { getSafeNotificationHref, matchesNotificationDestination, type AppNotification } from "@/lib/notifications"
 
 export function RealtimeNotificationBridge() {
-    const { user, refreshUnreadCount } = useUser()
+    const { user, markNotificationsRead } = useUser()
     const router = useRouter()
     const pathname = usePathname()
     const [supabase] = useState(() => createClient())
@@ -39,20 +39,10 @@ export function RealtimeNotificationBridge() {
 
                     seenIds.current.add(notification.id)
 
-                    const markNotificationAsRead = async () => {
-                        const { error } = await supabase
-                            .from("notifications")
-                            .update({ read: true })
-                            .eq("id", notification.id)
-                            .eq("user_id", user.id)
-                            .eq("read", false)
+                    const href = getSafeNotificationHref(notification.action_url)
+                    const markNotificationAsRead = () => markNotificationsRead([notification.id])
 
-                        if (!error) {
-                            await refreshUnreadCount(user.id)
-                        }
-                    }
-
-                    if (matchesNotificationPath(pathname, notification.action_url)) {
+                    if (matchesNotificationDestination(window.location.href, notification.action_url)) {
                         void markNotificationAsRead()
                         router.refresh()
                         return
@@ -61,13 +51,13 @@ export function RealtimeNotificationBridge() {
                     toast(notification.title, {
                         description: notification.message,
                         duration: 6000,
-                        action: notification.action_url
+                        action: href
                             ? {
-                                label: pathname === notification.action_url ? "Refresh" : "Open",
+                                label: pathname === href ? "Refresh" : "Open",
                                 onClick: () => {
-                                    if (notification.action_url) {
+                                    if (href) {
                                         void markNotificationAsRead()
-                                        router.push(notification.action_url)
+                                        router.push(href)
                                     }
                                 },
                             }
@@ -82,9 +72,9 @@ export function RealtimeNotificationBridge() {
 
                         nativeNotification.onclick = () => {
                             window.focus()
-                            if (notification.action_url) {
+                            if (href) {
                                 void markNotificationAsRead()
-                                router.push(notification.action_url)
+                                router.push(href)
                             }
                         }
                     }
@@ -95,7 +85,7 @@ export function RealtimeNotificationBridge() {
         return () => {
             supabase.removeChannel(channel)
         }
-    }, [pathname, refreshUnreadCount, router, supabase, user])
+    }, [markNotificationsRead, pathname, router, supabase, user])
 
     return null
 }

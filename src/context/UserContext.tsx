@@ -1,10 +1,10 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from "react"
-import { usePathname } from "next/navigation"
+import { createContext, useCallback, useContext, useEffect, useRef, useState, Suspense, ReactNode } from "react"
+import { usePathname, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { type Session, type User } from "@supabase/supabase-js"
-import { buildNotificationPathCounts, matchesNotificationPath, normalizeNotificationPath } from "@/lib/notifications"
+import { buildNotificationPathCounts, matchesNotificationDestination } from "@/lib/notifications"
 import { createEmptyProfileRow } from "@/lib/profile"
 
 interface UserProfile {
@@ -37,7 +37,7 @@ interface UserContextType {
     isLoading: boolean
     refreshProfile: () => Promise<void>
     refreshUnreadCount: (targetUserId?: string) => Promise<void>
-    setUnreadCountLocal: (count: number) => void
+    markNotificationsRead: (ids: string[]) => Promise<boolean>
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined)
@@ -50,8 +50,24 @@ function isAbortLike(error: unknown) {
     return error instanceof Error && (error.name === "AbortError" || error.message.includes("aborted"))
 }
 
-export function UserProvider({ children }: { children: ReactNode }) {
+type UnreadNotification = { id: string; action_url: string | null }
+
+function NotificationRouteObserver({ onVisit }: { onVisit: (url: string) => void }) {
     const pathname = usePathname()
+    const searchParams = useSearchParams()
+    const search = searchParams.toString()
+
+    useEffect(() => {
+        if (pathname) onVisit(window.location.href)
+        const handleHash = () => onVisit(window.location.href)
+        window.addEventListener("hashchange", handleHash)
+        return () => window.removeEventListener("hashchange", handleHash)
+    }, [onVisit, pathname, search])
+
+    return null
+}
+
+export function UserProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null)
     const [profile, setProfile] = useState<UserProfile | null>(null)
     const [roleNames, setRoleNames] = useState<string[]>([])
@@ -61,8 +77,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
         rider: null as string | null,
     })
     const [roles, setRoles] = useState({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
-    const [unreadCount, setUnreadCount] = useState(0)
-    const [notificationPathCounts, setNotificationPathCounts] = useState<Record<string, number>>({})
+    const [unreadNotifications, setUnreadNotifications] = useState<UnreadNotification[]>([])
+    const unreadRevision = useRef(0)
     const [isLoading, setIsLoading] = useState(true)
 
     const [supabase] = useState(() => createClient())
@@ -83,100 +99,73 @@ export function UserProvider({ children }: { children: ReactNode }) {
         }
     }, [])
 
-    const refreshUnreadCount = useCallback(async (targetUserId?: string) => {
-        const nextUserId = targetUserId ?? user?.id
-
-        if (!nextUserId) {
-            setUnreadCount(0)
-            setNotificationPathCounts({})
-            return
-        }
-
-        const { data, error } = await supabase
-            .from("notifications")
-            .select("action_url")
-            .eq("user_id", nextUserId)
-            .eq("read", false)
-
+    const fetchUnreadNotifications = useCallback(async (userId: string) => {
+        const { data, error } = await supabase.from("notifications")
+            .select("id,action_url").eq("user_id", userId).or("read.is.null,read.eq.false")
         if (error) {
-            console.error("Error refreshing unread count:", error)
+            console.error("Error refreshing unread notifications:", error)
+            return null
+        }
+        return (data ?? []) as UnreadNotification[]
+    }, [supabase])
+
+    const refreshUnreadCount = useCallback(async (targetUserId?: string) => {
+        const userId = targetUserId ?? user?.id
+        const revision = ++unreadRevision.current
+        if (!userId) {
+            setUnreadNotifications([])
             return
         }
 
-        const unreadNotifications = data ?? []
-        setUnreadCount(unreadNotifications.length)
-        setNotificationPathCounts(buildNotificationPathCounts(unreadNotifications))
+        const rows = await fetchUnreadNotifications(userId)
+        if (rows && revision === unreadRevision.current) setUnreadNotifications(rows)
+    }, [fetchUnreadNotifications, user?.id])
+
+    const markNotificationsRead = useCallback(async (ids: string[]) => {
+        if (!user?.id || ids.length === 0) return false
+
+        const { error } = await supabase.from("notifications").update({ read: true })
+            .eq("user_id", user.id).in("id", ids).or("read.is.null,read.eq.false")
+        if (error) {
+            console.error("Error marking notifications as read:", error)
+            return false
+        }
+
+        ++unreadRevision.current
+        const readIds = new Set(ids)
+        setUnreadNotifications((rows) => rows.filter((row) => !readIds.has(row.id)))
+        return true
     }, [supabase, user?.id])
 
-    const markCurrentPageNotificationsAsRead = useCallback(async (targetUserId: string, targetPathname: string) => {
-        if (targetPathname === "/account/notifications") {
-            return
+    const visitNotificationDestination = useCallback(async (url: string) => {
+        if (!user?.id) return
+        const revision = ++unreadRevision.current
+        const rows = await fetchUnreadNotifications(user.id)
+        if (!rows || revision !== unreadRevision.current) return
+
+        const pathname = new URL(url).pathname
+        const ids = pathname === "/account/notifications" ? [] : rows
+            .filter((row) => matchesNotificationDestination(url, row.action_url)).map((row) => row.id)
+        setUnreadNotifications(rows)
+        if (ids.length && window.location.href === url) {
+            if (!await markNotificationsRead(ids)) await refreshUnreadCount(user.id)
         }
-
-        const { data, error } = await supabase
-            .from("notifications")
-            .select("id,action_url")
-            .eq("user_id", targetUserId)
-            .eq("read", false)
-
-        if (error) {
-            console.error("Error checking page notifications:", error)
-            return
-        }
-
-        const unreadNotifications = (data ?? []) as Array<{ id: string; action_url: string | null }>
-        const matchingIds = unreadNotifications
-            .filter((notification) => matchesNotificationPath(targetPathname, notification.action_url))
-            .map((notification) => notification.id)
-
-        if (matchingIds.length === 0) {
-            return
-        }
-
-        const matchingIdSet = new Set(matchingIds)
-        setUnreadCount((current) => Math.max(0, current - matchingIds.length))
-        setNotificationPathCounts((current) => {
-            const nextCounts = { ...current }
-
-            for (const notification of unreadNotifications) {
-                if (!matchingIdSet.has(notification.id)) continue
-                const notificationPath = normalizeNotificationPath(notification.action_url)
-                if (!notificationPath) continue
-                const nextCount = (nextCounts[notificationPath] ?? 0) - 1
-                if (nextCount > 0) nextCounts[notificationPath] = nextCount
-                else delete nextCounts[notificationPath]
-            }
-
-            return nextCounts
-        })
-
-        const { error: updateError } = await supabase
-            .from("notifications")
-            .update({ read: true })
-            .eq("user_id", targetUserId)
-            .in("id", matchingIds)
-            .eq("read", false)
-
-        if (updateError) {
-            console.error("Error marking page notifications as read:", updateError)
-        }
-
-    }, [supabase])
+    }, [fetchUnreadNotifications, markNotificationsRead, refreshUnreadCount, user?.id])
 
     const resetUserState = useCallback(() => {
         setProfile(null)
         setRoleNames([])
         setWorkspaceStatuses({ merchant: null, agent: null, rider: null })
         setRoles({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
-        setUnreadCount(0)
-        setNotificationPathCounts({})
+        ++unreadRevision.current
+        setUnreadNotifications([])
         localStorage.removeItem("rssa_user_profile")
     }, [])
 
     const fetchUserData = useCallback(async (currentUser: User) => {
         try {
             // Parallelize fetching of dependent data
-            const [profileResult, rolesResult, notificationsResult, merchantResult, agentResult, riderResult] = await Promise.all([
+            const [profileResult, rolesResult, merchantResult, agentResult, riderResult] = await Promise.all([
                 // 1. Fetch Profile
                 supabase
                     .from('profiles')
@@ -189,13 +178,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
                     .from('user_roles')
                     .select('role')
                     .eq('user_id', currentUser.id),
-
-                // 3. Fetch Notifications Count
-                supabase
-                    .from('notifications')
-                    .select('action_url')
-                    .eq('user_id', currentUser.id)
-                    .eq('read', false),
 
                 supabase
                     .from('merchants')
@@ -261,11 +243,6 @@ export function UserProvider({ children }: { children: ReactNode }) {
                 agent: agentStatus,
                 rider: riderStatus,
             })
-
-            // Process Notifications
-            const unreadNotifications = notificationsResult.data ?? []
-            setUnreadCount(unreadNotifications.length)
-            setNotificationPathCounts(buildNotificationPathCounts(unreadNotifications))
 
         } catch (error: unknown) {
             if (isAbortLike(error)) {
@@ -354,7 +331,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
             unreadRefreshTimeoutRef.current = window.setTimeout(() => {
                 unreadRefreshTimeoutRef.current = null
-                void markCurrentPageNotificationsAsRead(user.id, pathname).then(() => refreshUnreadCount(user.id))
+                void visitNotificationDestination(window.location.href)
             }, 100)
         }
 
@@ -375,12 +352,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
             }
             supabase.removeChannel(channel)
         }
-    }, [markCurrentPageNotificationsAsRead, pathname, refreshUnreadCount, supabase, user?.id])
-
-    useEffect(() => {
-        if (!user?.id) return
-        void markCurrentPageNotificationsAsRead(user.id, pathname).then(() => refreshUnreadCount(user.id))
-    }, [markCurrentPageNotificationsAsRead, pathname, refreshUnreadCount, user?.id])
+    }, [supabase, user?.id, visitNotificationDestination])
 
     const refreshProfile = useCallback(async () => {
         if (user) {
@@ -389,7 +361,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }, [fetchUserData, user])
 
     return (
-        <UserContext.Provider value={{ user, profile, roleNames, workspaceStatuses, roles, unreadCount, notificationPathCounts, isLoading, refreshProfile, refreshUnreadCount, setUnreadCountLocal: setUnreadCount }}>
+        <UserContext.Provider value={{ user, profile, roleNames, workspaceStatuses, roles, unreadCount: unreadNotifications.length, notificationPathCounts: buildNotificationPathCounts(unreadNotifications), isLoading, refreshProfile, refreshUnreadCount, markNotificationsRead }}>
+            <Suspense fallback={null}><NotificationRouteObserver onVisit={visitNotificationDestination} /></Suspense>
             {children}
         </UserContext.Provider>
     )

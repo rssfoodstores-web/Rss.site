@@ -9,23 +9,16 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { performLogout } from "@/lib/auth/performLogout"
 import { createClient } from "@/lib/supabase/client"
 import { useUser } from "@/context/UserContext"
-import { markAsRead } from "@/app/account/notifications/actions"
-import { getNotificationPresentation, isNotificationRead, type AppNotification } from "@/lib/notifications"
-
-function updateHref(notification: AppNotification) {
-    const href = notification.action_url
-    return href?.startsWith("/") && !href.startsWith("//") && !href.includes("\\") ? href : null
-}
+import { getNotificationPresentation, getSafeNotificationHref, isNotificationRead, type AppNotification } from "@/lib/notifications"
 
 function useOpenUpdate() {
     const router = useRouter()
-    const { refreshUnreadCount, user } = useUser()
+    const { markNotificationsRead } = useUser()
     return async (notification: AppNotification) => {
         if (!isNotificationRead(notification)) {
-            const result = await markAsRead(notification.id)
-            if (result.success && user) void refreshUnreadCount(user.id)
+            await markNotificationsRead([notification.id])
         }
-        const href = updateHref(notification)
+        const href = getSafeNotificationHref(notification.action_url)
         if (href) router.push(href)
         router.refresh()
     }
@@ -87,7 +80,7 @@ const destinations = [
 ]
 
 function getDestination(row: AppNotification) {
-    const href = updateHref(row)
+    const href = getSafeNotificationHref(row.action_url)
     if (href && row.type === "order_message") return destinations[1]
     if (href && /^\/account\/gift-card(?:[/?#]|$)/.test(href)) return destinations[3]
     return destinations.find((entry) => href === entry.href || href?.startsWith(entry.href + "/") || href?.startsWith(entry.href + "?"))
