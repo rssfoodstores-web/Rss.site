@@ -368,6 +368,7 @@ export default function WalletPage() {
             if (pageShowEvent && !pageShowEvent.persisted) return
             if (topupInFlight.current) return
             const params = new URLSearchParams(window.location.search)
+            if (params.get("view") === "gift-cards" && params.has("ref")) return
             const pendingTopup = readPendingWalletTopup()
             if (!pendingTopup) return
 
