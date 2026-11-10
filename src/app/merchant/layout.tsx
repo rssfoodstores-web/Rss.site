@@ -30,7 +30,7 @@ export default async function MerchantLayout({
     const approvalStatus = await getOperationalApprovalStatus(supabase, "merchant", user.id)
 
     return (
-        <AccountWorkspaceShell>
+        <AccountWorkspaceShell role="merchant" approved={approvalStatus === "approved"} name={user.user_metadata?.full_name} avatarUrl={user.user_metadata?.avatar_url}>
             {approvalStatus !== "approved" ? (
                 <AccountInProcess roleLabel="merchant" status={approvalStatus} embedded />
             ) : (

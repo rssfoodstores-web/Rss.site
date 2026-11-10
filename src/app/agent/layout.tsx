@@ -30,7 +30,7 @@ export default async function AgentLayout({
     const approvalStatus = await getOperationalApprovalStatus(supabase, "agent", user.id)
 
     return (
-        <AccountWorkspaceShell>
+        <AccountWorkspaceShell role="agent" approved={approvalStatus === "approved"} name={user.user_metadata?.full_name} avatarUrl={user.user_metadata?.avatar_url}>
             {approvalStatus !== "approved" ? (
                 <AccountInProcess roleLabel="agent" status={approvalStatus} embedded />
             ) : (

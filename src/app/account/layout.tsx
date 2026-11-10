@@ -1,4 +1,4 @@
-import { CustomerAccountBack } from "@/components/account/CustomerAccountBack"
+import { AccountWorkspaceShell } from "@/components/account/AccountWorkspaceShell"
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
@@ -37,8 +37,7 @@ export default async function AccountLayout({
                     },
                 ]}
             />
-            <CustomerAccountBack />
-            <div className="w-full min-w-0 max-w-full overflow-x-clip">{children}</div>
+            <AccountWorkspaceShell role="customer" name={user.user_metadata?.full_name} avatarUrl={user.user_metadata?.avatar_url}>{children}</AccountWorkspaceShell>
         </>
     )
 }
