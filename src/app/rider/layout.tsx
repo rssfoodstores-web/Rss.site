@@ -28,7 +28,7 @@ export default async function RiderLayout({
     const approvalStatus = await getOperationalApprovalStatus(supabase, "rider", user.id)
 
     return (
-        <AccountWorkspaceShell>
+        <AccountWorkspaceShell role="rider" approved={approvalStatus === "approved"} name={user.user_metadata?.full_name} avatarUrl={user.user_metadata?.avatar_url}>
             {approvalStatus !== "approved" ? (
                 <AccountInProcess roleLabel="rider" status={approvalStatus} embedded />
             ) : (
