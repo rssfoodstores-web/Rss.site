@@ -18,16 +18,6 @@ export async function getNotifications() {
     return { notifications: (data || []) as AppNotification[], error }
 }
 
-export async function markAsRead(id: string) {
-    const supabase = createClient()
-    const { error } = await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('id', id)
-
-    return { success: !error, error }
-}
-
 export async function markAllAsRead() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -38,7 +28,7 @@ export async function markAllAsRead() {
         .from('notifications')
         .update({ read: true })
         .eq('user_id', user.id)
-        .eq('read', false)
+        .or("read.is.null,read.eq.false")
 
     return { success: !error, error }
 }

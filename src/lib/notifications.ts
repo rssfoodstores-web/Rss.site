@@ -191,6 +191,29 @@ export function matchesNotificationPath(pathname: string | null | undefined, hre
     return normalizedPath === normalizedHref || normalizedPath.startsWith(`${normalizedHref}/`)
 }
 
+export function getSafeNotificationHref(href: string | null | undefined) {
+    if (!href?.startsWith("/") || href.startsWith("//") || href.includes("\\") ||
+        [...href].some((character) => character.charCodeAt(0) <= 32)) return null
+    return href
+}
+
+// Badge grouping ignores query parameters, but opening an update must respect
+// the specific order or conversation selected in the destination URL.
+export function matchesNotificationDestination(currentUrl: string, actionUrl: string | null | undefined) {
+    const href = getSafeNotificationHref(actionUrl)
+    if (!href) return false
+
+    const origin = "https://rss.invalid"
+    const current = new URL(currentUrl, origin)
+    const target = new URL(href, origin)
+    if (target.origin !== origin || !matchesNotificationPath(current.pathname, target.pathname)) return false
+
+    for (const [name, value] of target.searchParams) {
+        if (!current.searchParams.getAll(name).includes(value)) return false
+    }
+    return !target.hash || current.hash === target.hash
+}
+
 export function buildNotificationPathCounts(notifications: Array<{ action_url: string | null }>) {
     return notifications.reduce<Record<string, number>>((counts, notification) => {
         const normalizedPath = normalizeNotificationPath(notification.action_url)
