@@ -3,10 +3,9 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowRight, Bell, ChevronRight, LogOut, Package, ShoppingBag, Truck, type LucideIcon } from "lucide-react"
+import { ArrowRight, Bell, ChevronRight, Package, ShoppingBag, Truck, type LucideIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { performLogout } from "@/lib/auth/performLogout"
 import { createClient } from "@/lib/supabase/client"
 import { useUser } from "@/context/UserContext"
 import { getNotificationPresentation, getSafeNotificationHref, isNotificationRead, type AppNotification } from "@/lib/notifications"
@@ -138,8 +137,6 @@ export function CustomerAccount({ name, updates, orders }: {
 }) {
     const openUpdate = useOpenUpdate()
     const { unreadNotificationIds } = useUser()
-    const [signingOut, setSigningOut] = useState(false)
-    const [signOutError, setSignOutError] = useState(false)
     const actionable = updates.filter((entry) => attentionTypes.has(entry.type ?? "") && getDestination(entry)
         && (unreadNotificationIds === null || unreadNotificationIds.has(entry.id)))
     const notificationActions: OverviewAction[] = actionable.map((row) => ({
@@ -161,16 +158,6 @@ export function CustomerAccount({ name, updates, orders }: {
         label: "Continue shopping", category: "Ready to shop", href: "/", icon: ShoppingBag,
     }
     const Icon = next.icon
-
-    async function signOut() {
-        if (signingOut) return
-        setSigningOut(true)
-        setSignOutError(false)
-        if (!await performLogout(createClient())) {
-            setSignOutError(true)
-            setSigningOut(false)
-        }
-    }
 
     return (
         <main className="mx-auto min-w-0 max-w-4xl px-1 py-2 sm:px-2 lg:py-4">
@@ -206,12 +193,6 @@ export function CustomerAccount({ name, updates, orders }: {
                     </div>
                 </section>
             )}
-            <div className="mt-6 border-t pt-3">
-                <Button variant="ghost" onClick={() => void signOut()} disabled={signingOut}>
-                    <LogOut className="size-4" aria-hidden="true" /> {signingOut ? "Signing out…" : "Sign out"}
-                </Button>
-                {signOutError && <p role="alert" className="text-sm text-destructive">Couldn’t sign out. Please try again.</p>}
-            </div>
         </main>
     )
 }

@@ -1,15 +1,17 @@
 "use client"
 
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDownToLine, ArrowUpFromLine, CheckCircle2, CreditCard, Info, Loader2, ShieldCheck, Wallet, XCircle } from "lucide-react"
+import { ArrowUpFromLine, CheckCircle2, CreditCard, Gift, Info, Loader2, ShieldCheck, Wallet, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { WalletCheckoutProgress } from "@/components/account/WalletCheckoutProgress"
 import { cn } from "@/lib/utils"
 import { formatKobo } from "@/lib/money"
 import { getBanks, getWalletData, initiateWithdrawal, verifyAccount, verifyWalletTopUp } from "./actions"
-import { getRewardWalletSnapshot, type RewardWalletSnapshot } from "@/app/account/rewards/actions"
+import { GiftCardClient } from "../gift-card/GiftCardClient"
+import { getGiftCardData } from "../gift-card/actions"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { calculateTopupQuote, calculateWithdrawalQuote, DEFAULT_WALLET_FEE_SETTINGS, type WalletFeeSettings } from "@/lib/walletFees"
 
@@ -211,16 +213,27 @@ function getWithdrawalStatusMessage(status: string): { type: "success" | "error"
     }
 }
 
+type MoneyAction = "add" | "send" | "received"
+type ActivityFilter = "all" | "wallet" | "gift"
+type GiftCardData = Awaited<ReturnType<typeof getGiftCardData>>
+
 export default function WalletPage() {
+    const searchParams = useSearchParams()
+    const giftView = searchParams.get("view") === "gift-cards"
+    const giftReference = giftView ? searchParams.get("ref") : null
+    const actionTrigger = useRef<HTMLElement | null>(null)
+    const [action, setAction] = useState<MoneyAction | null>(giftView ? "received" : null)
+    const [filter, setFilter] = useState<ActivityFilter>("all")
+    const [giftData, setGiftData] = useState<GiftCardData | null>(null)
+    const [giftLoading, setGiftLoading] = useState(true)
+    const [giftError, setGiftError] = useState(false)
     const [loading, setLoading] = useState(true)
     const [walletLoadError, setWalletLoadError] = useState("")
     const [wallets, setWallets] = useState<WalletSummary[]>([])
     const [selectedWalletId, setSelectedWalletId] = useState<string | null>(null)
-    const [rewardSnapshot, setRewardSnapshot] = useState<RewardWalletSnapshot | null>(null)
     const [banks, setBanks] = useState<BankOption[]>([])
     const [banksLoading, setBanksLoading] = useState(false)
     const [banksError, setBanksError] = useState("")
-    const [rewardLoading, setRewardLoading] = useState(true)
     const [amount, setAmount] = useState("")
     const [selectedBank, setSelectedBank] = useState("")
     const [accountNumber, setAccountNumber] = useState("")
@@ -302,19 +315,32 @@ export default function WalletPage() {
         walletMounted.current = true
 
         void loadData(true, () => !cancelled)
-        void getRewardWalletSnapshot().then((rewardData) => {
-            if (!cancelled) setRewardSnapshot(rewardData)
-        }).catch(() => {
-            if (!cancelled) setRewardSnapshot(null)
-        }).finally(() => {
-            if (!cancelled) setRewardLoading(false)
-        })
+        void loadGiftCards(() => !cancelled)
 
         return () => {
             cancelled = true
             walletMounted.current = false
         }
     }, [])
+
+    useEffect(() => {
+        if (giftView) setAction("received")
+    }, [giftView, giftReference])
+
+    async function loadGiftCards(isCurrent = () => walletMounted.current) {
+        setGiftLoading(true)
+        setGiftError(false)
+        try {
+            const result = await getGiftCardData()
+            if (!isCurrent()) return
+            if (result.success) setGiftData(result)
+            else setGiftError(true)
+        } catch {
+            if (isCurrent()) setGiftError(true)
+        } finally {
+            if (isCurrent()) setGiftLoading(false)
+        }
+    }
 
     async function loadBanks() {
         if (banks.length || banksLoading) return
@@ -690,137 +716,166 @@ export default function WalletPage() {
         }
     }
 
+    function openAction(next: MoneyAction, titleId: string) {
+        actionTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        setAction(next)
+        requestAnimationFrame(() => document.getElementById(titleId)?.focus())
+    }
+
+    function closeAction() {
+        setAction(null)
+        actionTrigger.current?.focus()
+    }
+
+    const walletActivity = (activeWallet?.entries ?? []).map((entry) => {
+        const pending = isPendingTopUp(entry)
+        return {
+            id: `wallet-${entry.id}`, source: "wallet", title: entry.description,
+            date: entry.created_at, reference: entry.reference,
+            amount: `${pending ? "" : entry.direction === "credit" ? "+" : "−"}${formatKobo(entry.amount)}`,
+            status: getActivityStatusLabel(entry),
+        }
+    })
+    const giftActivity = (giftData?.activity ?? []).map((entry) => ({
+        id: `gift-${entry.id}`, source: "gift", title: entry.description,
+        date: entry.createdAt, reference: entry.code ?? entry.reference,
+        amount: formatKobo(entry.amountKobo), status: entry.transactionType.replace(/_/g, " "),
+    }))
+    const activity = [...walletActivity, ...giftActivity]
+        .filter((entry) => filter === "all" || filter === entry.source)
+        .sort((a, b) => (Date.parse(b.date ?? "") || 0) - (Date.parse(a.date ?? "") || 0))
+    const showTopup = activeWallet?.canTopUp && (action === "add" || topupLoading || readyTopup !== null)
+
     return (
-        <div className="min-h-screen bg-[#f7f8fa] py-5 dark:bg-black sm:py-8">
-            <div className="mx-auto w-full max-w-[1440px] px-3 sm:px-6 lg:px-8">
-                <header className="mb-5 sm:mb-7">
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#F58220]">Your money, made simple</p>
-                    <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-950 dark:text-white sm:text-3xl">Wallet</h1>
-                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-400 sm:text-base">Add money, withdraw to your bank, and track every transaction.</p>
-                </header>
-
-                <div className="min-w-0">
-
-                    <main className="min-w-0 space-y-4 sm:space-y-6">
-                        {loading ? (
-                            <div role="status" aria-label="Loading your wallet" className="space-y-4 sm:space-y-6">
-                                <span className="sr-only">Preparing your wallet…</span>
-                                <section className="rounded-3xl bg-gradient-to-br from-zinc-900 to-[#49220a] p-5 text-white shadow-xl sm:p-8">
-                                    <div className="motion-safe:animate-pulse">
-                                        <div className="h-4 w-28 rounded bg-white/15" />
-                                        <div className="mt-4 h-11 w-52 max-w-full rounded-xl bg-white/15" />
-                                        <div className="mt-3 h-4 w-64 max-w-full rounded bg-white/10" />
-                                        <div className="mt-7 grid grid-cols-2 gap-3"><div className="h-12 rounded-xl bg-white/15" /><div className="h-12 rounded-xl bg-white/10" /></div>
-                                    </div>
-                                    <p className="mt-5 text-xs text-white/65">Loading your latest balance and activity…</p>
-                                </section>
-                                <section className="space-y-4 rounded-3xl border border-gray-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 sm:p-6">
-                                    <div className="h-5 w-40 rounded bg-gray-100 motion-safe:animate-pulse dark:bg-zinc-800" />
-                                    <div className="h-12 rounded-xl bg-gray-100 motion-safe:animate-pulse dark:bg-zinc-800" />
-                                    <div className="h-12 rounded-xl bg-gray-100 motion-safe:animate-pulse dark:bg-zinc-800" />
-                                </section>
-                                <section className="space-y-3 rounded-3xl border border-gray-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 sm:p-6">
-                                    <div className="h-5 w-36 rounded bg-gray-100 motion-safe:animate-pulse dark:bg-zinc-800" />
-                                    {[0, 1, 2].map((item) => <div key={item} className="flex items-center gap-3 border-t border-gray-100 pt-3 dark:border-zinc-800"><div className="h-10 w-10 rounded-full bg-gray-100 motion-safe:animate-pulse dark:bg-zinc-800" /><div className="flex-1 space-y-2"><div className="h-4 w-40 max-w-full rounded bg-gray-100 motion-safe:animate-pulse dark:bg-zinc-800" /><div className="h-3 w-24 rounded bg-gray-100 motion-safe:animate-pulse dark:bg-zinc-800" /></div></div>)}
-                                </section>
+        <main className="mx-auto min-w-0 max-w-4xl space-y-5 py-2 sm:py-4">
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Wallet &amp; gift cards</h1>
+            {activeWallet && wallets.length > 1 && (
+                <nav aria-label="Choose a wallet" className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:px-0">
+                    {wallets.map((wallet) => <button key={wallet.id} type="button" aria-pressed={wallet.id === activeWallet.id} onClick={() => handleWalletSelection(wallet.id)} className={cn("min-w-[170px] shrink-0 rounded-2xl border px-4 py-3 text-left", wallet.id === activeWallet.id ? "border-[#F58220] bg-orange-50 dark:bg-orange-950/20" : "border-gray-200 bg-white dark:border-zinc-800 dark:bg-zinc-900")}><span className="block text-sm font-bold text-gray-900 dark:text-white">{wallet.label}</span><span className="mt-1 block text-sm text-gray-600 dark:text-gray-400">{formatKobo(wallet.balance)}</span></button>)}
+                </nav>
+            )}
+            <div className="grid overflow-hidden rounded-2xl border bg-card md:grid-cols-2">
+                <section className="min-w-0 bg-orange-50 p-4 dark:bg-orange-950/30 sm:p-5" aria-labelledby="wallet-balance">
+                    <h2 id="wallet-balance" className="flex items-center gap-2 text-sm font-semibold"><Wallet className="size-4" aria-hidden="true" />{activeWallet?.type !== "customer" && activeWallet ? activeWallet.label : "Wallet balance"}</h2>
+                    {loading ? <p className="mt-2 text-sm" role="status">Loading wallet…</p> : activeWallet && !walletLoadError ? (
+                        <>
+                            <p className="mt-1 break-words text-3xl font-bold tracking-tight tabular-nums">{formatKobo(activeWallet.balance)}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">{activeWallet.canTopUp ? "Pay for orders or withdraw to your bank." : activeWallet.description}</p>
+                            <div className="mt-4 flex flex-wrap gap-2">
+                                {activeWallet.canTopUp && <Button className="min-h-11 rounded-xl" aria-expanded={Boolean(showTopup)} onClick={() => openAction("add", "add-money-title")}>Add money</Button>}
+                                {activeWallet.canWithdraw && (
+                                    <Dialog open={isWithdrawOpen} onOpenChange={(open) => { setIsWithdrawOpen(open); if (open) void loadBanks() }}>
+                                        <DialogTrigger asChild><Button variant="outline" className="min-h-11 rounded-xl" disabled={!activeWallet.withdrawAvailableNow}><ArrowUpFromLine className="mr-2 h-5 w-5" />{activeWallet.withdrawAvailableNow ? "Withdraw to bank" : "Withdrawals locked"}</Button></DialogTrigger>
+                                        <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-3xl border-gray-200 bg-white p-0 dark:border-zinc-800 dark:bg-zinc-900 sm:max-w-[480px]">
+                                            <DialogHeader className="border-b border-gray-100 p-5 pb-4 dark:border-zinc-800 sm:p-6"><DialogTitle className="text-xl font-bold">Withdraw to your bank</DialogTitle><DialogDescription>Choose your bank, verify your account, then enter how much to withdraw from {activeWallet.label.toLowerCase()}.</DialogDescription></DialogHeader>
+                                            <div className="space-y-5 p-5 sm:p-6">
+                                                <ol className="grid grid-cols-3 gap-2 text-center text-[11px] font-semibold text-gray-600 dark:text-gray-300 sm:text-xs">{["1 · Choose bank", "2 · Verify account", "3 · Enter amount"].map((step) => <li key={step} className="rounded-xl bg-gray-50 px-2 py-2 dark:bg-zinc-800">{step}</li>)}</ol>
+                                                <div className="space-y-2"><label htmlFor="wallet-bank" className="text-sm font-semibold text-gray-800 dark:text-gray-200">Your bank</label><select id="wallet-bank" className="h-12 w-full rounded-xl border border-gray-200 bg-white px-4 text-sm dark:border-zinc-700 dark:bg-zinc-800" value={selectedBank} onChange={(event) => handleBankChange(event.target.value)} disabled={banksLoading}><option value="">{banksLoading ? "Loading banks…" : "Select your bank"}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select>{!banksLoading && banks.length === 0 ? <div className="flex items-center justify-between gap-3 text-xs text-amber-700 dark:text-amber-300"><span>{banksError || "Bank list is temporarily unavailable."}</span><button type="button" className="shrink-0 font-bold underline" onClick={() => void loadBanks()}>Retry</button></div> : null}</div>
+                                                <div className="space-y-2"><label htmlFor="wallet-account-number" className="text-sm font-semibold text-gray-800 dark:text-gray-200">10-digit account number</label><div className="flex gap-2"><Input id="wallet-account-number" inputMode="numeric" autoComplete="off" maxLength={10} placeholder="e.g. 0123456789" className="h-12 min-w-0 rounded-xl bg-gray-50 dark:bg-zinc-800" value={accountNumber} onChange={(event) => handleAccountNumberChange(event.target.value)} /><Button type="button" variant="secondary" className="h-12 shrink-0 rounded-xl px-4 font-bold" onClick={handleVerifyAccount} disabled={verifying || !selectedBank || accountNumber.length !== 10}>{verifying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}</Button></div>{accountName ? <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><ShieldCheck className="h-5 w-5 shrink-0" /><span>Verified account: <strong>{accountName}</strong></span></div> : <p className="text-xs text-gray-500 dark:text-gray-400">We verify the name before any withdrawal can be submitted.</p>}</div>
+                                                <div className="space-y-2"><label htmlFor="wallet-withdraw-amount" className="text-sm font-semibold text-gray-800 dark:text-gray-200">Amount to withdraw</label><Input id="wallet-withdraw-amount" type="number" inputMode="decimal" min="1000" step="100" placeholder="Minimum ₦1,000" className="h-12 rounded-xl bg-gray-50 text-lg font-semibold dark:bg-zinc-800" value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} /><p className="text-xs text-gray-500 dark:text-gray-400">Available: {formatKobo(activeWallet.balance)} · Minimum withdrawal ₦1,000</p></div>
+                                                {withdrawalQuote && withdrawalQuote.walletDebitKobo >= 100000 ? <div className="space-y-2 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-800/70"><div className="flex justify-between gap-3"><span>Deducted from wallet</span><strong>{formatKobo(withdrawalQuote.walletDebitKobo)}</strong></div><div className="flex justify-between gap-3"><span>Transfer and service fees</span><span>{formatKobo(withdrawalQuote.processorFeeKobo + withdrawalQuote.processorVatKobo + withdrawalQuote.rssFeeKobo)}</span></div><div className="flex justify-between gap-3 border-t border-gray-200 pt-2 dark:border-zinc-700"><strong>Your bank receives</strong><strong className="text-emerald-700 dark:text-emerald-300">{formatKobo(withdrawalQuote.bankReceivesKobo)}</strong></div></div> : null}
+                                            </div>
+                                            <DialogFooter className="sticky bottom-0 flex-col gap-2 border-t border-gray-100 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:p-5"><Button variant="ghost" className="min-h-11 w-full rounded-xl sm:w-auto" onClick={() => setIsWithdrawOpen(false)}>Cancel</Button><Button className="min-h-11 w-full rounded-xl bg-[#F58220] font-bold text-white hover:bg-[#E57210] sm:flex-1" onClick={handleWithdraw} disabled={withdrawLoading || !accountName || !activeWallet.withdrawAvailableNow || !withdrawAmount}>{withdrawLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="mr-2 h-4 w-4" />}Confirm withdrawal</Button></DialogFooter>
+                                        </DialogContent>
+                                    </Dialog>
+                                )}
                             </div>
-                        ) : walletLoadError ? (
-                            <section role="alert" className="rounded-3xl border border-red-200 bg-white p-6 dark:border-red-900/50 dark:bg-zinc-900">
-                                <h2 className="font-bold text-gray-900 dark:text-white">Your wallet did not load</h2>
-                                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{walletLoadError}</p>
-                                <Button className="mt-4 min-h-11 rounded-xl bg-[#F58220] text-white hover:bg-[#E57210]" onClick={() => void loadData(true)}>Try again</Button>
-                            </section>
-                        ) : !activeWallet ? (
-                            <section className="rounded-3xl border border-gray-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
-                                <Wallet className="mx-auto h-10 w-10 text-[#F58220]" />
-                                <h2 className="mt-3 text-lg font-bold text-gray-900 dark:text-white">Your wallet is being prepared</h2>
-                                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Refresh in a moment to check your balance.</p>
-                                <Button className="mt-4 min-h-11 rounded-xl bg-[#F58220] text-white hover:bg-[#E57210]" onClick={() => void loadData(true)}>Refresh wallet</Button>
-                            </section>
-                        ) : (
-                            <div className="space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-500 sm:space-y-6">
-                                {wallets.length > 1 ? (
-                                    <nav aria-label="Choose a wallet" className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:px-0">
-                                        {wallets.map((wallet) => <button key={wallet.id} type="button" aria-pressed={wallet.id === activeWallet.id} onClick={() => handleWalletSelection(wallet.id)} className={cn("min-w-[170px] shrink-0 rounded-2xl border px-4 py-3 text-left", wallet.id === activeWallet.id ? "border-[#F58220] bg-orange-50 dark:bg-orange-950/20" : "border-gray-200 bg-white dark:border-zinc-800 dark:bg-zinc-900")}><span className="block text-sm font-bold text-gray-900 dark:text-white">{wallet.label}</span><span className="mt-1 block text-sm text-gray-600 dark:text-gray-400">{formatKobo(wallet.balance)}</span></button>)}
-                                    </nav>
-                                ) : null}
-
-                                <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-950 via-zinc-900 to-[#612b0a] p-5 text-white shadow-xl sm:p-8">
-                                    <div className="pointer-events-none absolute -right-12 -top-20 h-56 w-56 rounded-full bg-[#F58220]/20 blur-3xl" />
-                                    <div className="relative">
-                                        <div className="flex items-center gap-2 text-sm text-white/75"><Wallet className="h-4 w-4 text-orange-300" /><span>{activeWallet.label}</span></div>
-                                        <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-white/60">Available balance</p>
-                                        <h2 className="mt-1 break-words text-4xl font-bold tracking-tight sm:text-5xl">{formatKobo(activeWallet.balance)}</h2>
-                                        <p className="mt-3 max-w-2xl text-sm text-white/75">{activeWallet.description}</p>
-                                        {activeWallet.canTopUp && <Link href="/account/gift-card" className="mt-2 inline-block text-sm font-semibold text-white underline underline-offset-4">Gift cards</Link>}
-                                        <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap">
-                                            {activeWallet.canTopUp ? <Button className="h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#e87512] sm:w-auto sm:min-w-44" onClick={() => { document.getElementById("add-money")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }) }}><ArrowDownToLine className="mr-2 h-5 w-5" />Add money</Button> : null}
-                                            {activeWallet.canWithdraw ? (
-                                                <Dialog open={isWithdrawOpen} onOpenChange={(open) => { setIsWithdrawOpen(open); if (open) void loadBanks() }}>
-                                                    <DialogTrigger asChild><Button variant="outline" className="h-12 w-full rounded-xl border-white/25 bg-white/10 text-base font-bold text-white hover:bg-white/20 sm:w-auto sm:min-w-44" disabled={!activeWallet.withdrawAvailableNow}><ArrowUpFromLine className="mr-2 h-5 w-5" />{activeWallet.withdrawAvailableNow ? "Withdraw to bank" : "Withdrawals locked"}</Button></DialogTrigger>
-                                                    <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-3xl border-gray-200 bg-white p-0 dark:border-zinc-800 dark:bg-zinc-900 sm:max-w-[480px]">
-                                                        <DialogHeader className="border-b border-gray-100 p-5 pb-4 dark:border-zinc-800 sm:p-6"><DialogTitle className="text-xl font-bold">Withdraw to your bank</DialogTitle><DialogDescription>Choose your bank, verify your account, then enter how much to withdraw from {activeWallet.label.toLowerCase()}.</DialogDescription></DialogHeader>
-                                                        <div className="space-y-5 p-5 sm:p-6">
-                                                            <ol className="grid grid-cols-3 gap-2 text-center text-[11px] font-semibold text-gray-600 dark:text-gray-300 sm:text-xs">{["1 · Choose bank", "2 · Verify account", "3 · Enter amount"].map((step) => <li key={step} className="rounded-xl bg-gray-50 px-2 py-2 dark:bg-zinc-800">{step}</li>)}</ol>
-                                                            <div className="space-y-2"><label htmlFor="wallet-bank" className="text-sm font-semibold text-gray-800 dark:text-gray-200">Your bank</label><select id="wallet-bank" className="h-12 w-full rounded-xl border border-gray-200 bg-white px-4 text-sm dark:border-zinc-700 dark:bg-zinc-800" value={selectedBank} onChange={(event) => handleBankChange(event.target.value)} disabled={banksLoading}><option value="">{banksLoading ? "Loading banks…" : "Select your bank"}</option>{banks.map((bank) => <option key={bank.code} value={bank.code}>{bank.name}</option>)}</select>{!banksLoading && banks.length === 0 ? <div className="flex items-center justify-between gap-3 text-xs text-amber-700 dark:text-amber-300"><span>{banksError || "Bank list is temporarily unavailable."}</span><button type="button" className="shrink-0 font-bold underline" onClick={() => void loadBanks()}>Retry</button></div> : null}</div>
-                                                            <div className="space-y-2"><label htmlFor="wallet-account-number" className="text-sm font-semibold text-gray-800 dark:text-gray-200">10-digit account number</label><div className="flex gap-2"><Input id="wallet-account-number" inputMode="numeric" autoComplete="off" maxLength={10} placeholder="e.g. 0123456789" className="h-12 min-w-0 rounded-xl bg-gray-50 dark:bg-zinc-800" value={accountNumber} onChange={(event) => handleAccountNumberChange(event.target.value)} /><Button type="button" variant="secondary" className="h-12 shrink-0 rounded-xl px-4 font-bold" onClick={handleVerifyAccount} disabled={verifying || !selectedBank || accountNumber.length !== 10}>{verifying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}</Button></div>{accountName ? <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><ShieldCheck className="h-5 w-5 shrink-0" /><span>Verified account: <strong>{accountName}</strong></span></div> : <p className="text-xs text-gray-500 dark:text-gray-400">We verify the name before any withdrawal can be submitted.</p>}</div>
-                                                            <div className="space-y-2"><label htmlFor="wallet-withdraw-amount" className="text-sm font-semibold text-gray-800 dark:text-gray-200">Amount to withdraw</label><Input id="wallet-withdraw-amount" type="number" inputMode="decimal" min="1000" step="100" placeholder="Minimum ₦1,000" className="h-12 rounded-xl bg-gray-50 text-lg font-semibold dark:bg-zinc-800" value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} /><p className="text-xs text-gray-500 dark:text-gray-400">Available: {formatKobo(activeWallet.balance)} · Minimum withdrawal ₦1,000</p></div>
-                                                            {withdrawalQuote && withdrawalQuote.walletDebitKobo >= 100000 ? <div className="space-y-2 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-800/70"><div className="flex justify-between gap-3"><span>Deducted from wallet</span><strong>{formatKobo(withdrawalQuote.walletDebitKobo)}</strong></div><div className="flex justify-between gap-3"><span>Transfer and service fees</span><span>{formatKobo(withdrawalQuote.processorFeeKobo + withdrawalQuote.processorVatKobo + withdrawalQuote.rssFeeKobo)}</span></div><div className="flex justify-between gap-3 border-t border-gray-200 pt-2 dark:border-zinc-700"><strong>Your bank receives</strong><strong className="text-emerald-700 dark:text-emerald-300">{formatKobo(withdrawalQuote.bankReceivesKobo)}</strong></div></div> : null}
-                                                        </div>
-                                                        <DialogFooter className="sticky bottom-0 flex-col gap-2 border-t border-gray-100 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:p-5"><Button variant="ghost" className="min-h-11 w-full rounded-xl sm:w-auto" onClick={() => setIsWithdrawOpen(false)}>Cancel</Button><Button className="min-h-11 w-full rounded-xl bg-[#F58220] font-bold text-white hover:bg-[#E57210] sm:flex-1" onClick={handleWithdraw} disabled={withdrawLoading || !accountName || !activeWallet.withdrawAvailableNow || !withdrawAmount}>{withdrawLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowUpFromLine className="mr-2 h-4 w-4" />}Confirm withdrawal</Button></DialogFooter>
-                                                    </DialogContent>
-                                                </Dialog>
-                                            ) : null}
-                                        </div>
-                                        {!activeWallet.withdrawAvailableNow && activeWallet.canWithdraw ? <p className="mt-3 flex items-start gap-2 text-xs text-white/70"><Info className="mt-0.5 h-4 w-4 shrink-0" />{activeWallet.withdrawPolicyHint}</p> : null}
-                                    </div>
-                                </section>
-
-                                {activeWallet.canTopUp ? (
-                                    <section id="add-money" className="scroll-mt-5 rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-7">
-                                        <div className="flex items-start gap-3"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-[#F58220] dark:bg-orange-950/30"><ArrowDownToLine className="h-5 w-5" /></div><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#F58220]">Add money</p><h2 className="mt-1 text-xl font-bold text-gray-950 dark:text-white sm:text-2xl">Top up your wallet online</h2><p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Review your top-up amount, then continue to Monnify to complete payment.</p></div></div>
-                                            <form action="/api/wallet/topup" method="post" onSubmit={handleTopupSubmit} className="mt-5 space-y-4">
-                                                <input type="hidden" name="attemptId" defaultValue="" />
-                                                <div className="space-y-2"><label htmlFor="wallet-topup-amount" className="text-sm font-semibold text-gray-800 dark:text-gray-200">How much would you like to add?</label><div className="flex h-14 items-center rounded-xl border border-gray-200 bg-gray-50 px-4 focus-within:border-[#F58220] dark:border-zinc-700 dark:bg-zinc-800"><span className="mr-2 text-lg font-bold text-gray-500">₦</span><Input id="wallet-topup-amount" name="amount" disabled={topupLoading || readyTopup !== null} type="number" inputMode="decimal" min="100" step="100" placeholder="Enter amount" className="h-full border-0 bg-transparent px-0 text-lg font-semibold shadow-none focus-visible:ring-0 dark:bg-transparent" value={amount} onChange={(event) => setAmount(event.target.value)} required /></div><p className="text-xs text-gray-500 dark:text-gray-400">Minimum top-up is ₦100. You’ll review any fees before you pay.</p></div>
-                                                <div className="flex flex-wrap gap-2">{[5000, 10000, 20000, 50000].map((quickAmount) => <button key={quickAmount} type="button" disabled={topupLoading || readyTopup !== null} onClick={() => setAmount(String(quickAmount))} className={cn("min-h-10 rounded-full border px-4 text-sm font-semibold", amount === String(quickAmount) ? "border-[#F58220] bg-orange-50 text-[#c95c00] dark:bg-orange-950/30 dark:text-orange-200" : "border-gray-200 text-gray-700 dark:border-zinc-700 dark:text-gray-200")}>₦{quickAmount.toLocaleString()}</button>)}</div>
-                                                {topupQuote ? <div className="space-y-2 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-800/70"><div className="flex justify-between gap-3"><span>Wallet credit</span><strong>{formatKobo(topupQuote.walletCreditKobo)}</strong></div><div className="flex justify-between gap-3"><span>Payment fees</span><span>{formatKobo(topupQuote.processorFeeKobo + topupQuote.processorVatKobo + topupQuote.rssFeeKobo)}</span></div><div className="flex justify-between gap-3 border-t border-gray-200 pt-2 text-base dark:border-zinc-700"><strong>Total you’ll pay</strong><strong>{formatKobo(topupQuote.totalChargeKobo)}</strong></div></div> : null}
-                                                {topupLoading ? <WalletCheckoutProgress /> : null}
-                                                {readyTopup ? (
-                                                    <div className="space-y-3 rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-900/50 dark:bg-orange-950/20">
-                                                        <p className="font-semibold text-gray-900 dark:text-white">Your secure checkout is ready</p>
-                                                        <p className="text-sm text-gray-600 dark:text-gray-300">Open Monnify to complete payment. Reopening this link uses the same checkout. If you have already paid, check the payment status before paying again.</p>
-                                                        <Button asChild className="min-h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#E87512]">
-                                                            <a href={readyTopup.checkoutUrl} onClick={() => reportWalletTopupDiagnostic(readyTopup.attemptId, "client_submit", { checkoutPrepared: true })}>Open Monnify checkout</a>
-                                                        </Button>
-                                                        <div className="flex flex-wrap gap-3">
-                                                            <button type="button" className="min-h-10 text-sm font-semibold text-orange-800 underline dark:text-orange-300" onClick={() => void checkPreparedTopup(readyTopup)}>Check payment status</button>
-                                                        </div>
-                                                    </div>
-                                                ) : <Button type="submit" className="min-h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#E87512] sm:w-auto sm:min-w-64" disabled={topupLoading || !amount || Number(amount) < 100}>{topupLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CreditCard className="mr-2 h-5 w-5" />}{topupLoading ? "Preparing secure payment…" : "Continue to secure payment"}</Button>}
-                                            </form>
-                                    </section>
-                                ) : <section className="flex items-start gap-3 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200"><Info className="mt-0.5 h-5 w-5 shrink-0" /><p>{activeWallet.label} is funded automatically from completed orders or role payouts. Withdrawals follow this schedule: {activeWallet.withdrawPolicyHint}</p></section>}
-
-                                <section className="flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-                                    <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-800 dark:text-emerald-300">Rewards</p><p className="mt-1 font-semibold text-gray-900 dark:text-white">{rewardLoading ? "Checking your points…" : rewardSnapshot ? rewardSnapshot.availablePoints.toLocaleString() + " points available" : "Rewards are temporarily unavailable"}</p>{rewardSnapshot ? <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">{rewardSnapshot.pendingPoints.toLocaleString()} pending · {rewardSnapshot.enabled ? "Rewards enabled" : "Rewards paused"}</p> : null}</div>
-                                    <Button asChild variant="outline" className="min-h-10 w-full rounded-xl border-emerald-200 bg-white font-semibold dark:border-emerald-900 dark:bg-zinc-900 sm:w-auto"><Link href="/account/rewards">View rewards</Link></Button>
-                                </section>
-
-                                <section className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                                    <div className="flex items-center justify-between gap-3 border-b border-gray-100 p-4 dark:border-zinc-800 sm:p-6"><div><h2 className="text-lg font-bold text-gray-950 dark:text-white">Recent activity</h2><p className="mt-1 text-sm text-gray-600 dark:text-gray-400">See money added, payouts, and withdrawals.</p></div><span className="hidden rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600 dark:bg-zinc-800 dark:text-gray-300 sm:inline-flex">{activeWallet.entries.length} recent</span></div>
-                                    {activeWallet.entries.length === 0 ? <div className="p-8 text-center sm:p-12"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-gray-500 dark:bg-zinc-800"><CreditCard className="h-5 w-5" /></div><p className="mt-3 font-semibold text-gray-900 dark:text-white">No activity yet</p><p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{activeWallet.canTopUp ? "Your top-ups and payments will appear here." : "Your payouts and withdrawals will appear here."}</p></div> : (
-                                        <div className="divide-y divide-gray-100 dark:divide-zinc-800">{activeWallet.entries.map((entry) => {
-                                            const pendingTopUp = isPendingTopUp(entry)
-
-                                            return <div key={entry.id} className="flex items-center gap-3 p-4 sm:gap-4 sm:px-6"><div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full", pendingTopUp ? "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300" : entry.direction === "credit" ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30" : "bg-rose-50 text-rose-600 dark:bg-rose-950/30")}>{entry.direction === "credit" ? <ArrowDownToLine className="h-5 w-5" /> : <ArrowUpFromLine className="h-5 w-5" />}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-gray-900 dark:text-white">{entry.description}</p><p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">{entry.created_at ? new Date(entry.created_at).toLocaleString() : "Time unavailable"}{entry.reference ? " · " + entry.reference : ""}</p>{pendingTopUp ? <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-300">Not credited to your balance yet</p> : null}</div><div className="shrink-0 text-right"><p className={cn("text-sm font-bold sm:text-base", pendingTopUp ? "text-amber-700 dark:text-amber-300" : entry.direction === "credit" ? "text-emerald-700 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300")}>{pendingTopUp ? "" : entry.direction === "credit" ? "+" : "−"}{formatKobo(entry.amount)}</p><p className={cn("mt-1 text-[10px] font-semibold uppercase tracking-wide", pendingTopUp ? "text-amber-700 dark:text-amber-300" : "text-gray-400")}>{getActivityStatusLabel(entry)}</p></div></div>
-                                        })}</div>
-                                    )}
-                                </section>
-                            </div>
-                        )}
-                    </main>
-                </div>
+                            {activeWallet.canWithdraw && !activeWallet.withdrawAvailableNow && <p className="mt-2 text-sm text-muted-foreground">{activeWallet.withdrawPolicyHint}</p>}
+                        </>
+                    ) : (
+                        <div className="mt-2 space-y-2">
+                            <p role="status" className="text-sm">{walletLoadError || "Your wallet is being prepared."}</p>
+                            <Button variant="outline" onClick={() => void loadData(true)}>Refresh wallet</Button>
+                        </div>
+                    )}
+                </section>
+                <section className="min-w-0 border-t p-4 sm:p-5 md:border-l md:border-t-0" aria-labelledby="gift-balance">
+                    <h2 id="gift-balance" className="flex items-center gap-2 text-sm font-semibold"><Gift className="size-4" aria-hidden="true" />Gift card balance</h2>
+                    {giftData && <p className="mt-1 break-words text-3xl font-bold tracking-tight tabular-nums">{formatKobo(giftData.summary.availableBalanceKobo)}</p>}
+                    {giftLoading && !giftData && <p className="mt-2 text-sm" role="status">Loading gift cards…</p>}
+                    <p className="mt-1 text-sm text-muted-foreground">Use received gift cards at checkout.</p>
+                    {giftError && <p role="status" className="mt-2 text-sm">Gift cards could not load. <button type="button" className="underline" onClick={() => void loadGiftCards()}>Try again</button></p>}
+                    <div className="mt-4 flex flex-wrap gap-2">
+                        <Button variant="outline" className="min-h-11 rounded-xl" aria-expanded={action === "send"} onClick={() => openAction("send", "gift-action-title")}>Send a gift card</Button>
+                        <Button variant="outline" className="min-h-11 rounded-xl" aria-expanded={action === "received"} onClick={() => openAction("received", "gift-action-title")}>My gift cards</Button>
+                    </div>
+                </section>
             </div>
+            {giftReference && <p role="status" className="rounded-xl border bg-card p-3 text-sm">Payment reference <strong className="break-all">{giftReference}</strong>. Your gift card will appear after payment is confirmed.</p>}
+            {showTopup && (
+                <section id="add-money" aria-labelledby="add-money-title" className="rounded-2xl border bg-card p-4 sm:p-5">
+                    <div className="flex items-center justify-between gap-2">
+                        <h2 id="add-money-title" tabIndex={-1} className="font-semibold">Add money</h2>
+                        {!readyTopup && !topupLoading && <Button variant="ghost" onClick={closeAction}>Close</Button>}
+                    </div>
+                    <p className="text-sm text-muted-foreground">Review the total before continuing to Monnify.</p>
+                    <form action="/api/wallet/topup" method="post" onSubmit={handleTopupSubmit} className="mt-5 space-y-4">
+                        <input type="hidden" name="attemptId" defaultValue="" />
+                        <div className="space-y-2"><label htmlFor="wallet-topup-amount" className="text-sm font-semibold text-gray-800 dark:text-gray-200">How much would you like to add?</label><div className="flex h-14 items-center rounded-xl border border-gray-200 bg-gray-50 px-4 focus-within:border-[#F58220] dark:border-zinc-700 dark:bg-zinc-800"><span className="mr-2 text-lg font-bold text-gray-500">₦</span><Input id="wallet-topup-amount" name="amount" disabled={topupLoading || readyTopup !== null} type="number" inputMode="decimal" min="100" step="100" placeholder="Enter amount" className="h-full border-0 bg-transparent px-0 text-lg font-semibold shadow-none focus-visible:ring-0 dark:bg-transparent" value={amount} onChange={(event) => setAmount(event.target.value)} required /></div><p className="text-xs text-gray-500 dark:text-gray-400">Minimum top-up is ₦100. You’ll review any fees before you pay.</p></div>
+                        <div className="flex flex-wrap gap-2">{[5000, 10000, 20000, 50000].map((quickAmount) => <button key={quickAmount} type="button" disabled={topupLoading || readyTopup !== null} onClick={() => setAmount(String(quickAmount))} className={cn("min-h-10 rounded-full border px-4 text-sm font-semibold", amount === String(quickAmount) ? "border-[#F58220] bg-orange-50 text-[#c95c00] dark:bg-orange-950/30 dark:text-orange-200" : "border-gray-200 text-gray-700 dark:border-zinc-700 dark:text-gray-200")}>₦{quickAmount.toLocaleString()}</button>)}</div>
+                        {topupQuote ? <div className="space-y-2 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-800/70"><div className="flex justify-between gap-3"><span>Wallet credit</span><strong>{formatKobo(topupQuote.walletCreditKobo)}</strong></div><div className="flex justify-between gap-3"><span>Payment fees</span><span>{formatKobo(topupQuote.processorFeeKobo + topupQuote.processorVatKobo + topupQuote.rssFeeKobo)}</span></div><div className="flex justify-between gap-3 border-t border-gray-200 pt-2 text-base dark:border-zinc-700"><strong>Total you’ll pay</strong><strong>{formatKobo(topupQuote.totalChargeKobo)}</strong></div></div> : null}
+                        {topupLoading ? <WalletCheckoutProgress /> : null}
+                        {readyTopup ? (
+                            <div className="space-y-3 rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-900/50 dark:bg-orange-950/20">
+                                <p className="font-semibold text-gray-900 dark:text-white">Your secure checkout is ready</p>
+                                <p className="text-sm text-gray-600 dark:text-gray-300">Open Monnify to complete payment. Reopening this link uses the same checkout. If you have already paid, check the payment status before paying again.</p>
+                                <Button asChild className="min-h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#E87512]">
+                                    <a href={readyTopup.checkoutUrl} onClick={() => reportWalletTopupDiagnostic(readyTopup.attemptId, "client_submit", { checkoutPrepared: true })}>Open Monnify checkout</a>
+                                </Button>
+                                <div className="flex flex-wrap gap-3">
+                                    <button type="button" className="min-h-10 text-sm font-semibold text-orange-800 underline dark:text-orange-300" onClick={() => void checkPreparedTopup(readyTopup)}>Check payment status</button>
+                                </div>
+                            </div>
+                        ) : <Button type="submit" className="min-h-12 w-full rounded-xl bg-[#F58220] text-base font-bold text-white hover:bg-[#E87512] sm:w-auto sm:min-w-64" disabled={topupLoading || !amount || Number(amount) < 100}>{topupLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <CreditCard className="mr-2 h-5 w-5" />}{topupLoading ? "Preparing secure payment…" : "Continue to secure payment"}</Button>}
+                    </form>
+                </section>
+            )}
+            {(action === "send" || action === "received") && (
+                <section className="space-y-3 rounded-2xl border bg-card p-4 sm:p-5">
+                    <div className="flex items-center justify-between gap-2">
+                        <h2 id="gift-action-title" tabIndex={-1} className="font-semibold">{action === "send" ? "Send a gift card" : "My gift cards"}</h2>
+                        <Button variant="ghost" onClick={closeAction}>Close</Button>
+                    </div>
+                    <GiftCardClient view={action} data={giftData} loading={giftLoading} failed={giftError} onPurchase={() => {
+                        void loadGiftCards()
+                        void loadData()
+                    }} />
+                </section>
+            )}
+            <section aria-labelledby="money-activity">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h2 id="money-activity" className="text-lg font-semibold">Recent activity</h2>
+                    <div className="flex flex-wrap gap-1" role="group" aria-label="Filter activity">
+                        {([["all", "All"], ["wallet", "Wallet"], ["gift", "Gift cards"]] as const).map(([value, label]) => (
+                            <Button key={value} variant={filter === value ? "secondary" : "ghost"} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</Button>
+                        ))}
+                    </div>
+                </div>
+                {activity.length > 0 ? (
+                    <ul className="divide-y border-y">
+                        {activity.map((entry) => (
+                            <li key={entry.id} className="flex items-start justify-between gap-3 py-3">
+                                <div className="min-w-0">
+                                    <p className="break-words text-sm font-semibold">{entry.title}</p>
+                                    <p className="break-words text-xs text-muted-foreground">
+                                        {entry.source === "wallet" ? "Wallet" : "Gift cards"}
+                                        {entry.date && ` · ${new Date(entry.date).toLocaleString()}`}
+                                        {entry.reference && ` · ${entry.reference}`}
+                                    </p>
+                                </div>
+                                <div className="shrink-0 text-right">
+                                    <p className="text-sm font-semibold tabular-nums">{entry.amount}</p>
+                                    <p className="text-xs capitalize text-muted-foreground">{entry.status}</p>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                ) : <p className="border-t py-3 text-sm text-muted-foreground" role="status">
+                    {(filter !== "gift" && loading) || (filter !== "wallet" && giftLoading) ? "Loading activity…" :
+                        (filter !== "gift" && walletLoadError) || (filter !== "wallet" && giftError) ? "Some activity could not load." : "No activity yet."}
+                </p>}
+            </section>
+            <Link href="/account/rewards" className="inline-flex min-h-11 items-center text-sm font-medium text-muted-foreground underline underline-offset-4">View rewards</Link>
             <Dialog open={statusModal.open} onOpenChange={(open) => setStatusModal((current) => ({ ...current, open }))}>
                 <DialogContent className="sm:max-w-[420px] rounded-[32px] border-none bg-white p-8 shadow-2xl dark:bg-zinc-900">
                     <DialogHeader className="sr-only">
@@ -841,9 +896,6 @@ export default function WalletPage() {
                     </div>
                 </DialogContent>
             </Dialog>
-        </div>
+        </main>
     )
 }
-
-
-
