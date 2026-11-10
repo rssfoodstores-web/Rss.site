@@ -16,7 +16,5 @@ export default async function AccountPage() {
             .order("created_at", { ascending: false }).limit(20),
     ])
 
-    const order = orders?.find((entry) => entry.status === "out_for_delivery") ??
-        orders?.find((entry) => entry.status === "pending") ?? orders?.[0] ?? null
-    return <CustomerAccount name={profile?.full_name?.trim().split(/\s+/)[0] || "there"} updates={updates ?? []} order={order} />
+    return <CustomerAccount name={profile?.full_name?.trim().split(/\s+/)[0] || "there"} updates={updates ?? []} orders={orders ?? []} />
 }
