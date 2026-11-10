@@ -4,11 +4,13 @@ import Image from "next/image"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { ClipboardList, House, MapPin, Menu, MessageCircle, Package, ShoppingBag, Truck, Wallet } from "lucide-react"
+import { ClipboardList, House, LogOut, MapPin, Menu, MessageCircle, Package, ShoppingBag, Truck, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { useUser } from "@/context/UserContext"
 import { getNotificationCountForHrefs } from "@/lib/notifications"
+import { performLogout } from "@/lib/auth/performLogout"
+import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
 const workspaces = ["rider", "merchant", "agent"] as const
@@ -28,7 +30,7 @@ const navigation = {
         { label: "Orders", href: "/account/orders", icon: Package },
         { label: "Messages", href: "/account/messages", icon: MessageCircle },
         { label: "Delivery addresses", href: "/account/address", icon: MapPin },
-        { label: "Wallet", href: "/account/wallet", icon: Wallet },
+        { label: "Wallet & gift cards", href: "/account/wallet", icon: Wallet },
     ],
     rider: [
         { label: "Overview", href: "/rider", icon: House },
@@ -135,24 +137,50 @@ export function DashboardSidebar({ role, approved, onNavigate }: { role: Dashboa
         : role === "customer" && pathname === "/account/track-order" ? "/account/orders" : pathname
 
     return (
-        <nav aria-label={`${titles[role]} dashboard pages`} className="rounded-2xl border bg-card p-2 sm:p-3">
-            <p className="px-2 pb-2 pt-1 text-xs font-bold uppercase tracking-wider text-orange-800 dark:text-orange-300">{titles[role]}</p>
-            <ul className="grid gap-1">
-                {pages.map(({ label, href, icon: Icon }) => {
-                    const active = currentPath === href || (href !== roots[role] && currentPath?.startsWith(href + "/"))
-                    const unread = getNotificationCountForHrefs([href], notificationPathCounts)
-                    return (
-                        <li key={href} className="min-w-0">
-                            <Link href={href} onNavigate={onNavigate} aria-current={active ? "page" : undefined}
-                                className={cn("flex min-h-11 min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted/60", active && "bg-orange-100 text-orange-950 hover:bg-orange-100 dark:bg-orange-950/70 dark:text-orange-200")}>
-                                <Icon className="size-4 shrink-0" aria-hidden="true" />
-                                <span className="min-w-0 flex-1 break-words">{label}</span>
-                                {unread > 0 && <span className="shrink-0 rounded-full bg-orange-700 px-1.5 text-xs text-white" aria-label={`${unread} unread`}>{unread > 9 ? "9+" : unread}</span>}
-                            </Link>
-                        </li>
-                    )
-                })}
-            </ul>
-        </nav>
+        <div>
+            <nav aria-label={`${titles[role]} dashboard pages`} className="rounded-2xl border bg-card p-2 sm:p-3">
+                <p className="px-2 pb-2 pt-1 text-xs font-bold uppercase tracking-wider text-orange-800 dark:text-orange-300">{titles[role]}</p>
+                <ul className="grid gap-1">
+                    {pages.map(({ label, href, icon: Icon }) => {
+                        const active = currentPath === href || (href !== roots[role] && currentPath?.startsWith(href + "/"))
+                        const unread = getNotificationCountForHrefs([href], notificationPathCounts)
+                        return (
+                            <li key={href} className="min-w-0">
+                                <Link href={href} onNavigate={onNavigate} aria-current={active ? "page" : undefined}
+                                    className={cn("flex min-h-11 min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium hover:bg-muted/60", active && "bg-orange-100 text-orange-950 hover:bg-orange-100 dark:bg-orange-950/70 dark:text-orange-200")}>
+                                    <Icon className="size-4 shrink-0" aria-hidden="true" />
+                                    <span className="min-w-0 flex-1 break-words">{label}</span>
+                                    {unread > 0 && <span className="shrink-0 rounded-full bg-orange-700 px-1.5 text-xs text-white" aria-label={`${unread} unread`}>{unread > 9 ? "9+" : unread}</span>}
+                                </Link>
+                            </li>
+                        )
+                    })}
+                </ul>
+            </nav>
+            {role === "customer" && <CustomerSignOut />}
+        </div>
+    )
+}
+
+function CustomerSignOut() {
+    const [busy, setBusy] = useState(false)
+    const [failed, setFailed] = useState(false)
+
+    async function signOut() {
+        setBusy(true)
+        setFailed(false)
+        if (!await performLogout(createClient())) {
+            setBusy(false)
+            setFailed(true)
+        }
+    }
+
+    return (
+        <div className="mt-2 px-2">
+            <Button type="button" variant="ghost" className="min-h-11 justify-start" onClick={() => void signOut()} disabled={busy}>
+                <LogOut className="size-4" aria-hidden="true" /> {busy ? "Signing out…" : "Sign out"}
+            </Button>
+            {failed && <p role="alert" className="text-sm text-destructive">Couldn’t sign out. Please try again.</p>}
+        </div>
     )
 }

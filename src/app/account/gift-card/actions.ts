@@ -445,7 +445,7 @@ export async function buyGiftCardWithWallet(input: {
         }
     }
 
-    revalidatePath("/account/gift-card")
+    revalidatePath("/account/wallet")
     revalidatePath("/account/wallet")
     revalidatePath("/account/notifications")
 
@@ -543,7 +543,7 @@ export async function buyGiftCardWithDirectPayment(input: {
         }
     }
 
-    revalidatePath("/account/gift-card")
+    revalidatePath("/account/wallet")
 
     return {
         success: true,
