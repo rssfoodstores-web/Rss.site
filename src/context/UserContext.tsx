@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, Suspense, ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, Suspense, ReactNode } from "react"
 import { usePathname, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { type Session, type User } from "@supabase/supabase-js"
@@ -33,6 +33,7 @@ interface UserContextType {
         isAdmin: boolean
     }
     unreadCount: number
+    unreadNotificationIds: ReadonlySet<string> | null
     notificationPathCounts: Record<string, number>
     isLoading: boolean
     refreshProfile: () => Promise<void>
@@ -77,7 +78,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         rider: null as string | null,
     })
     const [roles, setRoles] = useState({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
-    const [unreadNotifications, setUnreadNotifications] = useState<UnreadNotification[]>([])
+    const [unreadNotifications, setUnreadNotifications] = useState<UnreadNotification[] | null>(null)
     const unreadRevision = useRef(0)
     const [isLoading, setIsLoading] = useState(true)
 
@@ -113,7 +114,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         const userId = targetUserId ?? user?.id
         const revision = ++unreadRevision.current
         if (!userId) {
-            setUnreadNotifications([])
+            setUnreadNotifications(null)
             return
         }
 
@@ -124,18 +125,19 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const markNotificationsRead = useCallback(async (ids: string[]) => {
         if (!user?.id || ids.length === 0) return false
 
-        const { error } = await supabase.from("notifications").update({ read: true })
-            .eq("user_id", user.id).in("id", ids).or("read.is.null,read.eq.false")
+        const { data, error } = await supabase.from("notifications").update({ read: true })
+            .eq("user_id", user.id).in("id", ids).or("read.is.null,read.eq.false").select("id")
         if (error) {
             console.error("Error marking notifications as read:", error)
             return false
         }
 
         ++unreadRevision.current
-        const readIds = new Set(ids)
-        setUnreadNotifications((rows) => rows.filter((row) => !readIds.has(row.id)))
-        return true
-    }, [supabase, user?.id])
+        const readIds = new Set((data ?? []).map((row: { id: string }) => row.id))
+        setUnreadNotifications((rows) => rows?.filter((row) => !readIds.has(row.id)) ?? null)
+        if (readIds.size !== ids.length) await refreshUnreadCount(user.id)
+        return readIds.size > 0
+    }, [refreshUnreadCount, supabase, user?.id])
 
     const visitNotificationDestination = useCallback(async (url: string) => {
         if (!user?.id) return
@@ -148,9 +150,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
             .filter((row) => matchesNotificationDestination(url, row.action_url)).map((row) => row.id)
         setUnreadNotifications(rows)
         if (ids.length && window.location.href === url) {
-            if (!await markNotificationsRead(ids)) await refreshUnreadCount(user.id)
+            await markNotificationsRead(ids)
         }
-    }, [fetchUnreadNotifications, markNotificationsRead, refreshUnreadCount, user?.id])
+    }, [fetchUnreadNotifications, markNotificationsRead, user?.id])
 
     const resetUserState = useCallback(() => {
         setProfile(null)
@@ -158,7 +160,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         setWorkspaceStatuses({ merchant: null, agent: null, rider: null })
         setRoles({ isMerchant: false, isAgent: false, isRider: false, isAdmin: false })
         ++unreadRevision.current
-        setUnreadNotifications([])
+        setUnreadNotifications(null)
         localStorage.removeItem("rssa_user_profile")
     }, [])
 
@@ -360,8 +362,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
         }
     }, [fetchUserData, user])
 
+    const unreadNotificationIds = useMemo(() => unreadNotifications
+        ? new Set(unreadNotifications.map((row) => row.id))
+        : null, [unreadNotifications])
+
     return (
-        <UserContext.Provider value={{ user, profile, roleNames, workspaceStatuses, roles, unreadCount: unreadNotifications.length, notificationPathCounts: buildNotificationPathCounts(unreadNotifications), isLoading, refreshProfile, refreshUnreadCount, markNotificationsRead }}>
+        <UserContext.Provider value={{ user, profile, roleNames, workspaceStatuses, roles, unreadCount: unreadNotifications?.length ?? 0, unreadNotificationIds, notificationPathCounts: buildNotificationPathCounts(unreadNotifications ?? []), isLoading, refreshProfile, refreshUnreadCount, markNotificationsRead }}>
             <Suspense fallback={null}><NotificationRouteObserver onVisit={visitNotificationDestination} /></Suspense>
             {children}
         </UserContext.Provider>

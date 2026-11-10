@@ -140,7 +140,7 @@ export function DashboardSidebar({ role, approved, onNavigate }: { role: Dashboa
             <ul className="grid gap-1">
                 {pages.map(({ label, href, icon: Icon }) => {
                     const active = currentPath === href || (href !== roots[role] && currentPath?.startsWith(href + "/"))
-                    const unread = getNotificationCountForHrefs(href === "/account/wallet" ? [href, "/account/gift-card"] : [href], notificationPathCounts)
+                    const unread = getNotificationCountForHrefs([href], notificationPathCounts)
                     return (
                         <li key={href} className="min-w-0">
                             <Link href={href} onNavigate={onNavigate} aria-current={active ? "page" : undefined}
