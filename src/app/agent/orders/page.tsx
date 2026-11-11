@@ -66,6 +66,7 @@ interface AgentOrderDetailRow {
     total_amount: number
     payment_ref: string | null
     delivery_fee_kobo: number | null
+    agent_offer_expires_at: string | null
     created_at: string | null
     delivery_location: { coordinates?: [number, number] } | null
     contact_numbers: unknown
@@ -358,6 +359,7 @@ export default async function AgentOrdersPage({
                     total_amount,
                     payment_ref,
                     delivery_fee_kobo,
+                    agent_offer_expires_at,
                     created_at,
                     delivery_location,
                     contact_numbers,
