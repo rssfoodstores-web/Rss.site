@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { NIGERIAN_STATES } from "@/lib/constants/nigerianStates"
-import { useEffect, useState } from "react"
+import { useEffect, useState, type Ref } from "react"
 import { ChevronDown, LocateFixed, MapPin } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -12,7 +12,11 @@ import { findDeliveryLocation, getCurrentDeliveryCoordinates, type ShoppingDesti
 
 const PROMPT_KEY = "rss-delivery-prompt-seen"
 
-export function DeliveryDestinationPicker({ firstVisit = false, onDestinationChange }: { firstVisit?: boolean; onDestinationChange?: () => void }) {
+export function DeliveryDestinationPicker({ firstVisit = false, onDestinationChange, triggerRef }: {
+    firstVisit?: boolean
+    onDestinationChange?: () => void
+    triggerRef?: Ref<HTMLButtonElement>
+}) {
     const { user, isLoading } = useUser()
     const { addresses, addressError, loadingAddresses, retryAddresses, selectedAddress, destination, selectDestination, selectionReady } = useDeliveryDestination()
     const [open, setOpen] = useState(false)
@@ -62,7 +66,7 @@ export function DeliveryDestinationPicker({ firstVisit = false, onDestinationCha
 
     return (
         <>
-            <button type="button" onClick={() => setOpen(true)} aria-label={label ? `Deliver to ${label}, change delivery location` : "Choose delivery location"}
+            <button ref={triggerRef} type="button" onClick={() => setOpen(true)} aria-label={label ? `Deliver to ${label}, change delivery location` : "Choose delivery location"}
                 className={`flex min-h-11 max-w-full items-center gap-3 rounded-xl px-3 py-1.5 text-left transition-colors motion-reduce:transition-none ${label ? "bg-muted/50 hover:bg-muted" : "bg-orange-50 hover:bg-orange-100 dark:bg-orange-950/45"}`}>
                 <MapPin className="size-4 shrink-0 text-[#a94a10] dark:text-orange-300" aria-hidden="true" />
                 <span className="min-w-0">
