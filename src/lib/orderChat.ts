@@ -89,13 +89,17 @@ export function getDefaultChatChannel(workspace: ChatWorkspace): OrderChatChanne
 }
 
 export function formatChatChannelLabel(channel: OrderChatChannel) {
-    return channel === "ops" ? "Operations thread" : "Customer thread"
+    return channel === "ops" ? "Internal team" : "Customer chat"
 }
 
 export function getChatChannelDescription(channel: OrderChatChannel) {
     return channel === "ops"
         ? "Internal coordination for merchant, agent, and rider activity on this order."
         : "Customer-facing updates and replies tied to this order."
+}
+
+export function getMessagesInboxHref(workspace: ChatWorkspace) {
+    return workspace === "customer" ? "/account/messages" : `/${workspace}/messages`
 }
 
 export function getOrderMessagesHref(workspace: ChatWorkspace, orderId: string, channel?: OrderChatChannel) {

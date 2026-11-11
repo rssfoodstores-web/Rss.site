@@ -29,6 +29,7 @@ export async function markAllAsRead() {
         .update({ read: true })
         .eq('user_id', user.id)
         .or("read.is.null,read.eq.false")
+        .or("type.is.null,type.neq.order_message")
 
     return { success: !error, error }
 }

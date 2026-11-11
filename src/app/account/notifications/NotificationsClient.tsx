@@ -92,7 +92,7 @@ export function NotificationsClient({
 
     const handleMarkAllAsRead = async () => {
         const previousNotifications = notifications
-        setNotifications((current) => current.map((notification) => ({ ...notification, read: true })))
+        setNotifications((current) => current.map((notification) => notification.type === "order_message" ? notification : { ...notification, read: true }))
         const { success } = await markAllAsRead()
         if (!success) {
             setNotifications(previousNotifications)
@@ -102,6 +102,7 @@ export function NotificationsClient({
 
     const handleDelete = async (id: string) => {
         const deletedNotification = notifications.find((notification) => notification.id === id) ?? null
+        if (deletedNotification?.type === "order_message" && !isNotificationRead(deletedNotification)) return
         const { success } = await deleteNotification(id)
         if (success) {
             setNotifications((current) => current.filter((notification) => notification.id !== id))
@@ -112,7 +113,7 @@ export function NotificationsClient({
     }
 
     const handleOpen = async (notification: AppNotification) => {
-        if (!isNotificationRead(notification)) {
+        if (notification.type !== "order_message" && !isNotificationRead(notification)) {
             const success = await markNotificationsRead([notification.id])
             if (success) setNotifications((current) =>
                 current.map((entry) =>
@@ -265,7 +266,7 @@ export function NotificationsClient({
                                                                 <ArrowRight className="h-3 w-3" /> Open
                                                             </button>
                                                         ) : null}
-                                                        {!isNotificationRead(notification) ? (
+                                                        {notification.type !== "order_message" && !isNotificationRead(notification) ? (
                                                             <button
                                                                 onClick={() => handleMarkAsRead(notification.id)}
                                                                 className="flex items-center gap-1 text-xs font-bold text-[#F58220] hover:underline"
@@ -273,12 +274,14 @@ export function NotificationsClient({
                                                                 <Check className="h-3 w-3" /> Mark as read
                                                             </button>
                                                         ) : null}
-                                                        <button
-                                                            onClick={() => handleDelete(notification.id)}
-                                                            className="flex items-center gap-1 text-xs font-bold text-red-500 hover:underline"
-                                                        >
-                                                            <Trash2 className="h-3 w-3" /> Delete
-                                                        </button>
+                                                        {(notification.type !== "order_message" || isNotificationRead(notification)) && (
+                                                            <button
+                                                                onClick={() => handleDelete(notification.id)}
+                                                                className="flex items-center gap-1 text-xs font-bold text-red-500 hover:underline"
+                                                            >
+                                                                <Trash2 className="h-3 w-3" /> Delete
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>

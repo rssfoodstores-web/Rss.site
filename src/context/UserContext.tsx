@@ -51,7 +51,7 @@ function isAbortLike(error: unknown) {
     return error instanceof Error && (error.name === "AbortError" || error.message.includes("aborted"))
 }
 
-type UnreadNotification = { id: string; action_url: string | null }
+type UnreadNotification = { id: string; action_url: string | null; type: string | null }
 
 function NotificationRouteObserver({ onVisit }: { onVisit: (url: string) => void }) {
     const pathname = usePathname()
@@ -102,7 +102,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     const fetchUnreadNotifications = useCallback(async (userId: string) => {
         const { data, error } = await supabase.from("notifications")
-            .select("id,action_url").eq("user_id", userId).or("read.is.null,read.eq.false")
+            .select("id,action_url,type").eq("user_id", userId).or("read.is.null,read.eq.false")
         if (error) {
             console.error("Error refreshing unread notifications:", error)
             return null
@@ -147,7 +147,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
         const pathname = new URL(url).pathname
         const ids = pathname === "/account/notifications" ? [] : rows
-            .filter((row) => matchesNotificationDestination(url, row.action_url)).map((row) => row.id)
+            .filter((row) => row.type !== "order_message" && matchesNotificationDestination(url, row.action_url)).map((row) => row.id)
         setUnreadNotifications(rows)
         if (ids.length && window.location.href === url) {
             await markNotificationsRead(ids)
