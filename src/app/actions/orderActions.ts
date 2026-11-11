@@ -614,6 +614,16 @@ export async function acceptAgentAssignment(orderId: string): Promise<OrderActio
     return { success: true }
 }
 
+export async function declineAgentAssignment(orderId: string): Promise<OrderActionResult> {
+    const supabase = await getSupabase()
+    const { data, error } = await supabase.rpc("decline_agent_assignment", { p_order_id: orderId })
+    if (error || !data?.success) {
+        return { success: false, message: data?.error ?? "Unable to decline this offer." }
+    }
+    revalidatePath("/agent/orders")
+    return { success: true }
+}
+
 export async function openOrderDispute(orderId: string, reason: string): Promise<OrderActionResult> {
     const supabase = await getSupabase()
     const trimmedReason = reason.trim()
