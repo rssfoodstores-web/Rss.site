@@ -113,6 +113,7 @@ interface AgentOrderDetailRow {
     total_amount: number
     payment_ref: string | null
     delivery_fee_kobo: number | null
+    agent_offer_expires_at: string | null
     created_at: string | null
     delivery_location: { coordinates?: [number, number] } | null
     customer: Relation<RelationProfile>
@@ -524,7 +525,7 @@ export function AgentOrdersWorkspace({
                                             </div>
                                         </div>
                                         <div className="flex flex-wrap gap-2">
-                                            {selectedOrder.status === "awaiting_agent_acceptance" ? <AcceptAssignmentButton orderId={selectedOrder.id} /> : null}
+                                            {selectedOrder.status === "awaiting_agent_acceptance" ? <AcceptAssignmentButton orderId={selectedOrder.id} expiresAt={selectedOrder.agent_offer_expires_at} /> : null}
                                             {showRequestRider ? <RequestRiderButton orderId={selectedOrder.id} /> : null}
                                             <Button asChild variant="outline" className="border-gray-200 dark:border-zinc-700">
                                                 <Link href={`/agent/messages?order=${selectedOrder.id}`}>
