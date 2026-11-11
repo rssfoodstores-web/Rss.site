@@ -2,7 +2,6 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { AgentOrdersWorkspace } from "@/components/agent/AgentOrdersWorkspace"
 import { type AppNotification } from "@/lib/notifications"
-import { getOrderOperationalHint } from "@/lib/orders"
 
 type AgentOrdersFilter = "all" | "acceptance" | "merchant" | "dispatch"
 
@@ -17,6 +16,11 @@ type Relation<T> = T | T[] | null
 
 interface AgentOrderSummaryRow {
     id: string
+    agent_checkout_group_id: string | null
+    assignment_method: string | null
+    agent_offer_expires_at: string | null
+    delivery_fee_kobo: number | null
+    delivery_address_snapshot: { address_label?: string } | null
     status: string | null
     payment_status: string | null
     total_amount: number
@@ -27,7 +31,30 @@ interface AgentOrderSummaryRow {
     rider: Relation<RelationProfile>
     order_financials: Relation<{
         settlement_status: string | null
+        agent_fee_total_kobo: number
     }>
+}
+
+const summaryColumns = `
+    id, agent_checkout_group_id, assignment_method, agent_offer_expires_at, delivery_fee_kobo, delivery_address_snapshot,
+    status, payment_status, total_amount, created_at, rider_id,
+    customer:customer_id(id, full_name, phone),
+    merchant:merchant_id(id, full_name, phone, address),
+    rider:rider_id(id, full_name, phone),
+    order_financials(settlement_status, agent_fee_total_kobo)
+`
+const activeStatuses = [
+    "awaiting_agent_acceptance", "awaiting_merchant_confirmation", "processing",
+    "ready_for_pickup", "out_for_delivery", "delivery_failed", "rescheduled", "return_in_transit", "disputed",
+]
+
+function offerIsCurrent(order: AgentOrderSummaryRow, now: number) {
+    return order.status !== "awaiting_agent_acceptance" ||
+        !order.agent_offer_expires_at || Date.parse(order.agent_offer_expires_at) > now
+}
+
+function countCheckouts(orders: AgentOrderSummaryRow[]) {
+    return new Set(orders.map((order) => order.agent_checkout_group_id ?? order.id)).size
 }
 
 interface AgentOrderAssignmentRow {
@@ -108,19 +135,6 @@ interface ProfileNameRow {
     full_name: string | null
 }
 
-interface AgentCommissionSummaryRow {
-    order_financials: Array<{
-        agent_fee_total_kobo: number
-        settlement_status: string | null
-    }> | null
-}
-
-interface CheckpointRow {
-    label: string
-    description: string
-    value: string | null
-}
-
 function firstRelation<T>(value: Relation<T>): T | null {
     if (Array.isArray(value)) {
         return value[0] ?? null
@@ -159,60 +173,6 @@ function orderNotificationMatches(notification: AppNotification, orderId: string
     return metadata.order_id === orderId
 }
 
-function getAgentActionMessage(order: AgentOrderDetailRow) {
-    switch (order.status) {
-        case "awaiting_merchant_confirmation":
-            return "Follow up with the merchant so prep can move forward."
-        case "processing":
-            return "Prep is on track. Request a rider once the merchant confirms readiness."
-        case "ready_for_pickup":
-            return order.rider_id
-                ? "A rider is assigned. Track the pickup handoff from here."
-                : "Dispatch is open. Watch for rider claim or assign manually if needed."
-        case "out_for_delivery":
-            return "Delivery is in flight. Monitor the rider and customer handoff."
-        case "completed":
-        case "delivered":
-            return "This order is complete."
-        case "disputed":
-            return "This order has an active issue record."
-        case "refunded":
-            return "This order has already been refunded."
-        default:
-            return "Review the current state and complete the next operational action."
-    }
-}
-
-function getCheckpointRows(order: AgentOrderDetailRow): CheckpointRow[] {
-    return [
-        {
-            label: "Order created",
-            value: order.created_at,
-            description: "Customer checkout completed.",
-        },
-        {
-            label: "Agent accepted",
-            value: order.status === "awaiting_agent_acceptance" ? null : order.created_at,
-            description: "Agent took ownership of the order.",
-        },
-        {
-            label: "Merchant confirmed",
-            value: order.status === "awaiting_agent_acceptance" || order.status === "awaiting_merchant_confirmation" ? null : order.created_at,
-            description: "Merchant confirmed prep and handoff can continue.",
-        },
-        {
-            label: "Dispatch active",
-            value: ["processing", "ready_for_pickup", "out_for_delivery", "completed", "delivered"].includes(order.status ?? "") ? order.created_at : null,
-            description: "Rider request or rider handoff is active.",
-        },
-        {
-            label: "Delivery complete",
-            value: ["completed", "delivered"].includes(order.status ?? "") ? order.created_at : null,
-            description: "Customer handoff is finished.",
-        },
-    ]
-}
-
 function parseFilter(value: string | undefined): AgentOrdersFilter {
     if (value === "acceptance" || value === "merchant" || value === "dispatch") {
         return value
@@ -228,7 +188,7 @@ function filterQueueOrders(orders: AgentOrderSummaryRow[], filter: AgentOrdersFi
         case "merchant":
             return orders.filter((order) => order.status === "awaiting_merchant_confirmation")
         case "dispatch":
-            return orders.filter((order) => ["processing", "ready_for_pickup", "out_for_delivery"].includes(order.status ?? ""))
+            return orders.filter((order) => ["processing", "ready_for_pickup", "out_for_delivery", "delivery_failed", "rescheduled", "return_in_transit"].includes(order.status ?? ""))
         default:
             return orders
     }
@@ -237,9 +197,9 @@ function filterQueueOrders(orders: AgentOrderSummaryRow[], filter: AgentOrdersFi
 export default async function AgentOrdersPage({
     searchParams,
 }: {
-    searchParams: Promise<{ order?: string; filter?: string }>
+    searchParams: Promise<{ order?: string; filter?: string; details?: string }>
 }) {
-    const { order: requestedOrderId, filter: requestedFilter } = await searchParams
+    const { order: requestedOrderId, filter: requestedFilter, details } = await searchParams
     const activeFilter = parseFilter(requestedFilter)
     const supabase = await createClient()
     const {
@@ -250,90 +210,48 @@ export default async function AgentOrdersPage({
         redirect("/login")
     }
 
-    const [{ data: orders, error: ordersError }, { data: agentWallet }, { data: commissionRows }] = await Promise.all([
-        supabase
+    const { data: orders, error: ordersError } = await supabase
             .from("orders")
-            .select(`
-                id,
-                status,
-                payment_status,
-                total_amount,
-                created_at,
-                rider_id,
-                customer:customer_id (
-                    id,
-                    full_name,
-                    phone
-                ),
-                merchant:merchant_id (
-                    id,
-                    full_name,
-                    phone
-                ),
-                rider:rider_id (
-                    id,
-                    full_name,
-                    phone
-                ),
-                order_financials (
-                    settlement_status
-                )
-            `)
+            .select(summaryColumns)
             .eq("assigned_agent_id", user.id)
+            .in("status", activeStatuses)
             .order("created_at", { ascending: false })
-            .limit(30),
-        supabase
-            .from("wallets")
-            .select("balance")
-            .eq("owner_id", user.id)
-            .eq("type", "agent")
-            .maybeSingle(),
-        supabase
-            .from("orders")
-            .select(`
-                order_financials (
-                    agent_fee_total_kobo,
-                    settlement_status
-                )
-            `)
-            .eq("assigned_agent_id", user.id)
-            .limit(100),
-    ])
+            .order("id")
 
-    const normalizedOrders = ((orders ?? []) as unknown as AgentOrderSummaryRow[])
-    const activeManagedOrders = normalizedOrders.filter((order) =>
-        ["awaiting_agent_acceptance", "awaiting_merchant_confirmation", "processing", "ready_for_pickup", "out_for_delivery"].includes(order.status ?? "")
-    )
+    const now = Date.now()
+    const normalizedOrders = ((orders ?? []) as AgentOrderSummaryRow[]).filter((order) => offerIsCurrent(order, now))
+    const activeManagedOrders = normalizedOrders
 
     const filterCounts = {
-        all: activeManagedOrders.length,
-        acceptance: activeManagedOrders.filter((order) => order.status === "awaiting_agent_acceptance").length,
-        merchant: activeManagedOrders.filter((order) => order.status === "awaiting_merchant_confirmation").length,
-        dispatch: activeManagedOrders.filter((order) => ["processing", "ready_for_pickup", "out_for_delivery"].includes(order.status ?? "")).length,
+        all: countCheckouts(activeManagedOrders),
+        acceptance: countCheckouts(filterQueueOrders(activeManagedOrders, "acceptance")),
+        merchant: countCheckouts(filterQueueOrders(activeManagedOrders, "merchant")),
+        dispatch: countCheckouts(filterQueueOrders(activeManagedOrders, "dispatch")),
     }
 
     const watchlistOrders = filterQueueOrders(activeManagedOrders, activeFilter)
-    const exceptionCount = normalizedOrders.filter((order) => order.status === "disputed" || order.status === "refunded").length
-    const commissionSummary = (commissionRows ?? []) as unknown as AgentCommissionSummaryRow[]
-    const settledCommissionTotal = commissionSummary.reduce((sum, order) => {
-        const financial = firstRelation(order.order_financials)
-        if (!financial || financial.settlement_status !== "completed") {
-            return sum
-        }
-        return sum + financial.agent_fee_total_kobo
-    }, 0)
-    const pendingCommissionTotal = commissionSummary.reduce((sum, order) => {
-        const financial = firstRelation(order.order_financials)
-        if (!financial || financial.settlement_status === "completed") {
-            return sum
-        }
-        return sum + financial.agent_fee_total_kobo
-    }, 0)
 
+    let requestedOrder = normalizedOrders.find((order) => order.id === requestedOrderId)
+    if (!requestedOrder && requestedOrderId && /^[0-9a-f-]{36}$/i.test(requestedOrderId)) {
+        const { data } = await supabase.from("orders").select(summaryColumns)
+            .eq("assigned_agent_id", user.id).eq("id", requestedOrderId).maybeSingle()
+        const order = data as AgentOrderSummaryRow | null
+        if (order && offerIsCurrent(order, now)) requestedOrder = order
+    }
     const selectedSummary =
-        watchlistOrders.find((order) => order.id === requestedOrderId) ??
+        requestedOrder ??
+        watchlistOrders.find((order) => order.status === "awaiting_agent_acceptance") ??
         watchlistOrders[0] ??
         null
+    let checkoutOrders = selectedSummary ? [selectedSummary] : []
+    let checkoutError = false
+    if (selectedSummary?.agent_checkout_group_id) {
+        const { data, error } = await supabase.from("orders").select(summaryColumns)
+            .eq("assigned_agent_id", user.id)
+            .eq("agent_checkout_group_id", selectedSummary.agent_checkout_group_id).order("id")
+        if (!error && data?.length) checkoutOrders = data as AgentOrderSummaryRow[]
+        else checkoutError = true
+    }
 
     let selectedOrder: AgentOrderDetailRow | null = null
     let selectedOrderError: string | null = null
@@ -474,16 +392,6 @@ export default async function AgentOrdersPage({
     const selectedMerchant = firstRelation(selectedOrder?.merchant ?? null)
     const selectedRider = firstRelation(selectedOrder?.rider ?? null)
     const selectedContacts = normalizeContactNumbers(selectedOrder?.contact_numbers)
-    const statusHint = selectedOrder
-        ? getOrderOperationalHint(selectedOrder.status, { riderAssigned: Boolean(selectedOrder.rider_id) })
-        : null
-    const actionMessage = selectedOrder ? getAgentActionMessage(selectedOrder) : null
-    const checkpointRows = selectedOrder ? getCheckpointRows(selectedOrder) : []
-    const completedCheckpointCount = checkpointRows.filter((checkpoint) => checkpoint.value !== null).length
-    const nextCheckpoint = checkpointRows.find((checkpoint) => checkpoint.value === null) ?? null
-    const progressPercent = checkpointRows.length
-        ? Math.round((completedCheckpointCount / checkpointRows.length) * 100)
-        : 0
 
     return (
         <AgentOrdersWorkspace
@@ -492,6 +400,9 @@ export default async function AgentOrdersPage({
             ordersError={ordersError?.message ?? null}
             watchlistOrders={watchlistOrders}
             selectedSummary={selectedSummary}
+            checkoutOrders={checkoutOrders}
+            checkoutError={checkoutError}
+            showDetails={details === "1"}
             selectedOrder={selectedOrder}
             selectedOrderError={selectedOrderError}
             selectedFinancials={selectedFinancials}
@@ -499,18 +410,8 @@ export default async function AgentOrdersPage({
             selectedMerchant={selectedMerchant}
             selectedRider={selectedRider}
             selectedContacts={selectedContacts}
-            statusHint={statusHint}
-            actionMessage={actionMessage}
-            checkpointRows={checkpointRows}
-            completedCheckpointCount={completedCheckpointCount}
-            progressPercent={progressPercent}
-            nextCheckpoint={nextCheckpoint}
             assignmentDirectory={assignmentDirectory}
             orderNotifications={orderNotifications}
-            exceptionCount={exceptionCount}
-            agentWalletBalance={agentWallet?.balance ?? 0}
-            settledCommissionTotal={settledCommissionTotal}
-            pendingCommissionTotal={pendingCommissionTotal}
         />
     )
 }
