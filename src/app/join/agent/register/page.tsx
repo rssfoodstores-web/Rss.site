@@ -156,6 +156,9 @@ export default function AgentRegisterPage() {
                         <p className="text-muted-foreground">
                             Join our network and start earning commissions.
                         </p>
+                        <p className="mt-3 rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-100">
+                            After approval, capture your working location from the Agent dashboard before you can receive orders. You can change the pin from the dashboard whenever your working area changes.
+                        </p>
                     </div>
 
                     <form action={handleSubmit} className="space-y-8">
