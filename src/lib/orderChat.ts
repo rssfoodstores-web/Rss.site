@@ -122,7 +122,7 @@ export function getOrderDetailHref(workspace: ChatWorkspace, orderId: string) {
         case "customer":
             return `/account/orders/${orderId}`
         case "merchant":
-            return `/merchant/orders/${orderId}`
+            return `/merchant/orders?order=${encodeURIComponent(orderId)}`
         case "agent":
             return `/agent/orders?order=${orderId}`
         case "rider":

@@ -196,13 +196,25 @@ export function getSafeNotificationHref(href: string | null | undefined) {
 
 // Badge grouping ignores query parameters, but opening an update must respect
 // the specific order or conversation selected in the destination URL.
+function normalizeMerchantOrderDestination(url: URL) {
+    const legacy = /^\/merchant\/orders\/([0-9a-f-]{36})\/?$/i.exec(url.pathname)
+    if (legacy) {
+        url.pathname = "/merchant/orders"
+        url.searchParams.set("order", legacy[1].toLowerCase())
+    } else if (url.pathname === "/merchant/orders") {
+        const orderId = url.searchParams.get("order")
+        if (orderId && /^[0-9a-f-]{36}$/i.test(orderId)) url.searchParams.set("order", orderId.toLowerCase())
+    }
+    return url
+}
+
 export function matchesNotificationDestination(currentUrl: string, actionUrl: string | null | undefined) {
     const href = getSafeNotificationHref(actionUrl)
     if (!href) return false
 
     const origin = "https://rss.invalid"
-    const current = new URL(currentUrl, origin)
-    const target = new URL(href, origin)
+    const current = normalizeMerchantOrderDestination(new URL(currentUrl, origin))
+    const target = normalizeMerchantOrderDestination(new URL(href, origin))
     if (target.origin !== origin || !matchesNotificationPath(current.pathname, target.pathname)) return false
 
     for (const [name, value] of target.searchParams) {

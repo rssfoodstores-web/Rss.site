@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { AcceptAssignmentButton } from "@/components/agent/AcceptAssignmentButton"
-import { AgentOrderChat, OrderCall, OrderChatButton } from "@/components/agent/AgentOrderChat"
+import { OrderChatPanel, OrderCall, OrderChatButton } from "@/components/messages/OrderChatPanel"
 import { RequestRiderButton } from "@/components/merchant/RequestRiderButton"
 import { formatKobo } from "@/lib/money"
 import { getNotificationPresentation, type AppNotification } from "@/lib/notifications"
@@ -420,9 +420,9 @@ export function AgentOrdersWorkspace({
                     <p className="mt-1 font-semibold">{focusHandoff.label} · {getMerchantName(focus)}</p>
                 </div>}
             </div>
-            {offered ? orderRows : <AgentOrderChat merchants={checkoutOrders.map((order) => ({ id: order.id, name: getMerchantName(order) }))} initialOrderId={selectedSummary.id}>
+            {offered ? orderRows : <OrderChatPanel orders={checkoutOrders.map((order) => ({ id: order.id, name: getMerchantName(order) }))} initialOrderId={selectedSummary.id}>
                 {orderRows}
-            </AgentOrderChat>}
+            </OrderChatPanel>}
             {selectedOrderError && <p className="text-sm text-destructive" role="alert">Order details couldn’t load. Refresh to try again.</p>}
             {!offered && selectedOrder && <details key={selectedOrder.id} open={showDetails || undefined} id="agent-merchant-details" className="rounded-2xl border bg-card p-4 sm:p-5">
                 <summary className="cursor-pointer font-semibold">{getMerchantName(selectedSummary)} details</summary>

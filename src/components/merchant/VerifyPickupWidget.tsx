@@ -6,25 +6,23 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { verifyMerchantPickup } from "@/app/actions/orderActions"
 import { toast } from "sonner"
-import { CheckCircle2, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 
-export function VerifyPickupWidget({ orderId }: { orderId: string }) {
+export function VerifyPickupWidget({ orderId, orderHref }: { orderId: string; orderHref: string }) {
     const [otp, setOtp] = useState("")
     const [loading, setLoading] = useState(false)
     const router = useRouter()
 
     const handleVerify = async () => {
-        if (otp.length !== 4) {
-            toast.error("Please enter a valid 4-digit code")
-            return
-        }
+        if (loading || otp.length !== 4) return
 
         setLoading(true)
         try {
             const result = await verifyMerchantPickup(orderId, otp)
             if (result.success) {
                 toast.success("Pickup Verified! Order status updated.")
-                router.refresh()
+                if (new URLSearchParams(window.location.search).get("order") === orderId) router.refresh()
+                else router.replace(orderHref, { scroll: false })
             } else {
                 toast.error(result.message || "Verification failed")
             }
@@ -36,26 +34,22 @@ export function VerifyPickupWidget({ orderId }: { orderId: string }) {
     }
 
     return (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 space-y-3">
-            <h3 className="font-bold text-blue-900 dark:text-blue-100 flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5" />
-                Verify Rider Pickup
-            </h3>
-            <p className="text-sm text-blue-700 dark:text-blue-300">
-                Ask the rider for their <strong>Pickup Code</strong> and enter it below to release the order.
-            </p>
-            <div className="flex gap-2">
+        <form className="space-y-2 pt-1" onSubmit={(event) => { event.preventDefault(); void handleVerify() }}>
+            <label htmlFor="merchant-pickup-code" className="text-sm font-medium">Rider’s 4-digit pickup code</label>
+            <div className="flex flex-wrap gap-2">
                 <Input
-                    placeholder="0 0 0 0"
-                    className="flex-1 font-mono text-center tracking-widest text-lg font-bold bg-white dark:bg-black"
+                    id="merchant-pickup-code"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    className="min-h-11 w-24 bg-background text-center text-base tracking-widest"
                     value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
-                    maxLength={4}
+                    disabled={loading}
+                    onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 4))}
                 />
-                <Button onClick={handleVerify} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white">
-                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
+                <Button type="submit" disabled={loading || otp.length !== 4} className="min-h-11 bg-[#F58220] text-gray-950 hover:bg-orange-400">
+                    {loading ? <><Loader2 className="size-4 animate-spin" aria-hidden="true" /> Verifying…</> : "Verify pickup"}
                 </Button>
             </div>
-        </div>
+        </form>
     )
 }

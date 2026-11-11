@@ -6,6 +6,7 @@ import { markOrderChatRead, sendOrderMessage } from "@/app/actions/messageAction
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { useUser } from "@/context/UserContext"
+import { useRouter } from "next/navigation"
 import { formatChatRoleLabel, type OrderChatChannel, type OrderChatMessage, type OrderChatParticipant } from "@/lib/orderChat"
 import { isValidE164PhoneNumber, normalizePhoneNumber } from "@/lib/phone"
 import { createClient } from "@/lib/supabase/client"
@@ -21,24 +22,33 @@ export function OrderCall({ phone, label }: { phone: string | null | undefined; 
 
 const OpenOrderChat = createContext<((orderId: string, channel: OrderChatChannel, opener: HTMLElement) => void) | null>(null)
 
-export function OrderChatButton({ orderId }: { orderId: string }) {
+export type OrderChatUnread = Partial<Record<OrderChatChannel, number>>
+
+export function OrderChatButton({ orderId, unread }: { orderId: string; unread?: OrderChatUnread }) {
     const open = useContext(OpenOrderChat)
-    return <Button variant="outline" className="min-h-10" onClick={(event) => open?.(orderId, "ops", event.currentTarget)}>
+    const count = (unread?.ops ?? 0) + (unread?.customer ?? 0)
+    const channel = !unread?.ops && unread?.customer ? "customer" : "ops"
+    return <Button variant="outline" className="min-h-11" onClick={(event) => open?.(orderId, channel, event.currentTarget)}>
         <MessageCircle className="size-4" /> Chat
+        {count > 0 && <span className="rounded-full bg-orange-100 px-1.5 text-xs font-semibold text-orange-900">{count} new</span>}
     </Button>
 }
 
-export function AgentOrderChat({ merchants, initialOrderId, children }: {
-    merchants: { id: string; name: string }[]
+export function OrderChatPanel({ orders, initialOrderId, children, workspace = "agent", unread }: {
+    orders: { id: string; name: string }[]
     initialOrderId: string
     children: ReactNode
+    workspace?: "agent" | "merchant"
+    unread?: OrderChatUnread
 }) {
     const [open, setOpen] = useState(false)
     const [selection, setSelection] = useState({ orderId: initialOrderId, channel: "ops" as OrderChatChannel })
     const [drafts, setDrafts] = useState<Record<string, { body: string; id: string }>>({})
     const opener = useRef<HTMLElement>(null)
-    const orderId = merchants.some((merchant) => merchant.id === selection.orderId) ? selection.orderId : initialOrderId
+    const router = useRouter()
+    const orderId = orders.some((order) => order.id === selection.orderId) ? selection.orderId : initialOrderId
     const key = `${orderId}:${selection.channel}`
+    const isOpen = open && (workspace === "agent" || selection.orderId === initialOrderId)
 
     function openChat(id: string, channel: OrderChatChannel, trigger: HTMLElement) {
         opener.current = trigger
@@ -48,43 +58,47 @@ export function AgentOrderChat({ merchants, initialOrderId, children }: {
 
     return <OpenOrderChat.Provider value={openChat}>
         {children}
-        <div className="fixed bottom-5 right-4 z-30 sm:bottom-7 sm:right-8">
+        {workspace === "agent" && <div className="fixed bottom-5 right-4 z-30 sm:bottom-7 sm:right-8">
             <Button onClick={(event) => openChat(initialOrderId, "ops", event.currentTarget)} className="h-12 rounded-full bg-[#F58220] px-5 text-gray-950 shadow-lg hover:bg-orange-400">
                 <MessageCircle className="size-5" /> Order chat
             </Button>
-        </div>
-        <Sheet open={open} onOpenChange={setOpen}>
+        </div>}
+        <Sheet open={isOpen} onOpenChange={setOpen}>
             <SheetContent className="flex h-dvh w-full flex-col gap-0 p-0 sm:max-w-md" onCloseAutoFocus={(event) => {
                 event.preventDefault()
                 opener.current?.focus()
             }}>
                 <header className="border-b p-4 pr-12">
                     <SheetTitle>Order chat</SheetTitle>
-                    <SheetDescription>Choose a merchant and conversation.</SheetDescription>
-                    {merchants.length > 1 && <select aria-label="Merchant" value={orderId}
+                    <SheetDescription>{workspace === "agent" ? "Choose a merchant and conversation." : `Order #${orderId.slice(0, 8).toUpperCase()}`}</SheetDescription>
+                    {orders.length > 1 && <select aria-label="Merchant" value={orderId}
                         onChange={(event) => setSelection({ ...selection, orderId: event.target.value })}
                         className="mt-3 min-h-11 w-full rounded-lg border bg-background px-3 text-sm">
-                        {merchants.map((merchant) => <option key={merchant.id} value={merchant.id}>{merchant.name}</option>)}
+                        {orders.map((order) => <option key={order.id} value={order.id}>{order.name}</option>)}
                     </select>}
                     <div className="mt-3 flex gap-2" role="group" aria-label="Conversation">
                         {(["ops", "customer"] as const).map((channel) => <Button key={channel} variant={selection.channel === channel ? "default" : "outline"}
                             aria-pressed={selection.channel === channel} onClick={() => setSelection({ orderId, channel })}>
                             {channel === "ops" ? "Order team" : "Customer"}
+                            {Boolean(unread?.[channel]) && <span className="text-xs tabular-nums">· {unread?.[channel]} new</span>}
                         </Button>)}
                     </div>
                 </header>
-                {open && <Conversation key={key} orderId={orderId} channel={selection.channel} draft={drafts[key]}
-                    onDraft={(draft) => setDrafts((current) => ({ ...current, [key]: draft }))} />}
+                {isOpen && <Conversation key={key} orderId={orderId} channel={selection.channel} draft={drafts[key]}
+                    onRead={unread?.[selection.channel] ? router.refresh : undefined}
+                    onDraft={(draft, sentId) => setDrafts((current) =>
+                        sentId && current[key]?.id !== sentId ? current : { ...current, [key]: draft })} />}
             </SheetContent>
         </Sheet>
     </OpenOrderChat.Provider>
 }
 
-function Conversation({ orderId, channel, draft, onDraft }: {
+function Conversation({ orderId, channel, draft, onDraft, onRead }: {
     orderId: string
     channel: OrderChatChannel
     draft?: { body: string; id: string }
-    onDraft: (draft: { body: string; id: string }) => void
+    onDraft: (draft: { body: string; id: string }, sentId?: string) => void
+    onRead?: () => void
 }) {
     const [messages, setMessages] = useState<OrderChatMessage[]>([])
     const [participants, setParticipants] = useState<OrderChatParticipant[]>([])
@@ -114,18 +128,23 @@ function Conversation({ orderId, channel, draft, onDraft }: {
             if (disposed || request !== version) return
             const failed = Boolean(history.error || people.error || !people.data?.length)
             setLoadError(failed)
-            setMessages(failed ? [] : ((history.data ?? []) as OrderChatMessage[]).toReversed())
+            setMessages(failed ? [] : ((history.data ?? []) as OrderChatMessage[]).reverse())
             setParticipants(failed ? [] : people.data as OrderChatParticipant[])
             setLoading(false)
         }
         void load()
-        const subscription = supabase.channel(`agent-order-chat:${orderId}:${channel}`)
+        const subscription = supabase.channel(`order-chat-panel:${orderId}:${channel}`)
             .on("postgres_changes", {
                 event: "INSERT", schema: "public", table: "order_messages", filter: `order_id=eq.${orderId}`,
             }, () => { void load() })
             .subscribe((status: string) => { if (status === "SUBSCRIBED") void load() })
+        const refreshOnReturn = () => { void load() }
+        window.addEventListener("online", refreshOnReturn)
+        window.addEventListener("focus", refreshOnReturn)
         return () => {
             disposed = true
+            window.removeEventListener("online", refreshOnReturn)
+            window.removeEventListener("focus", refreshOnReturn)
             void supabase.removeChannel(subscription)
         }
     }, [channel, orderId, refresh])
@@ -142,7 +161,10 @@ function Conversation({ orderId, channel, draft, onDraft }: {
             if (!visible || document.visibilityState !== "visible" || readThrough.current === id) return
             readThrough.current = id
             void markOrderChatRead(orderId, channel, id).then((result) => {
-                if (result.success) void refreshUnreadCount(userId)
+                if (result.success) {
+                    void refreshUnreadCount(userId)
+                    onRead?.()
+                }
                 if (!result.success && readThrough.current === id) readThrough.current = ""
             }).catch(() => {
                 if (readThrough.current === id) readThrough.current = ""
@@ -158,7 +180,7 @@ function Conversation({ orderId, channel, draft, onDraft }: {
             observer.disconnect()
             document.removeEventListener("visibilitychange", markVisible)
         }
-    }, [channel, latestId, loadError, orderId, refreshUnreadCount, user?.id])
+    }, [channel, latestId, loadError, onRead, orderId, refreshUnreadCount, user?.id])
 
     async function submit(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault()
@@ -169,7 +191,7 @@ function Conversation({ orderId, channel, draft, onDraft }: {
             const result = await sendOrderMessage(orderId, channel, draft.body, draft.id)
             if (result.success) {
                 nearBottom.current = true
-                onDraft({ body: "", id: "" })
+                onDraft({ body: "", id: "" }, draft.id)
                 setRefresh((version) => version + 1)
             } else {
                 setSendError(result.message ?? "Message couldn’t be sent. Try again.")
