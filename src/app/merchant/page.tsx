@@ -1,259 +1,73 @@
-import { createClient } from "@/lib/supabase/server"
+import Link from "next/link"
 import { redirect } from "next/navigation"
-import { StatsWidget } from "@/components/merchant/dashboard/StatsWidget"
-import { RevenueChart } from "@/components/merchant/dashboard/RevenueChart"
-import { BestsellersTable, RecentOrdersTable, TopProductsWidget } from "@/components/merchant/dashboard/Widgets"
+import { ChevronRight, ClipboardList, MessageCircle, ShoppingBag } from "lucide-react"
 import { VerifyRiderWidget } from "@/components/merchant/dashboard/VerifyRiderWidget"
-import { formatKobo } from "@/lib/money"
-
-type Relation<T> = T | T[] | null
-
-interface MerchantDashboardOrderRow {
-    id: string
-    status: string | null
-    created_at: string | null
-    rider_id: string | null
-    customer: Relation<{
-        full_name: string | null
-    }>
-    order_items: Array<{
-        quantity: number
-        price_per_unit: number
-        total_price: number | null
-        products: Relation<{
-            id: string
-            name: string | null
-        }>
-    }>
-    order_financials: Relation<{
-        merchant_base_total_kobo: number | null
-        settlement_status: string | null
-    }>
-}
-
-function firstRelation<T>(value: Relation<T>): T | null {
-    if (Array.isArray(value)) {
-        return value[0] ?? null
-    }
-
-    return value ?? null
-}
-
-function sumOrderGross(order: MerchantDashboardOrderRow) {
-    return order.order_items.reduce((sum, item) => {
-        return sum + (item.total_price ?? item.price_per_unit * item.quantity)
-    }, 0)
-}
+import { getSafeNotificationHref } from "@/lib/notifications"
+import { createClient } from "@/lib/supabase/server"
 
 export default async function MerchantDashboard() {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
+    if (!user) redirect("/login")
 
-    if (!user) {
-        redirect("/login")
-    }
-
-    const merchantId = user.id
-
-    const [{ data: pickupOrders }, { data: orderRows }] = await Promise.all([
-        supabase
-            .from("orders")
-            .select(`
-                *,
-                order_items!inner (
-                    *,
-                    products (
-                        name
-                    )
-                ),
-                rider:rider_id (
-                    full_name,
-                    phone
-                )
-            `)
-            .eq("merchant_id", merchantId)
-            .eq("status", "ready_for_pickup")
-            .not("rider_id", "is", null)
+    const [pickups, confirmations, messages] = await Promise.all([
+        supabase.from("orders")
+            .select("id, updated_at, order_items!inner(id, quantity, products(name)), rider:rider_id(full_name, phone)")
+            .eq("merchant_id", user.id).eq("status", "ready_for_pickup").not("rider_id", "is", null)
             .order("updated_at", { ascending: false }),
-        supabase
-            .from("orders")
-            .select(`
-                id,
-                status,
-                created_at,
-                rider_id,
-                customer:customer_id (
-                    full_name
-                ),
-                order_items (
-                    quantity,
-                    price_per_unit,
-                    total_price,
-                    products (
-                        id,
-                        name
-                    )
-                ),
-                order_financials (
-                    merchant_base_total_kobo,
-                    settlement_status
-                )
-            `)
-            .eq("merchant_id", merchantId)
-            .order("created_at", { ascending: false }),
+        supabase.from("orders").select("id", { count: "exact" })
+            .eq("merchant_id", user.id).eq("status", "awaiting_merchant_confirmation")
+            .order("created_at", { ascending: false }).limit(1),
+        supabase.from("notifications").select("action_url", { count: "exact" })
+            .eq("user_id", user.id).eq("type", "order_message")
+            .or("read.is.null,read.eq.false").or("action_url.eq./merchant/messages,action_url.like./merchant/messages?*")
+            .order("created_at", { ascending: false }).limit(1),
     ])
 
-    const activePickupOrders = pickupOrders || []
-    const orders = ((orderRows ?? []) as unknown as MerchantDashboardOrderRow[])
-    const nonCancelledOrders = orders.filter((order) => order.status !== "cancelled")
-
-    const totalOrders = orders.length
-    const grossSalesKobo = nonCancelledOrders.reduce((sum, order) => sum + sumOrderGross(order), 0)
-    const settledPayoutKobo = orders.reduce((sum, order) => {
-        const financial = firstRelation(order.order_financials)
-        if (!financial || financial.settlement_status !== "completed") {
-            return sum
-        }
-
-        return sum + (financial.merchant_base_total_kobo ?? 0)
-    }, 0)
-    const pendingSettlementKobo = orders.reduce((sum, order) => {
-        const financial = firstRelation(order.order_financials)
-        if (!financial || financial.settlement_status === "completed") {
-            return sum
-        }
-
-        return sum + (financial.merchant_base_total_kobo ?? 0)
-    }, 0)
-
-    const recentOrdersData = orders.slice(0, 5).map((order) => {
-        const orderedProducts = order.order_items.map((item) => {
-            const product = firstRelation(item.products ?? null)
-            return `${product?.name ?? "Unknown Item"} x${item.quantity}`
-        })
-
-        const productSummary = orderedProducts.length > 2
-            ? `${orderedProducts.slice(0, 2).join(", ")} +${orderedProducts.length - 2} more`
-            : orderedProducts.join(", ")
-
-        return {
-            id: order.id,
-            product: productSummary || "Unknown Item",
-            qty: `x${order.order_items.reduce((sum, item) => sum + item.quantity, 0)}`,
-            date: order.created_at ? new Date(order.created_at).toLocaleDateString() : "Unknown date",
-            revenue: sumOrderGross(order),
-            customer: firstRelation(order.customer)?.full_name ?? "Customer",
-            status: order.status ?? "pending",
-        }
-    })
-
-    const productSales = new Map<string, { name: string; price: number; sold: number; revenue: number }>()
-
-    nonCancelledOrders.forEach((order) => {
-        order.order_items.forEach((item) => {
-            const product = firstRelation(item.products)
-            const productId = product?.id ?? `unknown-${item.price_per_unit}`
-            const productName = product?.name ?? "Unnamed product"
-            const existing = productSales.get(productId) ?? {
-                name: productName,
-                price: item.price_per_unit ?? 0,
-                sold: 0,
-                revenue: 0,
-            }
-
-            existing.sold += item.quantity
-            existing.revenue += item.total_price ?? item.price_per_unit * item.quantity
-
-            productSales.set(productId, existing)
-        })
-    })
-
-    const bestsellersData = Array.from(productSales.values())
-        .sort((left, right) => right.sold - left.sold)
-        .slice(0, 5)
-
-    const totalTopUnits = bestsellersData.reduce((sum, product) => sum + product.sold, 0)
-    const topProductsData = bestsellersData.map((product) => ({
-        name: product.name,
-        share: totalTopUnits > 0 ? Math.round((product.sold / totalTopUnits) * 100) : 0,
-        units: product.sold,
-    }))
-
-    const currentYear = new Date().getFullYear()
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    const monthlyRevenue = new Array(12).fill(0)
-
-    nonCancelledOrders.forEach((order) => {
-        if (!order.created_at) {
-            return
-        }
-
-        const date = new Date(order.created_at)
-        if (date.getFullYear() !== currentYear) {
-            return
-        }
-
-        monthlyRevenue[date.getMonth()] += sumOrderGross(order)
-    })
-
-    const chartData = monthNames.map((name, index) => ({
-        name,
-        revenue: monthlyRevenue[index],
-    }))
+    const orderCount = confirmations.count ?? 0
+    const messageCount = messages.count ?? 0
+    const messageHref = getSafeNotificationHref(messages.data?.[0]?.action_url)
+    const next = [
+        {
+            title: orderCount ? `${orderCount} ${orderCount === 1 ? "order needs" : "orders need"} confirmation` : "View orders",
+            detail: orderCount ? "Check the items before accepting." : "Track and manage incoming orders.",
+            href: orderCount === 1 && confirmations.data?.[0] ? `/merchant/orders/${confirmations.data[0].id}` : "/merchant/orders",
+            icon: ClipboardList,
+        },
+        {
+            title: messageCount ? `${messageCount} new order ${messageCount === 1 ? "message" : "messages"}` : "Messages",
+            detail: "Open your order conversations.",
+            href: messageCount === 1 && messageHref ? messageHref : "/merchant/messages",
+            icon: MessageCircle,
+        },
+        { title: "Manage products", detail: "Update stock, prices, or listings.", href: "/merchant/products", icon: ShoppingBag },
+    ]
 
     return (
-        <div className="space-y-8">
-            {activePickupOrders.length > 0 && (
-                <VerifyRiderWidget orders={activePickupOrders} />
+        <div className="mx-auto min-w-0 max-w-4xl space-y-5 py-2 sm:py-4">
+            <header>
+                <p className="text-xs font-bold uppercase tracking-widest text-orange-800 dark:text-orange-300">Merchant workspace</p>
+                <h1 className="mt-1 text-3xl font-bold tracking-tight sm:text-4xl">Overview</h1>
+                <p className="mt-1 text-sm text-muted-foreground">What needs your attention today.</p>
+            </header>
+            {(pickups.error || confirmations.error || messages.error) && (
+                <p role="status" className="rounded-xl border bg-card p-3 text-sm">Some updates couldn’t load. You can still open Orders or Messages below.</p>
             )}
-
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-                <StatsWidget
-                    title="Gross Sales"
-                    value={formatKobo(grossSalesKobo)}
-                    trend="Sales"
-                    isPositive={true}
-                    color="#22c55e"
-                    data={[0, Math.round(grossSalesKobo / 2), grossSalesKobo]}
-                />
-                <StatsWidget
-                    title="Total Orders"
-                    value={totalOrders.toString()}
-                    trend="Orders"
-                    isPositive={true}
-                    color="#ef4444"
-                    data={[0, Math.max(1, Math.round(totalOrders / 2)), totalOrders]}
-                />
-                <StatsWidget
-                    title="Pending Settlement"
-                    value={formatKobo(pendingSettlementKobo)}
-                    trend="Awaiting"
-                    isPositive={true}
-                    color="#F59E0B"
-                    data={[0, Math.round(pendingSettlementKobo / 2), pendingSettlementKobo]}
-                />
-                <StatsWidget
-                    title="Settled Payouts"
-                    value={formatKobo(settledPayoutKobo)}
-                    trend="Settled"
-                    isPositive={true}
-                    color="#F58220"
-                    data={[0, Math.round(settledPayoutKobo / 2), settledPayoutKobo]}
-                />
-            </div>
-
-            <RevenueChart totalRevenue={grossSalesKobo} data={chartData} />
-
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-                <BestsellersTable products={bestsellersData} />
-                <TopProductsWidget products={topProductsData} />
-            </div>
-
-            <RecentOrdersTable orders={recentOrdersData} />
-
-            <div className="text-center text-xs text-gray-400 py-8">
-                RSS FOODS Platform @ 2026. All right reserved
-            </div>
+            <VerifyRiderWidget orders={pickups.data ?? []} />
+            <section aria-labelledby="merchant-next">
+                <h2 id="merchant-next" className="mb-2 font-semibold">Next up</h2>
+                <ul className="divide-y overflow-hidden rounded-2xl border bg-card">
+                    {next.map(({ title, detail, href, icon: Icon }) => (
+                        <li key={href}>
+                            <Link href={href} className="flex min-h-14 items-center gap-3 px-4 py-3 hover:bg-muted/60">
+                                <Icon className="size-5 shrink-0 text-orange-800 dark:text-orange-300" aria-hidden="true" />
+                                <span className="min-w-0 flex-1"><strong className="block text-sm">{title}</strong><span className="block text-sm text-muted-foreground">{detail}</span></span>
+                                <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                            </Link>
+                        </li>
+                    ))}
+                </ul>
+            </section>
         </div>
     )
 }
