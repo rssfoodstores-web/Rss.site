@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
+import { AgentWorkingLocation } from "@/components/agent/AgentWorkingLocation"
 import { AccountInProcess } from "@/components/access/AccountInProcess"
 import { AccountWorkspaceShell } from "@/components/account/AccountWorkspaceShell"
 import { RouteRefreshBridge } from "@/components/realtime/RouteRefreshBridge"
@@ -29,6 +30,10 @@ export default async function AgentLayout({
 
     const approvalStatus = await getOperationalApprovalStatus(supabase, "agent", user.id)
 
+    const workingLocation = approvalStatus === "approved"
+        ? await supabase.from("agent_work_settings").select("latitude,longitude,accuracy_metres,on_duty").eq("agent_id", user.id).maybeSingle()
+        : null
+
     return (
         <AccountWorkspaceShell role="agent" approved={approvalStatus === "approved"} name={user.user_metadata?.full_name} avatarUrl={user.user_metadata?.avatar_url}>
             {approvalStatus !== "approved" ? (
@@ -48,6 +53,7 @@ export default async function AgentLayout({
                             },
                         ]}
                     />
+                    <AgentWorkingLocation settings={workingLocation?.data ?? null} unavailable={Boolean(workingLocation?.error)} />
                     {children}
                 </>
             )}
