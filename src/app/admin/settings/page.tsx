@@ -14,11 +14,6 @@ export default async function AdminSettingsPage() {
                 <p className="text-gray-500 dark:text-gray-400">Configure global application variables.</p>
             </div>
 
-            <Link href="/admin/agent" className="flex items-center justify-between gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-5 py-4 text-sm font-semibold text-orange-900 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-100">
-                <span>Agent</span>
-                <span>Assignment settings and waiting orders</span>
-            </Link>
-
             <Link
                 href="/admin/finances"
                 className="flex items-center justify-between rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300"

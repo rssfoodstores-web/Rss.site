@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation"
 
-export default function AgentAssignmentsPage() {
-    redirect("/admin/agent")
+export default function AdminAgentRedirect() {
+    redirect("https://rss-admin-sigma.vercel.app/dashboard/agent")
 }
