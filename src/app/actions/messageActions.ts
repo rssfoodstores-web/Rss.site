@@ -1,6 +1,5 @@
 "use server"
 
-import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import type { OrderChatChannel } from "@/lib/orderChat"
 
@@ -9,18 +8,7 @@ interface OrderMessageActionResult {
     message?: string
 }
 
-function revalidateOrderMessagePaths(orderId: string) {
-    revalidatePath("/account/messages")
-    revalidatePath("/merchant/messages")
-    revalidatePath("/agent/messages")
-    revalidatePath("/rider/messages")
-    revalidatePath(`/account/orders/${orderId}`)
-    revalidatePath(`/merchant/orders/${orderId}`)
-    revalidatePath("/agent/orders")
-    revalidatePath("/rider")
-}
-
-export async function sendOrderMessage(orderId: string, channel: OrderChatChannel, body: string): Promise<OrderMessageActionResult> {
+export async function sendOrderMessage(orderId: string, channel: OrderChatChannel, body: string, messageId?: string): Promise<OrderMessageActionResult> {
     const supabase = await createClient()
     const {
         data: { user },
@@ -55,25 +43,26 @@ export async function sendOrderMessage(orderId: string, channel: OrderChatChanne
         return { success: false, message: "You do not have access to this order thread." }
     }
 
-    const { error } = await supabase
-        .from("order_messages")
-        .insert({
-            order_id: orderId,
-            channel,
-            sender_id: user.id,
-            body: trimmedBody,
-        })
+    const message = {
+        order_id: orderId,
+        channel,
+        sender_id: user.id,
+        body: trimmedBody,
+    }
+    const table = supabase.from("order_messages")
+    const { error } = messageId
+        ? await table.upsert({ ...message, id: messageId }, { onConflict: "id", ignoreDuplicates: true })
+        : await table.insert(message)
 
     if (error) {
         console.error("sendOrderMessage insert error:", error)
         return { success: false, message: error.message }
     }
 
-    revalidateOrderMessagePaths(orderId)
     return { success: true }
 }
 
-export async function markOrderChatRead(orderId: string, channel: OrderChatChannel): Promise<OrderMessageActionResult> {
+export async function markOrderChatRead(orderId: string, channel: OrderChatChannel, messageId: string): Promise<OrderMessageActionResult> {
     const supabase = await createClient()
     const {
         data: { user },
@@ -84,14 +73,14 @@ export async function markOrderChatRead(orderId: string, channel: OrderChatChann
         return { success: false, message: "Authentication failed." }
     }
 
-    const { data, error } = await supabase.rpc("mark_order_chat_read", {
+    const { data, error } = await supabase.rpc("read_order_chat_through_message", {
         p_order_id: orderId,
         p_channel: channel,
-        p_user_id: user.id,
+        p_message_id: messageId,
     })
 
     if (error) {
-        console.error("mark_order_chat_read RPC error:", error)
+        console.error("read_order_chat_through_message RPC error:", error)
         return { success: false, message: error.message }
     }
 
@@ -99,6 +88,5 @@ export async function markOrderChatRead(orderId: string, channel: OrderChatChann
         return { success: false, message: "Unable to update the read state for this thread." }
     }
 
-    revalidateOrderMessagePaths(orderId)
     return { success: true }
 }

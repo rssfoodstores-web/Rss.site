@@ -14,7 +14,7 @@ function useOpenUpdate() {
     const router = useRouter()
     const { markNotificationsRead } = useUser()
     return async (notification: AppNotification) => {
-        if (!isNotificationRead(notification)) {
+        if (notification.type !== "order_message" && !isNotificationRead(notification)) {
             await markNotificationsRead([notification.id])
         }
         const href = getSafeNotificationHref(notification.action_url)

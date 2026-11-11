@@ -40,11 +40,11 @@ export function RealtimeNotificationBridge() {
                     seenIds.current.add(notification.id)
 
                     const href = getSafeNotificationHref(notification.action_url)
-                    const markNotificationAsRead = () => markNotificationsRead([notification.id])
+                    const markNotificationAsRead = () => notification.type !== "order_message" && markNotificationsRead([notification.id])
 
-                    if (matchesNotificationDestination(window.location.href, notification.action_url)) {
+                    if (!document.hidden && matchesNotificationDestination(window.location.href, notification.action_url)) {
                         void markNotificationAsRead()
-                        router.refresh()
+                        if (notification.type !== "order_message") router.refresh()
                         return
                     }
 
