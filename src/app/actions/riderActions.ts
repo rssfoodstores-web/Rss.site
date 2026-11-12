@@ -193,6 +193,20 @@ export async function getNearbyOrders(lat: number, lng: number) {
     return data ?? []
 }
 
+export async function getRiderDeliveryOffers(lat: number, lng: number) {
+    if (!Number.isFinite(lat) || Math.abs(lat) > 90 || !Number.isFinite(lng) || Math.abs(lng) > 180) {
+        return { offers: [], error: "Location unavailable. Try again." }
+    }
+
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc("fetch_rider_delivery_offers", { p_lat: lat, p_lng: lng })
+    if (error) {
+        console.error("fetch_rider_delivery_offers RPC error:", error.code)
+        return { offers: [], error: "Delivery requests couldn’t load. Try again." }
+    }
+    return { offers: data ?? [], error: null }
+}
+
 export async function saveFCMToken(token: string) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()

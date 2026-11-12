@@ -1,378 +1,217 @@
 "use client"
 
-import Link from "next/link"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useId, useRef, useState, type ReactNode } from "react"
+import { useRouter } from "next/navigation"
+import { Check, MapPin, Navigation, Store } from "lucide-react"
+import { toast } from "sonner"
+import { releaseStalePickup, reportDeliveryIssue, verifyDelivery } from "@/app/actions/riderActions"
+import { OrderCall, OrderChatButton } from "@/components/messages/OrderChatPanel"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { MapPin, Phone, MessageSquare, Box, Truck, XCircle, Navigation } from "lucide-react"
-import type { Database } from "@/types/database.types"
-import { releaseStalePickup, reportDeliveryIssue, verifyDelivery } from "@/app/actions/riderActions"
-import { toast } from "sonner"
-import { useState } from "react"
-import { motion } from "framer-motion"
-import { useRouter } from "next/navigation"
+import { buildRiderNavigationUrl } from "@/lib/directions"
 import { formatKobo } from "@/lib/money"
-import { buildRiderNavigationUrl, parseCoordinates, type Coordinates } from "@/lib/directions"
-import { formatOrderStatus, getOrderStatusTone } from "@/lib/orders"
-import { RiderRouteMap } from "@/components/rider/dashboard/RiderRouteMap"
+import { formatOrderStatus } from "@/lib/orders"
+import { deliveryNumber, type RiderDelivery } from "@/lib/riderDeliveries"
+import { cn } from "@/lib/utils"
 
-type Order = Database["public"]["Tables"]["orders"]["Row"] & {
-    order_items: (Database["public"]["Tables"]["order_items"]["Row"] & {
-        products: Database["public"]["Tables"]["products"]["Row"] | null
-    })[]
+export const riderPrimaryButton = "min-h-11 bg-[#F58220] text-gray-950 hover:bg-orange-400"
+
+export function DeliveryHeading({ id, title, payout }: { id: string; title: string; payout: number | null }) {
+    return <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div><p className="text-xs text-muted-foreground">Order #{deliveryNumber(id)}</p>
+            <h2 className="text-xl font-semibold tracking-tight">{title}</h2></div>
+        {payout !== null && <div><p className="font-semibold tabular-nums">{formatKobo(payout)}</p>
+            <p className="text-xs text-muted-foreground">Rider payout</p></div>}
+    </header>
 }
 
-interface ActiveOrderViewProps {
-    order: Order
-    merchant: { name: string; address: string; phone: string | null; location?: unknown | null } | null
-    currentLocation?: Coordinates | null
-    gpsAccuracy?: number | null
-    gpsUpdatedAt?: number | null
+export function DeliverySteps({ current }: { current: number }) {
+    return <ol className="grid grid-cols-3 gap-1.5 text-xs font-medium sm:gap-2 sm:text-sm" aria-label="Delivery steps">
+        {["Accept", "Pick up", "Deliver"].map((label, index) => <li key={label} aria-current={index === current ? "step" : undefined}
+            className={cn("flex min-w-0 items-center gap-1.5 rounded-lg bg-muted px-1.5 py-2 text-muted-foreground sm:px-2",
+                index === current && "bg-orange-100 text-orange-950 dark:bg-orange-950 dark:text-orange-100",
+                index < current && "bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100")}>
+            <span className="grid size-5 shrink-0 place-items-center rounded-full bg-background text-xs" aria-hidden="true">
+                {index < current ? <Check className="size-3.5" /> : index + 1}
+            </span>
+            {index < current && <span className="sr-only">Completed: </span>}{label}
+        </li>)}
+    </ol>
 }
 
-function normalizeDeliveryContacts(value: unknown): string[] {
-    if (!Array.isArray(value)) {
-        return []
-    }
-
-    return Array.from(new Set(
-        value
-            .filter((item): item is string => typeof item === "string")
-            .map((item) => item.trim())
-            .filter(Boolean)
-    )).slice(0, 3)
+export function DeliveryStops({ pickup, dropoff, activeStop, children }: {
+    pickup: { name: string; address: string | null }
+    dropoff: { name: string; address: string | null }
+    activeStop?: "pickup" | "dropoff"
+    children?: ReactNode
+}) {
+    return <section className="min-w-0 space-y-3" aria-label="Pickup and drop-off">
+        {([{ key: "pickup", place: pickup, icon: Store, label: "Pick up from" },
+            { key: "dropoff", place: dropoff, icon: MapPin, label: "Deliver to" }] as const).map(({ key, place, icon: Icon, label }) => (
+            <div key={key} className="flex min-w-0 items-start gap-2.5">
+                <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground",
+                    activeStop === key && "bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-200")}>
+                    <Icon className="size-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0"><p className="text-xs text-muted-foreground">{label}</p>
+                    <p className="break-words text-sm font-semibold">{place.name}</p>
+                    {place.address && <p className="break-words text-sm text-muted-foreground">{place.address}</p>}</div>
+            </div>
+        ))}
+        {children}
+    </section>
 }
 
-function phoneHref(value: string): string | null {
-    const normalized = value.replace(/[^\d+]/g, "")
-    if (!/^\+?\d{7,15}$/.test(normalized)) {
-        return null
-    }
+const nextBox = "min-w-0 space-y-2 rounded-xl bg-orange-50 p-3.5 dark:bg-orange-950/45 sm:p-4"
+type Issue = "failed" | "reschedule" | "return_to_merchant"
 
-    return `tel:${normalized}`
-}
-
-function deliveryAddressLabel(value: unknown): string | null {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-        return null
-    }
-
-    const snapshot = value as Record<string, unknown>
-    const addressLabel = typeof snapshot.address_label === "string" ? snapshot.address_label.trim() : ""
-
-    return addressLabel || null
-}
-
-export function ActiveOrderView({ order, merchant, currentLocation = null, gpsAccuracy = null, gpsUpdatedAt = null }: ActiveOrderViewProps) {
-    const [deliveryOtp, setDeliveryOtp] = useState("")
-    const [loading, setLoading] = useState(false)
-    const [releasing, setReleasing] = useState(false)
-    const [issueLoading, setIssueLoading] = useState(false)
+export function ActiveOrderView({ delivery, onCompleted }: { delivery: RiderDelivery; onCompleted: () => void }) {
+    const [arrived, setArrived] = useState(false)
+    const [enterCode, setEnterCode] = useState(false)
+    const [code, setCode] = useState("")
+    const [issue, setIssue] = useState<Issue>("failed")
+    const [reason, setReason] = useState("")
+    const [schedule, setSchedule] = useState("")
+    const [busy, setBusy] = useState(false)
+    const [error, setError] = useState("")
+    const [confirmRelease, setConfirmRelease] = useState(false)
+    const actionLock = useRef(false)
+    const codeId = useId()
     const router = useRouter()
+    const pickup = delivery.status === "ready_for_pickup"
+    const returning = delivery.status === "return_in_transit"
+    const enRoute = delivery.status === "out_for_delivery"
+    const destination = pickup || returning ? delivery.pickup : delivery.dropoff
+    const navigationUrl = destination.coordinates ? buildRiderNavigationUrl(destination.coordinates) :
+        destination.address ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination.address)}&travelmode=driving` : null
+    const heading = pickup ? arrived ? "Waiting for pickup verification" : "Go to the pickup" : formatOrderStatus(delivery.status)
 
-    const currentStatus = String(order.status)
-    const isPickupPhase = currentStatus === "ready_for_pickup"
-
-    const handleVerifyDelivery = async () => {
-        if (deliveryOtp.length !== 4) {
-            toast.error("Please enter a valid 4-digit code")
-            return
-        }
-
-        setLoading(true)
-
+    async function act(action: () => Promise<{ success: boolean; message?: string }>, success: string, onSuccess?: () => void) {
+        if (actionLock.current) return
+        actionLock.current = true
+        setBusy(true)
+        setError("")
         try {
-            const result = await verifyDelivery(order.id, deliveryOtp)
-
-            if (result.success) {
-                toast.success("Delivery verified and settlement completed.")
-                router.refresh()
+            const result = await action()
+            if (!result.success) {
+                const message = result.message || "Couldn’t update the delivery. Try again."
+                setError(message)
+                toast.error(message)
                 return
             }
-
-            toast.error(result.message ?? "Failed to verify delivery.")
-        } catch (error) {
-            toast.error(error instanceof Error ? error.message : "Failed to verify delivery.")
+            setConfirmRelease(false)
+            onSuccess?.()
+            toast.success(success)
+            router.refresh()
+        } catch {
+            setError("Couldn’t update the delivery. Try again.")
+            toast.error("Couldn’t update the delivery. Try again.")
         } finally {
-            setLoading(false)
+            actionLock.current = false
+            setBusy(false)
         }
     }
 
-    const deliveryCoordinates = parseCoordinates(order.delivery_location)
-    const merchantCoordinates = parseCoordinates(merchant?.location ?? null)
-    const savedDeliveryAddress = deliveryAddressLabel(order.delivery_address_snapshot)
-    const deliveryAddress = savedDeliveryAddress
-        ?? (deliveryCoordinates
-            ? `Pinned location: ${deliveryCoordinates.lat.toFixed(5)}, ${deliveryCoordinates.lng.toFixed(5)}`
-            : "Customer location is unavailable")
-
-    const customerContacts = normalizeDeliveryContacts(order.contact_numbers)
-    const callPhone = isPickupPhase ? merchant?.phone ?? null : customerContacts[0] ?? null
-    const activeDestination = isPickupPhase ? merchantCoordinates : deliveryCoordinates
-    const navigationUrl = activeDestination
-        ? buildRiderNavigationUrl(activeDestination, currentLocation, typeof navigator !== "undefined" ? navigator.userAgent : "")
-        : null
-    const gpsAgeSeconds = gpsUpdatedAt ? Math.max(0, Math.round((Date.now() - gpsUpdatedAt) / 1000)) : null
-    const gpsIsStale = gpsAgeSeconds === null || gpsAgeSeconds > 60
-    const gpsIsPoor = gpsAccuracy !== null && gpsAccuracy > 100
-
-    const handleCall = () => {
-        if (!callPhone) {
-            toast.error("No phone number is available for this stop.")
-            return
-        }
-
-        const href = phoneHref(callPhone)
-        if (!href) {
-            toast.error("This phone number is not valid.")
-            return
-        }
-
-        window.location.href = href
-    }
-
-    const handleReleasePickup = async () => {
-        setReleasing(true)
-
-        try {
-            const result = await releaseStalePickup(order.id)
-
-            if (result.success) {
-                toast.success(result.message ?? "Pickup assignment released.")
-                router.refresh()
-                return
-            }
-
-            toast.error(result.message ?? "Unable to release pickup assignment.")
-        } catch (error) {
-            toast.error(error instanceof Error ? error.message : "Unable to release pickup assignment.")
-        } finally {
-            setReleasing(false)
-        }
-    }
-
-    const handleDeliveryIssue = async (action: "failed" | "reschedule" | "return_to_merchant") => {
-        const labels = { failed: "failed delivery", reschedule: "rescheduling", return_to_merchant: "return to merchant" }
-        const reason = window.prompt(`Reason for ${labels[action]}:`)?.trim()
-        if (!reason) return
-        const scheduledAt = action === "reschedule"
-            ? window.prompt("New delivery date and time (for example 2026-10-06 14:00):")?.trim() ?? null
-            : null
-        if (action === "reschedule" && !scheduledAt) return
-
-        setIssueLoading(true)
-        try {
-            const result = await reportDeliveryIssue(order.id, action, reason, scheduledAt)
-            if (result.success) {
-                toast.success(result.message)
-                router.refresh()
-            } else {
-                toast.error(result.message ?? "Unable to update delivery status.")
-            }
-        } catch (error) {
-            toast.error(error instanceof Error ? error.message : "Unable to update delivery status.")
-        } finally {
-            setIssueLoading(false)
-        }
-    }
-
-    return (
-        <div className="w-full max-w-md mx-auto space-y-4">
-            <motion.div
-                initial={{ y: -20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                className="flex items-center justify-between bg-card border border-border p-4 rounded-xl shadow-lg"
-            >
-                <div className="flex items-center gap-3">
-                    <div className={`h-10 w-10 rounded-full flex items-center justify-center ${isPickupPhase ? "bg-blue-500/20 text-blue-500" : "bg-green-500/20 text-green-500"}`}>
-                        {isPickupPhase ? <Box className="h-5 w-5" /> : <Truck className="h-5 w-5" />}
+    return <section className="space-y-4 rounded-2xl border bg-card p-4 sm:p-5" aria-label="Selected delivery">
+        <DeliveryHeading id={delivery.id} title={heading} payout={delivery.payout} />
+        <DeliverySteps current={pickup ? 1 : 2} />
+        <div className="grid min-w-0 gap-4 md:grid-cols-2 md:items-start">
+            <DeliveryStops pickup={delivery.pickup} dropoff={delivery.dropoff} activeStop={pickup || returning ? "pickup" : "dropoff"}>
+                {(pickup || enRoute || returning) && <div className="flex flex-wrap gap-2">
+                    {navigationUrl && <Button variant="outline" className="min-h-11" asChild>
+                        <a href={navigationUrl} target="_blank" rel="noreferrer"><Navigation className="size-4" /> Directions</a>
+                    </Button>}
+                    <OrderCall phone={destination.phone} label={pickup || returning ? "store" : "customer"}
+                        buttonLabel={pickup || returning ? "Call store" : "Call customer"} />
+                </div>}
+                {enRoute && delivery.backupPhones.length > 0 && <details className="text-sm">
+                    <summary className="cursor-pointer py-1.5 font-medium">Backup delivery contacts</summary>
+                    <div className="mt-2 flex flex-wrap gap-2">{delivery.backupPhones.map((phone, index) =>
+                        <OrderCall key={phone} phone={phone} label={`backup contact ${index + 1}`} />)}</div>
+                </details>}
+            </DeliveryStops>
+            <section className={nextBox} aria-label="Next action">
+                <p className="text-xs font-semibold text-orange-900 dark:text-orange-200">Next step</p>
+                {pickup && !arrived && <>
+                    <h3 className="font-semibold">Head to {delivery.pickup.name}</h3>
+                    <p className="text-sm text-muted-foreground">Tap below when you arrive.</p>
+                    <Button className={riderPrimaryButton} onClick={() => setArrived(true)}>I’m at the store</Button>
+                </>}
+                {pickup && arrived && <>
+                    <h3 className="font-semibold">Show your pickup code</h3>
+                    {delivery.pickupCode ? <p className="font-mono text-3xl font-bold tracking-[0.16em]">{delivery.pickupCode}</p> :
+                        <p role="status" className="text-sm text-muted-foreground">Pickup code unavailable. Refresh or contact your agent.</p>}
+                    <p className="text-sm text-muted-foreground">Collect the order after the merchant verifies the code.</p>
+                    <Button variant="outline" className="min-h-11" onClick={() => router.refresh()}>Check pickup status</Button>
+                </>}
+                {enRoute && !enterCode && <>
+                    <h3 className="font-semibold">Deliver to {delivery.dropoff.name}</h3>
+                    <p className="text-sm text-muted-foreground">Ask for the delivery code when you hand over the order.</p>
+                    <Button className={riderPrimaryButton} onClick={() => setEnterCode(true)}>Enter delivery code</Button>
+                </>}
+                {enRoute && enterCode && <form className="space-y-2" onSubmit={(event) => {
+                    event.preventDefault()
+                    if (code.length === 4) void act(() => verifyDelivery(delivery.id, code), "Delivery completed.", onCompleted)
+                }}>
+                    <label htmlFor={codeId} className="block text-sm font-medium">Customer’s 4-digit code</label>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Input id={codeId} autoFocus autoComplete="off" inputMode="numeric" className="h-11 w-24 bg-background text-base tracking-widest"
+                            value={code} disabled={busy} onChange={(event) => { setCode(event.target.value.replace(/\D/g, "").slice(0, 4)); setError("") }} />
+                        <Button className={riderPrimaryButton} type="submit" disabled={busy || code.length !== 4}>
+                            {busy ? "Checking…" : "Complete delivery"}
+                        </Button>
                     </div>
-                    <div>
-                        <h2 className="text-foreground font-bold">{isPickupPhase ? "Pickup Phase" : "Delivery Phase"}</h2>
-                        <p className="text-muted-foreground text-xs">{isPickupPhase ? "Merchant handoff in progress" : "Head to customer"}</p>
-                        <p className="mt-1 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            Order #{order.id.slice(0, 8)}
-                        </p>
-                    </div>
-                </div>
-                <Badge className={`border ${getOrderStatusTone(currentStatus)}`}>
-                    {formatOrderStatus(currentStatus)}
-                </Badge>
-            </motion.div>
-
-            <Card className="border-border bg-card/50 backdrop-blur-sm">
-                <CardHeader>
-                    <CardTitle className="text-lg text-card-foreground">
-                        {isPickupPhase ? "Merchant Pickup" : "Customer Dropoff"}
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    <div className={`rounded-lg border p-3 text-sm ${gpsIsStale || gpsIsPoor ? "border-amber-300 bg-amber-50 text-amber-900" : "border-green-200 bg-green-50 text-green-900"}`}>
-                        <p className="font-semibold">{gpsIsStale ? "GPS location needs attention" : gpsIsPoor ? "GPS accuracy is poor" : "GPS location is active"}</p>
-                        <p className="mt-1 text-xs">
-                            {gpsIsStale ? "Keep this page open and enable precise location services." : gpsIsPoor ? `Accuracy is approximately ${Math.round(gpsAccuracy ?? 0)} metres. Move outdoors or enable precise GPS.` : `Accuracy is approximately ${Math.round(gpsAccuracy ?? 0)} metres.`}
-                        </p>
-                    </div>
-                    <div className="space-y-4">
-                        <div className="flex items-start gap-3">
-                            <MapPin className="h-5 w-5 text-[#F58220] mt-1 shrink-0" />
-                            <div>
-                                <h3 className="text-foreground font-medium">
-                                    {isPickupPhase ? merchant?.name ?? "Merchant pickup" : "Customer location"}
-                                </h3>
-                                <p className="text-muted-foreground text-sm">
-                                    {isPickupPhase ? merchant?.address ?? "Address hidden" : deliveryAddress}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="flex gap-2 pl-8">
-                            <Button
-                                size="sm"
-                                className="h-8 bg-[#F58220] text-xs text-white hover:bg-[#E57210]"
-                                asChild={Boolean(navigationUrl)}
-                                disabled={!navigationUrl}
-                            >
-                                {navigationUrl ? (
-                                    <a href={navigationUrl} target="_blank" rel="noreferrer">
-                                        <Navigation className="mr-2 h-3 w-3" />
-                                        {isPickupPhase ? "Navigate to merchant" : "Navigate to customer"}
-                                    </a>
-                                ) : (
-                                    <span><Navigation className="mr-2 h-3 w-3" />Location unavailable</span>
-                                )}
-                            </Button>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 text-xs"
-                                onClick={handleCall}
-                                disabled={!callPhone}
-                            >
-                                <Phone className="h-3 w-3 mr-2" />
-                                Call
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-8 text-xs" asChild>
-                                <Link href={`/rider/messages?order=${order.id}`}>
-                                    <MessageSquare className="h-3 w-3 mr-2" />
-                                    Chat
-                                </Link>
-                            </Button>
-                        </div>
-                        {!isPickupPhase && customerContacts.length > 0 ? (
-                            <div className="ml-8 rounded-xl border border-green-200 bg-green-50/70 p-3 dark:border-green-900/40 dark:bg-green-950/20">
-                                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-green-800 dark:text-green-200">
-                                    Delivery contacts
-                                </p>
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                    {customerContacts.map((number, index) => {
-                                        const href = phoneHref(number)
-
-                                        return href ? (
-                                            <a
-                                                key={`${number}-${index}`}
-                                                href={href}
-                                                className="rounded-full border border-green-200 bg-white px-3 py-1.5 text-sm font-semibold text-green-800 hover:bg-green-100 dark:border-green-800 dark:bg-green-950/40 dark:text-green-100"
-                                            >
-                                                {index === 0 ? "Primary: " : `Alternative ${index}: `}{number}
-                                            </a>
-                                        ) : (
-                                            <span key={`${number}-${index}`} className="rounded-full border border-red-200 px-3 py-1.5 text-sm text-red-700">
-                                                Invalid number: {number}
-                                            </span>
-                                        )
-                                    })}
-                                </div>
-                            </div>
-                        ) : null}
-                        <RiderRouteMap
-                            riderLocation={currentLocation}
-                            pickupLocation={merchantCoordinates}
-                            dropoffLocation={deliveryCoordinates}
-                            pickupLabel={merchant?.name ?? "Merchant pickup"}
-                            dropoffLabel="Customer dropoff"
-                            activeStop={isPickupPhase ? "pickup" : "dropoff"}
-                        />
-                    </div>
-
-                    <Separator className="bg-border" />
-
-                    {isPickupPhase ? (
-                        <div className="space-y-4">
-                            <div className="bg-blue-900/20 border border-blue-900/50 rounded-lg p-4 text-center space-y-3">
-                                <p className="text-blue-200 text-sm">Show this code to the merchant</p>
-                                <div className="text-4xl font-mono font-bold text-white tracking-widest">{order.pickup_code}</div>
-                                <p className="text-zinc-500 text-xs">Merchant must verify this code to release the order.</p>
-                                <p className="text-xs text-blue-100/80">
-                                    The rider app does not confirm pickup. This screen will switch to delivery mode after the merchant verifies the code.
-                                </p>
-                            </div>
-                            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-left text-sm text-amber-900">
-                                <p className="font-semibold">Stale test pickup?</p>
-                                <p className="mt-1">
-                                    If you claimed this order by mistake and the merchant has not verified pickup, release it here so it returns to the rider queue.
-                                </p>
-                                <Button
-                                    variant="destructive"
-                                    className="mt-3 w-full"
-                                    onClick={handleReleasePickup}
-                                    disabled={releasing}
-                                >
-                                    <XCircle className="mr-2 h-4 w-4" />
-                                    {releasing ? "Releasing..." : "Release stale pickup"}
-                                </Button>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="bg-[#F58220]/10 border border-[#F58220]/30 rounded-lg p-4 text-center space-y-2">
-                                <p className="text-[#F58220] text-sm font-medium">Ask customer for delivery code</p>
-                                <Input
-                                    placeholder="0 0 0 0"
-                                    className="text-center text-2xl tracking-[1em] font-bold h-14 bg-background border-input text-foreground"
-                                    maxLength={4}
-                                    value={deliveryOtp}
-                                    onChange={(event) => setDeliveryOtp(event.target.value)}
-                                />
-                            </div>
-                            <Button
-                                className="w-full bg-green-600 hover:bg-green-700 text-white h-12 text-lg font-bold"
-                                onClick={handleVerifyDelivery}
-                                disabled={loading || deliveryOtp.length !== 4}
-                            >
-                                {loading ? "Verifying..." : "Complete Delivery"}
-                            </Button>
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                                <Button variant="outline" className="text-xs" onClick={() => handleDeliveryIssue("failed")} disabled={issueLoading || loading}>
-                                    Report failed delivery
-                                </Button>
-                                <Button variant="outline" className="text-xs" onClick={() => handleDeliveryIssue("reschedule")} disabled={issueLoading || loading}>
-                                    Reschedule
-                                </Button>
-                                <Button variant="outline" className="text-xs text-red-700" onClick={() => handleDeliveryIssue("return_to_merchant")} disabled={issueLoading || loading}>
-                                    Return to merchant
-                                </Button>
-                            </div>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-
-            <Card className="border-border bg-muted/30">
-                <CardContent className="p-4">
-                    <h4 className="text-muted-foreground text-sm font-medium mb-3">Order Items</h4>
-                    <ul className="space-y-2">
-                        {order.order_items.map((item, index) => (
-                            <li key={index} className="flex justify-between text-foreground text-sm">
-                                <span>{item.quantity}x {item.products?.name || "Unknown item"}</span>
-                                <span className="text-muted-foreground">{formatKobo(item.total_price ?? 0)}</span>
-                            </li>
-                        ))}
-                    </ul>
-                </CardContent>
-            </Card>
+                </form>}
+                {returning && <><h3 className="font-semibold">Return the order to {delivery.pickup.name}</h3>
+                    <p className="text-sm text-muted-foreground">Contact the agent to coordinate the return.</p></>}
+                {!pickup && !enRoute && !returning && <><h3 className="font-semibold">{heading}</h3>
+                    <p className="text-sm text-muted-foreground">Contact the agent to confirm the next step.</p></>}
+                {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+            </section>
         </div>
-    )
-}
 
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+            <div className="min-w-0">
+                <p className="break-words text-sm font-semibold">{delivery.agent?.name ?? "Order team"}</p>
+                {delivery.agent && <p className="text-xs text-muted-foreground">Coordinating agent</p>}
+            </div>
+            <div className="flex flex-wrap gap-2">
+                <OrderCall phone={delivery.agent?.phone} label={delivery.agent?.name ?? "agent"} buttonLabel="Call agent" />
+                <OrderChatButton orderId={delivery.id} />
+            </div>
+        </div>
+        {delivery.items.length > 0 && <details className="border-t pt-2 text-sm">
+            <summary className="cursor-pointer py-2 font-medium">Order items</summary>
+            <ul className="space-y-1">{delivery.items.map((item) => <li key={item.id}>{item.quantity} × {item.name}</li>)}</ul>
+        </details>}
+        {(pickup || enRoute) && <details className="border-t pt-2 text-sm">
+            <summary className="cursor-pointer py-2 font-medium">Problem with this delivery?</summary>
+            {pickup ? <div className="space-y-2">
+                <p className="text-muted-foreground">Release this pickup if you can’t collect it. It will go back to the queue.</p>
+                {confirmRelease ? <div className="flex flex-wrap gap-2">
+                    <Button variant="destructive" disabled={busy} onClick={() => void act(() => releaseStalePickup(delivery.id), "Pickup released.")}>Confirm release</Button>
+                    <Button variant="ghost" disabled={busy} onClick={() => setConfirmRelease(false)}>Keep pickup</Button>
+                </div> : <Button variant="outline" onClick={() => setConfirmRelease(true)}>Release pickup</Button>}
+            </div> : <form className="grid max-w-md gap-2" onSubmit={(event) => {
+                event.preventDefault()
+                if (!reason.trim() || (issue === "reschedule" && !schedule)) return
+                void act(() => reportDeliveryIssue(delivery.id, issue, reason, issue === "reschedule" ? `${schedule}+01:00` : null), "Delivery issue recorded.")
+            }}>
+                <label className="grid gap-1">Update
+                    <select className="min-h-11 rounded-lg border bg-background px-2" disabled={busy} value={issue}
+                        onChange={(event) => setIssue(event.target.value as Issue)}>
+                        <option value="failed">Report failed delivery</option><option value="reschedule">Reschedule</option>
+                        <option value="return_to_merchant">Return to merchant</option>
+                    </select>
+                </label>
+                {issue === "reschedule" && <label className="grid gap-1">New delivery time (Lagos)
+                    <Input type="datetime-local" required disabled={busy} value={schedule} onChange={(event) => setSchedule(event.target.value)} />
+                </label>}
+                <label className="grid gap-1">Reason
+                    <Input required maxLength={500} disabled={busy} value={reason} onChange={(event) => setReason(event.target.value)} />
+                </label>
+                <Button type="submit" variant="outline" className="justify-self-start" disabled={busy || !reason.trim()}>Save update</Button>
+            </form>}
+        </details>}
+    </section>
+}

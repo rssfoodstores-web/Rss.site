@@ -92,8 +92,8 @@ const workspaceItems: Record<WorkspaceRole, NavItem[]> = {
         { label: "History", href: "/agent/history", icon: History },
     ],
     rider: [
-        { label: "Rider Overview", href: "/rider", icon: LayoutDashboard },
-        { label: "Deliveries", href: "/rider/deliveries", icon: Truck },
+        { label: "Deliveries", href: "/rider", icon: Truck },
+        { label: "Rider Overview", href: "/rider#rider-overview", icon: LayoutDashboard },
     ],
 }
 
@@ -216,7 +216,7 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
             }
         }
 
-        const routeNotificationCount = getNotificationCountForHrefs(
+        const routeNotificationCount = item.href.includes("#") ? 0 : getNotificationCountForHrefs(
             [item.href, ...(item.matchHrefs ?? [])],
             notificationPathCounts
         )

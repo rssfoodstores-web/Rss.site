@@ -12,11 +12,11 @@ import { isValidE164PhoneNumber, normalizePhoneNumber } from "@/lib/phone"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
-export function OrderCall({ phone, label }: { phone: string | null | undefined; label: string }) {
+export function OrderCall({ phone, label, buttonLabel = "Call" }: { phone: string | null | undefined; label: string; buttonLabel?: string }) {
     const number = phone ? normalizePhoneNumber(phone) : ""
     if (!isValidE164PhoneNumber(number)) return null
     return <Button asChild variant="outline" className="min-h-10">
-        <a href={`tel:${number}`} aria-label={`Call ${label}`}><Phone className="size-4" /> Call</a>
+        <a href={`tel:${number}`} aria-label={`Call ${label}`}><Phone className="size-4" /> {buttonLabel}</a>
     </Button>
 }
 
@@ -38,7 +38,7 @@ export function OrderChatPanel({ orders, initialOrderId, children, workspace = "
     orders: { id: string; name: string }[]
     initialOrderId: string
     children: ReactNode
-    workspace?: "agent" | "merchant"
+    workspace?: "agent" | "merchant" | "rider"
     unread?: OrderChatUnread
 }) {
     const [open, setOpen] = useState(false)

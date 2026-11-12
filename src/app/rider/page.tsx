@@ -1,230 +1,106 @@
-import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
-import { Card, CardContent } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Clock, AlertCircle } from "lucide-react"
-import Link from "next/link"
-
 import { RiderMissionControl } from "@/components/rider/dashboard/RiderMissionControl"
+import { parseCoordinates } from "@/lib/directions"
+import type { RiderDelivery } from "@/lib/riderDeliveries"
+import { createClient } from "@/lib/supabase/server"
 
-type MerchantLocationValue =
-    | string
-    | { type?: string; coordinates?: [number, number] }
-    | null
+const activeStatuses = ["ready_for_pickup", "out_for_delivery", "return_in_transit", "delivery_failed", "rescheduled"]
+const completedStatuses = ["completed", "delivered"]
+type Relation<T> = T | T[] | null
+type Person = { full_name: string | null; phone: string | null }
+
+interface AssignedOrder {
+    id: string
+    merchant_id: string | null
+    status: string | null
+    pickup_code: string | null
+    delivery_location: unknown
+    delivery_address_snapshot: { address_label?: string } | null
+    contact_numbers: unknown
+    customer: Relation<Person>
+    agent: Relation<Person>
+    order_financials: Relation<{ rider_share_kobo: number }>
+    order_items: { id: string; quantity: number; products: Relation<{ name: string | null }> }[] | null
+}
+
+function first<T>(value: Relation<T>) {
+    return Array.isArray(value) ? value[0] ?? null : value
+}
 
 export default async function RiderDashboard() {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
+    if (!user) redirect("/login")
+    const riderId = user.id
+    const lagosDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Africa/Lagos" }).format(new Date())
+    const today = new Date(`${lagosDate}T00:00:00+01:00`).toISOString()
 
-    if (!user) {
-        redirect("/login")
-    }
-
-    const { data: riderProfile } = await supabase
-        .from("rider_profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single()
-
-    if (!riderProfile) {
-        redirect("/join/rider/register")
-    }
-
-    // Pending State
-    if (riderProfile.status === "pending") {
-        return (
-            <div className="max-w-3xl mx-auto py-12">
-                <Card className="border-orange-200 bg-orange-50 dark:bg-orange-900/10">
-                    <CardContent className="flex flex-col items-center justify-center p-12 text-center">
-                        <div className="h-20 w-20 bg-orange-100 rounded-full flex items-center justify-center mb-6">
-                            <Clock className="h-10 w-10 text-[#F58220]" />
-                        </div>
-                        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">Application Pending</h2>
-                        <p className="text-gray-600 dark:text-gray-400 max-w-md mb-6">
-                            Thanks for applying! Our team is currently reviewing your documents.
-                            This process usually takes 24-48 hours. We&apos;ll notify you once approved.
-                        </p>
-                        <Button asChild className="bg-[#F58220] hover:bg-[#E57210]">
-                            <Link href="/account">Back to Profile</Link>
-                        </Button>
-                    </CardContent>
-                </Card>
-            </div>
-        )
-    }
-
-    // Rejected State
-    if (riderProfile.status === "rejected") {
-        return (
-            <div className="max-w-3xl mx-auto py-12">
-                <Card className="border-red-200 bg-red-50 dark:bg-red-900/10">
-                    <CardContent className="flex flex-col items-center justify-center p-12 text-center">
-                        <div className="h-20 w-20 bg-red-100 rounded-full flex items-center justify-center mb-6">
-                            <AlertCircle className="h-10 w-10 text-red-600" />
-                        </div>
-                        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">Application Update</h2>
-                        <p className="text-gray-600 dark:text-gray-400 max-w-md mb-6">
-                            Unfortunately, we couldn&apos;t approve your application at this time.
-                            Please contact support for more information.
-                        </p>
-                        <Button variant="outline" asChild>
-                            <Link href="/contact">Contact Support</Link>
-                        </Button>
-                    </CardContent>
-                </Card>
-            </div>
-        )
-    }
-
-    // Approved Dashboard Logic
-
-    const { data: activeOrders } = await supabase
-        .from("orders")
-        .select(`
-            *,
-            order_items (
-                *,
-                products (*)
-            )
-        `)
-        .eq("rider_id", user.id)
-        .in("status", ["ready_for_pickup", "out_for_delivery"])
-        .order("rider_assigned_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false })
-        .limit(10)
-
-    // 2. Nearby orders are loaded on the client after real rider location is available.
-    const availableOrders: NonNullable<typeof activeOrders> = []
-
-    // 3. Key Stats Calculation
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const todayIso = today.toISOString()
-
-    // A. Wallet & Earnings
-    const { data: wallet } = await supabase
-        .from("wallets")
-        .select("id, balance")
-        .eq("owner_id", user.id)
-        .eq("type", "rider")
-        .single()
-
-    let todaysEarnings = 0
-    if (wallet) {
-        // Query ledger entries for this wallet today
-        const { data: earningsData } = await supabase
-            .from("ledger_entries")
-            .select("amount")
-            .eq("wallet_id", wallet.id)
-            .gte("created_at", todayIso)
-            .gt("amount", 0) // Only count credits
-
-        if (earningsData) {
-            todaysEarnings = earningsData.reduce((sum, entry) => sum + entry.amount, 0)
+    const [assigned, recent, trips, wallet] = await Promise.all([
+        supabase.from("orders").select(`
+            id,merchant_id,status,pickup_code,delivery_location,delivery_address_snapshot,contact_numbers,
+            customer:customer_id(full_name,phone),agent:assigned_agent_id(full_name,phone),
+            order_financials(rider_share_kobo),order_items(id,quantity,products(name))
+        `).eq("rider_id", riderId).in("status", activeStatuses)
+            .order("rider_assigned_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }),
+        supabase.from("orders").select("id,merchant_id,created_at,delivery_verified_at,order_financials(rider_share_kobo)")
+            .eq("rider_id", riderId).in("status", completedStatuses)
+            .order("delivery_verified_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(8),
+        supabase.from("orders").select("id", { count: "exact", head: true }).eq("rider_id", riderId)
+            .in("status", completedStatuses).gte("delivery_verified_at", today),
+        supabase.from("wallets").select("id,balance").eq("owner_id", riderId).eq("type", "rider").maybeSingle(),
+    ])
+    const orders = (assigned.data ?? []) as AssignedOrder[]
+    const recentOrders = recent.data ?? []
+    const merchantIds = Array.from(new Set([...orders, ...recentOrders].map((order) => order.merchant_id)
+        .filter((id): id is string => typeof id === "string")))
+    const [merchants, profiles, earnings] = await Promise.all([
+        merchantIds.length ? supabase.from("merchants").select("id,store_name,business_address,phone,location").in("id", merchantIds) : null,
+        merchantIds.length ? supabase.from("profiles").select("id,full_name,address,phone,location").in("id", merchantIds) : null,
+        wallet.data ? supabase.from("ledger_entries").select("amount").eq("wallet_id", wallet.data.id)
+            .eq("description", "Rider payout for order").gte("created_at", today).gt("amount", 0) : null,
+    ])
+    const shops = new Map((merchants?.data ?? []).map((row) => [row.id, row]))
+    const people = new Map((profiles?.data ?? []).map((row) => [row.id, row]))
+    function pickup(id: string | null): RiderDelivery["pickup"] {
+        const shop = id ? shops.get(id) : undefined
+        const person = id ? people.get(id) : undefined
+        return {
+            name: shop?.store_name || person?.full_name || "Merchant",
+            address: shop?.business_address || person?.address || null,
+            phone: shop?.phone || person?.phone || null,
+            coordinates: parseCoordinates(shop?.location) ?? parseCoordinates(person?.location),
         }
     }
-
-    // B. Trips Count
-    const { count: todaysTrips } = await supabase
-        .from("orders")
-        .select("*", { count: 'exact', head: true })
-        .eq("rider_id", user.id)
-        .in("status", ["completed", "delivered"])
-        .gte("delivery_verified_at", todayIso)
-
-    const { data: recentCompletedRaw } = await supabase
-        .from("orders")
-        .select(`
-            id,
-            status,
-            total_amount,
-            created_at,
-            delivery_verified_at,
-            merchant_id,
-            order_financials (
-                rider_share_kobo
-            )
-        `)
-        .eq("rider_id", user.id)
-        .in("status", ["completed", "delivered"])
-        .order("delivery_verified_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false })
-        .limit(8)
-
-    const merchantIds = Array.from(
-        new Set(
-            [...(activeOrders ?? []), ...(recentCompletedRaw ?? [])]
-                .map((order) => order.merchant_id)
-                .filter(Boolean)
-        )
-    ) as string[]
-
-    const merchantDirectory = new Map<string, { name: string; address: string; phone: string | null; location: MerchantLocationValue }>()
-
-    await Promise.all(
-        merchantIds.map(async (merchantId) => {
-            const [{ data: merchantData }, { data: profileData }] = await Promise.all([
-                supabase
-                    .from("merchants")
-                    .select("store_name, business_address, phone, location")
-                    .eq("id", merchantId)
-                    .maybeSingle(),
-                supabase
-                    .from("profiles")
-                    .select("full_name, address, phone, location")
-                    .eq("id", merchantId)
-                    .maybeSingle(),
-            ])
-
-            merchantDirectory.set(merchantId, {
-                name: merchantData?.store_name || profileData?.full_name || "Merchant",
-                address: profileData?.address || merchantData?.business_address || "Location hidden",
-                phone: merchantData?.phone || profileData?.phone || null,
-                location: (merchantData?.location ?? profileData?.location ?? null) as MerchantLocationValue,
-            })
-        })
-    )
-
-    const merchantByOrderId = Object.fromEntries(
-        (activeOrders ?? []).map((order) => [
-            order.id,
-            merchantDirectory.get(order.merchant_id ?? "") ?? null,
-        ])
-    )
-
-    const recentCompletedOrders = (recentCompletedRaw ?? []).map((order) => ({
+    const deliveries: RiderDelivery[] = orders.map((order) => {
+        const customer = first(order.customer)
+        const agent = first(order.agent)
+        const phones = Array.isArray(order.contact_numbers)
+            ? [...new Set(order.contact_numbers.filter((number): number is string => typeof number === "string" && Boolean(number.trim())).map((number) => number.trim()))]
+            : []
+        return {
+            id: order.id,
+            status: order.status,
+            pickupCode: order.status === "ready_for_pickup" ? order.pickup_code : null,
+            pickup: pickup(order.merchant_id),
+            dropoff: { name: customer?.full_name || "Customer", phone: phones[0] ?? customer?.phone ?? null,
+                address: order.delivery_address_snapshot?.address_label || null, coordinates: parseCoordinates(order.delivery_location) },
+            backupPhones: phones.slice(1),
+            agent: agent ? { name: agent.full_name || "Coordinating agent", phone: agent.phone } : null,
+            payout: first(order.order_financials)?.rider_share_kobo ?? null,
+            items: (order.order_items ?? []).map((item) => ({
+                id: item.id, name: first(item.products)?.name || "Item", quantity: item.quantity,
+            })),
+        }
+    })
+    const history = recentOrders.map((order) => ({
         id: order.id,
-        status: order.status,
-        total_amount: order.total_amount,
-        payout_kobo: order.order_financials?.[0]?.rider_share_kobo ?? 0,
-        created_at: order.created_at,
-        delivery_verified_at: order.delivery_verified_at,
-        merchant_name: merchantDirectory.get(order.merchant_id ?? "")?.name ?? "Merchant",
+        merchantName: pickup(order.merchant_id).name,
+        payout: first(order.order_financials)?.rider_share_kobo ?? null,
+        date: order.delivery_verified_at ?? order.created_at,
     }))
 
-    // 5. Fetch General Profile for Avatar/Location
-    const { data: userProfile } = await supabase
-        .from("profiles")
-        .select("avatar_url, address")
-        .eq("id", user.id)
-        .single()
-
-    return (
-        <RiderMissionControl
-            riderId={user.id}
-            activeOrders={activeOrders ?? []}
-            availableOrders={availableOrders}
-            recentCompletedOrders={recentCompletedOrders}
-            riderName={riderProfile.full_name || "Rider"}
-            riderAvatar={riderProfile.passport_photo_url || userProfile?.avatar_url}
-            riderLocation={userProfile?.address ? userProfile.address.split(',')[0] : "Lagos, NG"}
-            merchantByOrderId={merchantByOrderId}
-            stats={{
-                balance: wallet?.balance || 0,
-                earnings: todaysEarnings,
-                trips: todaysTrips || 0,
-                hours: 0
-            }}
-        />
-    )
+    return <RiderMissionControl riderId={riderId} deliveries={deliveries} history={history}
+        assignmentsUnavailable={Boolean(assigned.error)} historyUnavailable={Boolean(recent.error)}
+        trips={trips.count} balance={wallet.error ? null : wallet.data?.balance ?? 0}
+        earnings={wallet.error || earnings?.error ? null : (earnings?.data ?? []).reduce((sum, entry) => sum + Number(entry.amount), 0)} />
 }
