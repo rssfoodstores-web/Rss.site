@@ -32,10 +32,7 @@ export default async function RiderDashboard() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) redirect("/login")
     const riderId = user.id
-    const lagosDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Africa/Lagos" }).format(new Date())
-    const today = new Date(`${lagosDate}T00:00:00+01:00`).toISOString()
-
-    const [assigned, recent, trips, wallet] = await Promise.all([
+    const [assigned, recent] = await Promise.all([
         supabase.from("orders").select(`
             id,merchant_id,status,pickup_code,delivery_location,delivery_address_snapshot,contact_numbers,
             customer:customer_id(full_name,phone),agent:assigned_agent_id(full_name,phone),
@@ -45,19 +42,14 @@ export default async function RiderDashboard() {
         supabase.from("orders").select("id,merchant_id,created_at,delivery_verified_at,order_financials(rider_share_kobo)")
             .eq("rider_id", riderId).in("status", completedStatuses)
             .order("delivery_verified_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(8),
-        supabase.from("orders").select("id", { count: "exact", head: true }).eq("rider_id", riderId)
-            .in("status", completedStatuses).gte("delivery_verified_at", today),
-        supabase.from("wallets").select("id,balance").eq("owner_id", riderId).eq("type", "rider").maybeSingle(),
     ])
     const orders = (assigned.data ?? []) as AssignedOrder[]
     const recentOrders = recent.data ?? []
     const merchantIds = Array.from(new Set([...orders, ...recentOrders].map((order) => order.merchant_id)
         .filter((id): id is string => typeof id === "string")))
-    const [merchants, profiles, earnings] = await Promise.all([
+    const [merchants, profiles] = await Promise.all([
         merchantIds.length ? supabase.from("merchants").select("id,store_name,business_address,phone,location").in("id", merchantIds) : null,
         merchantIds.length ? supabase.from("profiles").select("id,full_name,address,phone,location").in("id", merchantIds) : null,
-        wallet.data ? supabase.from("ledger_entries").select("amount").eq("wallet_id", wallet.data.id)
-            .eq("description", "Rider payout for order").gte("created_at", today).gt("amount", 0) : null,
     ])
     const shops = new Map((merchants?.data ?? []).map((row) => [row.id, row]))
     const people = new Map((profiles?.data ?? []).map((row) => [row.id, row]))
@@ -100,7 +92,5 @@ export default async function RiderDashboard() {
     }))
 
     return <RiderMissionControl riderId={riderId} deliveries={deliveries} history={history}
-        assignmentsUnavailable={Boolean(assigned.error)} historyUnavailable={Boolean(recent.error)}
-        trips={trips.count} balance={wallet.error ? null : wallet.data?.balance ?? 0}
-        earnings={wallet.error || earnings?.error ? null : (earnings?.data ?? []).reduce((sum, entry) => sum + Number(entry.amount), 0)} />
+        assignmentsUnavailable={Boolean(assigned.error)} historyUnavailable={Boolean(recent.error)} />
 }

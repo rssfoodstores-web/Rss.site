@@ -24,14 +24,11 @@ interface RiderMissionControlProps {
     history: RiderDeliveryHistory[]
     assignmentsUnavailable: boolean
     historyUnavailable: boolean
-    trips: number | null
-    balance: number | null
-    earnings: number | null
 }
 
 const historyDate = new Intl.DateTimeFormat("en-NG", { dateStyle: "medium", timeZone: "Africa/Lagos" })
 
-export function RiderMissionControl({ riderId, deliveries, history, assignmentsUnavailable, historyUnavailable, trips, balance, earnings }: RiderMissionControlProps) {
+export function RiderMissionControl({ riderId, deliveries, history, assignmentsUnavailable, historyUnavailable }: RiderMissionControlProps) {
     const router = useRouter()
     const [supabase] = useState(() => createClient())
     const [online, setOnline] = useState(true)
@@ -260,19 +257,6 @@ export function RiderMissionControl({ riderId, deliveries, history, assignmentsU
                     {online && !queue.loading && <Button variant="outline" className="min-h-11" onClick={retry}>Refresh requests</Button>}
                 </section>}
 
-            <section id="rider-overview" className="scroll-mt-24 rounded-2xl border bg-card p-4 sm:p-5" aria-labelledby="rider-overview-title">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                    <h2 id="rider-overview-title" className="font-semibold">Overview</h2>
-                    <dl className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
-                        <div><dt className="text-muted-foreground">Completed today</dt><dd className="font-semibold tabular-nums">{trips ?? "—"}</dd></div>
-                        <div><dt className="text-muted-foreground">Delivery earnings today</dt><dd className="font-semibold tabular-nums">{earnings === null ? "—" : formatKobo(earnings)}</dd></div>
-                        <div><dt className="text-muted-foreground">Wallet balance</dt><dd className="font-semibold tabular-nums">{balance === null ? "—" : formatKobo(balance)}</dd></div>
-                    </dl>
-                </div>
-                <Button variant="ghost" size="sm" className="mt-2 min-h-10" disabled={notificationsBusy || notificationsEnabled} onClick={() => void enableNotifications()}>
-                    <Bell className="size-4" /> {notificationsEnabled ? "Notifications enabled" : notificationsBusy ? "Enabling…" : "Enable delivery notifications"}
-                </Button>
-            </section>
             <details className="rounded-2xl border bg-card px-4 sm:px-5">
                 <summary className="min-h-11 cursor-pointer py-3 font-semibold">Past deliveries</summary>
                 {historyUnavailable ? <p role="alert" className="pb-4 text-sm text-muted-foreground">Past deliveries couldn’t load.</p>
@@ -284,6 +268,9 @@ export function RiderMissionControl({ riderId, deliveries, history, assignmentsU
                         </li>)}
                     </ul> : <p className="pb-4 text-sm text-muted-foreground">No completed deliveries yet.</p>}
             </details>
+            <Button variant="ghost" size="sm" className="min-h-10" disabled={notificationsBusy || notificationsEnabled} onClick={() => void enableNotifications()}>
+                <Bell className="size-4" /> {notificationsEnabled ? "Notifications enabled" : notificationsBusy ? "Enabling…" : "Enable delivery notifications"}
+            </Button>
         </div>
     </OrderChatPanel>
 }
