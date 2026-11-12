@@ -1,189 +1,110 @@
 import Link from "next/link"
-import { ChevronLeft, ChevronRight, Package, AlertCircle } from "lucide-react"
-import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
-import { formatKobo } from "@/lib/money"
-import { formatOrderStatus, getOrderStatusTone } from "@/lib/orders"
+import { createClient } from "@/lib/supabase/server"
+import { formatOrderStatus } from "@/lib/orders"
+import { cn } from "@/lib/utils"
+import { CustomerOrderWorkspace, type CustomerDelivery } from "./CustomerOrderWorkspace"
 
-interface OrderHistoryRow {
-    id: string
-    total_amount: number
-    status: string
-    created_at: string | null
-    order_items: { id: string; quantity: number }[]
+const pastStatuses = new Set(["completed", "delivered", "cancelled", "refunded", "returned_to_merchant"])
+const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
+type OrderRow = { id: string; status: string | null }
+type Group = { id: string; order_ids: string[] }
+type Person = { full_name: string | null; phone: string | null; avatar_url: string | null }
+type Relation<T> = T | T[] | null
+type DeliveryRow = OrderRow & {
+    total_amount: number; delivery_address_snapshot: { address_label?: string } | null
+    agent: Relation<Person>; rider: Relation<Person>
+    order_items: { quantity: number; products: Relation<{ name: string | null }> }[] | null
+}
+const first = <T,>(value: Relation<T>) => Array.isArray(value) ? value[0] ?? null : value
+
+function statusLabel(rows: OrderRow[]) {
+    const status = rows[0]?.status
+    if (rows.every((row) => row.status === status)) return formatOrderStatus(status)
+    const delivered = rows.filter((row) => ["completed", "delivered"].includes(row.status ?? "")).length
+    if (delivered) return `${delivered} of ${rows.length} delivered`
+    return rows.some((row) => row.status === "out_for_delivery") ? "Part of your order is on the way" : "Deliveries at different stages"
 }
 
-function formatOrderDate(date: string | null) {
-    return date ? new Date(date).toLocaleDateString() : "-"
-}
-
-export default async function OrderHistoryPage() {
+export default async function CustomerOrdersPage({ searchParams }: {
+    searchParams: Promise<{ orderId?: string; order?: string }>
+}) {
+    const params = await searchParams
+    const requested = params.orderId ?? params.order
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
+    if (!user) redirect("/login")
 
-    if (!user) {
-        redirect("/login")
+    const { data, error } = await supabase.from("orders").select("id,status")
+        .eq("customer_id", user.id).order("created_at", { ascending: false }).order("id")
+    const rows = (data ?? []) as OrderRow[]
+    const selectedId = typeof requested === "string" && uuid.test(requested) ? requested.toLowerCase() : null
+    const batches = Array.from({ length: Math.ceil(rows.length / 80) }, (_, index) =>
+        rows.slice(index * 80, (index + 1) * 80).map(({ id }) => id))
+    const groupResults = await Promise.all(batches.map((batch) => supabase.from("delivery_checkout_groups").select("id,order_ids")
+        .eq("customer_id", user.id).overlaps("order_ids", batch)))
+    const groups = groupResults.flatMap(({ data }) => (data ?? []) as Group[])
+    const groupByOrder = new Map(groups.flatMap((group) => group.order_ids.map((id) => [id, group] as const)))
+    const orders = new Map<string, { id: string; deliveryIds: string[]; rows: OrderRow[] }>()
+    for (const row of rows) {
+        const group = groupByOrder.get(row.id)
+        const id = group?.id ?? row.id
+        const current = orders.get(id)
+        if (current) current.rows.push(row)
+        else orders.set(id, { id, deliveryIds: group?.order_ids ?? [row.id], rows: [row] })
+    }
+    const entries = [...orders.values()]
+    const active = entries.filter((entry) => entry.rows.some((row) => !pastStatuses.has(row.status ?? "")))
+    const past = entries.filter((entry) => entry.rows.every((row) => pastStatuses.has(row.status ?? "")))
+    const selected = selectedId ? entries.find((entry) => entry.id === selectedId || entry.deliveryIds.includes(selectedId)) : active[0] ?? past[0]
+    const ids = selected?.deliveryIds ?? (selectedId ? [selectedId] : [])
+    const [details, secrets] = ids.length ? await Promise.all([
+        supabase.from("orders").select(`
+            id,status,total_amount,delivery_address_snapshot,
+            agent:assigned_agent_id(full_name,phone,avatar_url),rider:rider_id(full_name,phone,avatar_url),
+            order_items(quantity,products(name))
+        `).eq("customer_id", user.id).in("id", ids),
+        supabase.from("order_delivery_secrets").select("order_id,delivery_code")
+            .eq("customer_id", user.id).in("order_id", ids),
+    ]) : [null, null]
+    const detailById = new Map(((details?.data ?? []) as DeliveryRow[]).map((row) => [row.id, row]))
+    const codeById = new Map((secrets?.data ?? []).map((row) => [row.order_id, row.delivery_code as string]))
+    const deliveries = ids.flatMap((id): CustomerDelivery[] => {
+        const row = detailById.get(id)
+        if (!row) return []
+        return [{
+            id, status: row.status, total: row.total_amount, address: row.delivery_address_snapshot?.address_label ?? null,
+            agent: first(row.agent), rider: first(row.rider), code: row.status === "out_for_delivery" ? codeById.get(id) ?? null : null,
+            items: (row.order_items ?? []).map((item) => ({ quantity: item.quantity, name: first(item.products)?.name ?? "Item" })),
+        }]
+    })
+    function queue(entries: typeof active) {
+        return entries.map((entry) => <Link key={entry.id} scroll={false} href={`/account/orders?orderId=${entry.deliveryIds[0]}`}
+            aria-current={entry.id === selected?.id ? "page" : undefined}
+            className={cn("block min-w-0 rounded-xl border bg-card px-3 py-2 text-sm hover:border-orange-400",
+                entry.id === selected?.id && "border-orange-400 bg-orange-50 dark:bg-orange-950/40")}>
+            <strong>#{entry.deliveryIds[0].slice(0, 8).toUpperCase()}</strong>
+            <span className="block text-muted-foreground">{statusLabel(entry.rows)}</span>
+        </Link>)
     }
 
-    // Fetch Orders
-    const { data: ordersData, error } = await supabase
-        .from("orders")
-        .select(`
-            id,
-            total_amount,
-            status,
-            created_at,
-            order_items (
-                id,
-                quantity
-            )
-        `)
-        .eq("customer_id", user.id)
-        .order("created_at", { ascending: false })
-
-    if (error) {
-        console.error("Error fetching orders:", error)
-    }
-
-    const orders = (ordersData ?? []) as OrderHistoryRow[]
-
-    return (
-        <div className="min-h-screen bg-gray-50/50 py-6 dark:bg-black sm:py-8 lg:py-12">
-            <div className="container mx-auto px-4 sm:px-6">
-                <div className="mb-6 sm:mb-8">
-                    <h1 className="mb-2 text-2xl font-bold text-gray-900 dark:text-white sm:text-3xl">Order History</h1>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 sm:text-base">View and manage your past orders.</p>
-                </div>
-
-                <div className="min-w-0">
-
-                    <main className="min-w-0 flex-1">
-                        <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-gray-100 dark:border-zinc-800 overflow-hidden shadow-sm">
-                            {error ? (
-                                <div className="p-8 text-center text-red-500 sm:p-12">
-                                    <AlertCircle className="h-12 w-12 mx-auto mb-4" />
-                                    <h3 className="text-lg font-bold mb-2">Error Loading Orders</h3>
-                                    <p>{error.message}</p>
-                                </div>
-                            ) : (!orders || orders.length === 0) ? (
-                                <div className="p-8 text-center sm:p-12">
-                                    <div className="h-16 w-16 bg-gray-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
-                                        <Package className="h-8 w-8" />
-                                    </div>
-                                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">No orders yet</h3>
-                                    <p className="text-gray-500 mb-6">Start shopping to see your orders here.</p>
-                                    <Link href="/" className="inline-flex h-10 items-center justify-center rounded-lg bg-[#F58220] px-8 text-sm font-medium text-white shadow transition-colors hover:bg-[#F58220]/90">
-                                        Browse Products
-                                    </Link>
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="divide-y divide-gray-100 dark:divide-zinc-800 md:hidden">
-                                        {orders.map((order) => (
-                                            <div key={order.id} className="space-y-4 p-4 sm:p-5">
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">Order ID</p>
-                                                        <p className="mt-1 font-mono text-sm font-bold text-gray-900 dark:text-white">
-                                                            #{order.id.slice(0, 8)}
-                                                        </p>
-                                                    </div>
-                                                    <span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${getOrderStatusTone(order.status)}`}>
-                                                        {formatOrderStatus(order.status)}
-                                                    </span>
-                                                </div>
-
-                                                <div className="grid grid-cols-2 gap-3 rounded-2xl bg-gray-50 p-3 dark:bg-zinc-800/60">
-                                                    <div>
-                                                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">Date</p>
-                                                        <p className="mt-1 text-sm font-medium text-gray-700 dark:text-zinc-200">
-                                                            {formatOrderDate(order.created_at)}
-                                                        </p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">Items</p>
-                                                        <p className="mt-1 text-sm font-medium text-gray-700 dark:text-zinc-200">
-                                                            {order.order_items.length}
-                                                        </p>
-                                                    </div>
-                                                    <div className="col-span-2">
-                                                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">Total</p>
-                                                        <p className="mt-1 text-base font-bold text-gray-900 dark:text-white">
-                                                            {formatKobo(order.total_amount)}
-                                                        </p>
-                                                    </div>
-                                                </div>
-
-                                                <Link
-                                                    href={`/account/orders/${order.id}`}
-                                                    className="inline-flex w-full items-center justify-center rounded-xl bg-orange-50 px-4 py-3 text-sm font-bold text-[#F58220] transition-colors hover:bg-orange-100 dark:bg-orange-950/20 dark:hover:bg-orange-950/30"
-                                                >
-                                                    View details
-                                                    <ChevronRight className="ml-1 h-4 w-4" />
-                                                </Link>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    <div className="hidden overflow-x-auto md:block">
-                                        <table className="min-w-[600px] w-full border-collapse text-left">
-                                            <thead>
-                                                <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-zinc-800 dark:bg-zinc-800/50">
-                                                    <th className="p-4 md:p-6">Order ID</th>
-                                                    <th className="p-4 md:p-6">Date</th>
-                                                    <th className="p-4 md:p-6">Total</th>
-                                                    <th className="p-4 md:p-6">Status</th>
-                                                    <th className="p-4 md:p-6"></th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
-                                                {orders.map((order) => (
-                                                    <tr key={order.id} className="group text-sm transition-colors hover:bg-gray-50 dark:hover:bg-zinc-800/50 md:text-base">
-                                                        <td className="p-4 font-mono text-xs font-medium text-gray-900 dark:text-white md:p-6 md:text-sm">
-                                                            #{order.id.slice(0, 8)}
-                                                        </td>
-                                                        <td className="p-4 text-gray-500 dark:text-gray-400 md:p-6">
-                                                            {formatOrderDate(order.created_at)}
-                                                        </td>
-                                                        <td className="p-4 font-medium text-gray-900 dark:text-white md:p-6">
-                                                            {formatKobo(order.total_amount)} <span className="font-normal text-gray-400">({order.order_items.length} Items)</span>
-                                                        </td>
-                                                        <td className="p-4 md:p-6">
-                                                            <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${getOrderStatusTone(order.status)}`}>
-                                                                {formatOrderStatus(order.status)}
-                                                            </span>
-                                                        </td>
-                                                        <td className="p-4 text-right md:p-6">
-                                                            <Link href={`/account/orders/${order.id}`} className="inline-flex items-center rounded-lg bg-orange-50 px-4 py-2 text-sm font-bold text-[#F58220] transition-colors hover:bg-orange-100 dark:bg-orange-950/20 dark:hover:bg-orange-950/30">
-                                                                Details
-                                                                <ChevronRight className="ml-1 h-4 w-4" />
-                                                            </Link>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </>
-                            )}
-                            {/* Pagination (Client side logic needed for real pagination, keeping simpler for now) */}
-                            {orders && orders.length > 10 && (
-                                <div className="flex items-center justify-center gap-2 border-t border-gray-100 p-4 dark:border-zinc-800 sm:p-6">
-                                    <button disabled className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-300 transition-colors disabled:opacity-50 dark:bg-zinc-800">
-                                        <ChevronLeft className="h-5 w-5" />
-                                    </button>
-                                    <button className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F58220] font-bold text-white shadow-sm">
-                                        1
-                                    </button>
-                                    <button disabled className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-300 transition-colors dark:bg-zinc-800">
-                                        <ChevronRight className="h-5 w-5" />
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    </main>
-                </div>
-            </div>
-        </div>
-    )
+    return <div className="min-w-0 space-y-4">
+        <h1 className="text-3xl font-bold tracking-tight">Orders</h1>
+        {(error || groupResults.some((result) => result.error)) && <p role="alert" className="rounded-xl border p-3 text-sm">Some orders couldn’t load. Refresh to try again.</p>}
+        {entries.length === 0 && !ids.length && !error ? <div className="rounded-2xl border bg-card p-5">
+            <p>No orders yet.</p><Link className="underline" href="/">Browse products</Link>
+        </div> : <div className="grid min-w-0 gap-4 xl:grid-cols-[13rem_minmax(0,1fr)]">
+            <nav aria-label="Choose an order" className="min-w-0 space-y-2">
+                <h2 className="font-semibold">Active orders</h2>
+                {active.length ? queue(active) : <p className="text-sm text-muted-foreground">No active orders.</p>}
+                {past.length > 0 && <details key={selected?.id} open={past.some(({ id }) => id === selected?.id) || undefined}>
+                    <summary className="cursor-pointer py-2 text-sm font-semibold">Past orders</summary>
+                    <div className="space-y-2">{queue(past)}</div>
+                </details>}
+            </nav>
+            {deliveries.length ? <CustomerOrderWorkspace key={deliveries[0].id} deliveries={deliveries} hasEmail={Boolean(user.email)}
+                title={statusLabel(deliveries)} /> :
+                <p className="rounded-xl border bg-card p-4" role="status">{details?.error ? "Order details couldn’t load. Try again." : "Choose an available order."}</p>}
+        </div>}
+    </div>
 }

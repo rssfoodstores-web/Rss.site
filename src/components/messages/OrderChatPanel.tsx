@@ -24,12 +24,12 @@ const OpenOrderChat = createContext<((orderId: string, channel: OrderChatChannel
 
 export type OrderChatUnread = Partial<Record<OrderChatChannel, number>>
 
-export function OrderChatButton({ orderId, unread }: { orderId: string; unread?: OrderChatUnread }) {
+export function OrderChatButton({ orderId, unread, customer = false }: { orderId: string; unread?: OrderChatUnread; customer?: boolean }) {
     const open = useContext(OpenOrderChat)
     const count = (unread?.ops ?? 0) + (unread?.customer ?? 0)
-    const channel = !unread?.ops && unread?.customer ? "customer" : "ops"
+    const channel = customer || (!unread?.ops && unread?.customer) ? "customer" : "ops"
     return <Button variant="outline" className="min-h-11" onClick={(event) => open?.(orderId, channel, event.currentTarget)}>
-        <MessageCircle className="size-4" /> Chat
+        <MessageCircle className="size-4" /> {customer ? "Chat with agent" : "Chat"}
         {count > 0 && <span className="rounded-full bg-orange-100 px-1.5 text-xs font-semibold text-orange-900">{count} new</span>}
     </Button>
 }
@@ -38,7 +38,7 @@ export function OrderChatPanel({ orders, initialOrderId, children, workspace = "
     orders: { id: string; name: string }[]
     initialOrderId: string
     children: ReactNode
-    workspace?: "agent" | "merchant" | "rider"
+    workspace?: "agent" | "merchant" | "rider" | "customer"
     unread?: OrderChatUnread
 }) {
     const [open, setOpen] = useState(false)
@@ -48,7 +48,7 @@ export function OrderChatPanel({ orders, initialOrderId, children, workspace = "
     const router = useRouter()
     const orderId = orders.some((order) => order.id === selection.orderId) ? selection.orderId : initialOrderId
     const key = `${orderId}:${selection.channel}`
-    const isOpen = open && (workspace === "agent" || selection.orderId === initialOrderId)
+    const isOpen = open && (workspace === "agent" || (workspace === "customer" ? orders.some((order) => order.id === selection.orderId) : selection.orderId === initialOrderId))
 
     function openChat(id: string, channel: OrderChatChannel, trigger: HTMLElement) {
         opener.current = trigger
@@ -71,20 +71,20 @@ export function OrderChatPanel({ orders, initialOrderId, children, workspace = "
                 <header className="border-b p-4 pr-12">
                     <SheetTitle>Order chat</SheetTitle>
                     <SheetDescription>{workspace === "agent" ? "Choose a merchant and conversation." : `Order #${orderId.slice(0, 8).toUpperCase()}`}</SheetDescription>
-                    {orders.length > 1 && <select aria-label="Merchant" value={orderId}
+                    {orders.length > 1 && <select aria-label={workspace === "customer" ? "Delivery" : "Merchant"} value={orderId}
                         onChange={(event) => setSelection({ ...selection, orderId: event.target.value })}
                         className="mt-3 min-h-11 w-full rounded-lg border bg-background px-3 text-sm">
                         {orders.map((order) => <option key={order.id} value={order.id}>{order.name}</option>)}
                     </select>}
-                    <div className="mt-3 flex gap-2" role="group" aria-label="Conversation">
+                    {workspace !== "customer" && <div className="mt-3 flex gap-2" role="group" aria-label="Conversation">
                         {(["ops", "customer"] as const).map((channel) => <Button key={channel} variant={selection.channel === channel ? "default" : "outline"}
                             aria-pressed={selection.channel === channel} onClick={() => setSelection({ orderId, channel })}>
                             {channel === "ops" ? "Order team" : "Customer"}
                             {Boolean(unread?.[channel]) && <span className="text-xs tabular-nums">· {unread?.[channel]} new</span>}
                         </Button>)}
-                    </div>
+                    </div>}
                 </header>
-                {isOpen && <Conversation key={key} orderId={orderId} channel={selection.channel} draft={drafts[key]}
+                {isOpen && <Conversation key={key} orderId={orderId} channel={selection.channel} draft={drafts[key]} customer={workspace === "customer"}
                     onRead={unread?.[selection.channel] ? router.refresh : undefined}
                     onDraft={(draft, sentId) => setDrafts((current) =>
                         sentId && current[key]?.id !== sentId ? current : { ...current, [key]: draft })} />}
@@ -93,7 +93,8 @@ export function OrderChatPanel({ orders, initialOrderId, children, workspace = "
     </OpenOrderChat.Provider>
 }
 
-function Conversation({ orderId, channel, draft, onDraft, onRead }: {
+function Conversation({ orderId, channel, draft, onDraft, onRead, customer }: {
+    customer: boolean
     orderId: string
     channel: OrderChatChannel
     draft?: { body: string; id: string }
@@ -206,7 +207,7 @@ function Conversation({ orderId, channel, draft, onDraft, onRead }: {
     return <>
         <div className="max-h-[26dvh] shrink-0 overflow-auto border-b bg-muted/40 px-4 py-2">
             <p className="text-xs text-muted-foreground">{channel === "ops" ? "Visible to the merchant, agent and assigned rider." : "Visible to the customer and order team."}</p>
-            {participants.filter((person) => !person.is_current_user).map((person) => <div key={person.profile_id} className="flex min-h-11 items-center justify-between gap-2 py-1">
+            {participants.filter((person) => !person.is_current_user && (!customer || person.role === "agent")).map((person) => <div key={person.profile_id} className="flex min-h-11 items-center justify-between gap-2 py-1">
                 <span className="min-w-0 truncate text-sm">{person.full_name ?? formatChatRoleLabel(person.role)} <span className="text-xs text-muted-foreground">{formatChatRoleLabel(person.role)}</span></span>
                 <OrderCall phone={person.phone} label={person.full_name ?? person.role} />
             </div>)}
@@ -223,7 +224,7 @@ function Conversation({ orderId, channel, draft, onDraft, onRead }: {
             </div>}
             {!loading && !loadError && messages.length === 0 && <p className="text-sm text-muted-foreground">No messages yet.</p>}
             {messages.map((message) => <div key={message.id} className={cn("w-fit max-w-[88%] break-words rounded-2xl bg-muted px-3 py-2 text-sm", message.is_mine && "ml-auto bg-orange-100 text-orange-950")}>
-                <p className="text-xs font-semibold">{message.is_mine ? "You" : message.sender_name ?? formatChatRoleLabel(message.sender_role)}</p>
+                <p className="text-xs font-semibold">{message.is_mine ? "You" : customer && message.sender_role !== "agent" && message.sender_role !== "rider" ? "Order team" : message.sender_name ?? formatChatRoleLabel(message.sender_role)}</p>
                 <p className="whitespace-pre-wrap">{message.body}</p>
             </div>)}
             <div ref={bottom} className="h-px" />
