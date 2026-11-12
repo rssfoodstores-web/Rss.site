@@ -1,578 +1,289 @@
 "use client"
 
-import { startTransition, useEffect, useMemo, useRef, useState } from "react"
-import { Switch } from "@/components/ui/switch"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { MissionCard } from "@/components/rider/dashboard/MissionCard"
-import { ActiveOrderView } from "@/components/rider/dashboard/ActiveOrderView"
-import type { Database } from "@/types/database.types"
-import { saveFCMToken, updateRiderLocation, getNearbyOrders } from "@/app/actions/riderActions"
-import { toast } from "sonner"
-import { Bell, BellOff, MapPin, Package, Wallet, AlertTriangle, Clock3 } from "lucide-react"
-import { getToken } from "firebase/messaging"
+import { useEffect, useRef, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { Bell, MapPin, Package } from "lucide-react"
+import { getToken } from "firebase/messaging"
+import { toast } from "sonner"
+import { acceptOrder, getRiderDeliveryOffers, saveFCMToken, updateRiderLocation } from "@/app/actions/riderActions"
+import { ActiveOrderView, DeliveryHeading, DeliverySteps, DeliveryStops, riderPrimaryButton } from "@/components/rider/dashboard/ActiveOrderView"
+import { OrderChatPanel } from "@/components/messages/OrderChatPanel"
+import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
+import type { Coordinates } from "@/lib/directions"
 import { messaging } from "@/lib/firebase/config"
 import { formatKobo } from "@/lib/money"
-import { formatOrderStatus, getOrderStatusTone } from "@/lib/orders"
-
-type Order = Database["public"]["Tables"]["orders"]["Row"] & {
-    order_items: (Database["public"]["Tables"]["order_items"]["Row"] & {
-        products: Database["public"]["Tables"]["products"]["Row"] | null
-    })[]
-}
-
-interface RecentCompletedOrder {
-    id: string
-    status: string | null
-    total_amount: number
-    payout_kobo: number
-    created_at: string | null
-    delivery_verified_at: string | null
-    merchant_name: string
-}
-
-interface MerchantInfo {
-    name: string
-    address: string
-    phone: string | null
-    location?: unknown | null
-}
-
-interface NearbyOrderCard {
-    id: string
-    total_amount: number | null
-    status: string | null
-    created_at: string | null
-    delivery_location: Database["public"]["Tables"]["orders"]["Row"]["delivery_location"]
-    merchant_name: string
-    merchant_address: string
-}
-
-interface NearbyOrderRpc {
-    id: string
-    total_amount: number | null
-    status: string | null
-    created_at: string | null
-    delivery_location: Database["public"]["Tables"]["orders"]["Row"]["delivery_location"]
-    merchant_name: string
-    merchant_address: string
-}
+import { formatOrderStatus } from "@/lib/orders"
+import { deliveryNumber, needsHandoff, type RiderDelivery, type RiderDeliveryHistory, type RiderDeliveryOffer } from "@/lib/riderDeliveries"
+import { createClient } from "@/lib/supabase/client"
+import { cn } from "@/lib/utils"
 
 interface RiderMissionControlProps {
     riderId: string
-    activeOrders: Order[]
-    availableOrders: Order[]
-    recentCompletedOrders: RecentCompletedOrder[]
-    riderName: string
-    riderAvatar?: string | null
-    riderLocation?: string | null
-    merchantByOrderId: Record<string, MerchantInfo | null>
-    stats: {
-        balance: number
-        earnings: number
-        trips: number
-        hours: number
-    }
+    deliveries: RiderDelivery[]
+    history: RiderDeliveryHistory[]
+    assignmentsUnavailable: boolean
+    historyUnavailable: boolean
+    trips: number | null
+    balance: number | null
+    earnings: number | null
 }
 
-function formatDateLabel(value: string | null | undefined) {
-    if (!value) {
-        return "Pending"
-    }
+const historyDate = new Intl.DateTimeFormat("en-NG", { dateStyle: "medium", timeZone: "Africa/Lagos" })
 
-    return new Date(value).toLocaleString()
-}
-
-export function RiderMissionControl({
-    riderId,
-    activeOrders,
-    availableOrders: initialOrders,
-    recentCompletedOrders,
-    riderName,
-    riderAvatar,
-    riderLocation: initialLocation,
-    merchantByOrderId,
-    stats,
-}: RiderMissionControlProps) {
+export function RiderMissionControl({ riderId, deliveries, history, assignmentsUnavailable, historyUnavailable, trips, balance, earnings }: RiderMissionControlProps) {
     const router = useRouter()
     const [supabase] = useState(() => createClient())
-    const [isOnline, setIsOnline] = useState(true)
-    const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
-    const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null)
-    const [gpsUpdatedAt, setGpsUpdatedAt] = useState<number | null>(null)
-    const [nearbyOrders, setNearbyOrders] = useState<NearbyOrderCard[]>(() =>
-        initialOrders.map((order) => ({
-            id: order.id,
-            total_amount: order.total_amount,
-            status: order.status ? String(order.status) : null,
-            created_at: order.created_at,
-            delivery_location: order.delivery_location,
-            merchant_name: merchantByOrderId[order.id]?.name ?? "Merchant pickup",
-            merchant_address: merchantByOrderId[order.id]?.address ?? "Store address unavailable",
-        }))
-    )
-    const [notificationsEnabled, setNotificationsEnabled] = useState(
-        typeof Notification !== "undefined" && Notification.permission === "granted"
-    )
-    const [selectedOrderId, setSelectedOrderId] = useState<string | null>(activeOrders[0]?.id ?? null)
-    const hasShownLocationFallback = useRef(false)
+    const [online, setOnline] = useState(true)
+    const [locationRevision, setLocationRevision] = useState(0)
+    const [queueRevision, setQueueRevision] = useState(0)
+    const [queue, setQueue] = useState<{ offers: RiderDeliveryOffer[]; error: string | null; loading: boolean }>({
+        offers: [], error: null, loading: true,
+    })
+    const [selection, setSelection] = useState<string | null>(null)
+    const [completedId, setCompletedId] = useState<string | null>(null)
+    const [dismissed, setDismissed] = useState<string[]>([])
+    const [accepting, setAccepting] = useState(false)
+    const [refreshing, startTransition] = useTransition()
+    const claimLock = useRef(false)
+    const [notificationsBusy, setNotificationsBusy] = useState(false)
+    const [notificationsEnabled, setNotificationsEnabled] = useState(false)
+    const locationRef = useRef<Coordinates | null>(null)
+    const lastLocationUpdate = useRef(0)
+    const blockingDelivery = deliveries.find((order) => needsHandoff(order.status))
+    const active = deliveries.find((order) => order.id === selection) ?? blockingDelivery ?? deliveries[0]
+    const canBrowse = online && !blockingDelivery && !assignmentsUnavailable
+    const visibleOffers = canBrowse ? queue.offers.filter((offer) => !dismissed.includes(offer.id)) : []
+    const offer = visibleOffers.find((entry) => entry.id === selection) ?? visibleOffers[0]
+    const selectedDelivery = active && (active.id === selection || !offer || Boolean(blockingDelivery)) ? active : undefined
+    const completed = history.find((entry) => entry.id === completedId)
 
     useEffect(() => {
-        const channel = supabase
-            .channel(`rider-active-order-${riderId}`)
-            .on(
-                "postgres_changes",
-                {
-                    event: "*",
-                    schema: "public",
-                    table: "orders",
-                    filter: `rider_id=eq.${riderId}`,
-                },
-                () => {
-                    startTransition(() => {
-                        router.refresh()
-                    })
-                }
-            )
-            .subscribe()
-
-        return () => {
-            supabase.removeChannel(channel)
+        if (!online) return
+        let disposed = false
+        if (!navigator.geolocation) {
+            setQueue({ offers: [], loading: false, error: "This device can’t share its location." })
+            return
         }
-    }, [riderId, router, supabase])
+        const watchId = navigator.geolocation.watchPosition((position) => {
+            if (disposed) return
+            const { latitude: lat, longitude: lng } = position.coords
+            const firstFix = locationRef.current === null
+            locationRef.current = { lat, lng }
+            if (firstFix) setQueueRevision((version) => version + 1)
+            if (Date.now() - lastLocationUpdate.current >= 30000) {
+                lastLocationUpdate.current = Date.now()
+                void updateRiderLocation(lat, lng).catch(() => {})
+            }
+        }, () => {
+            if (disposed) return
+            locationRef.current = null
+            setQueue({ offers: [], loading: false, error: "Allow location access to find nearby deliveries." })
+        }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 })
+        return () => {
+            disposed = true
+            locationRef.current = null
+            navigator.geolocation.clearWatch(watchId)
+        }
+    }, [online, locationRevision])
 
-    const enableNotifications = async () => {
+    useEffect(() => {
+        if (!canBrowse) return
+        let disposed = false
+        let request = 0
+        let timeout: number | undefined
+        async function load() {
+            const coordinates = locationRef.current
+            if (!coordinates) return
+            const version = ++request
+            try {
+                const result = await getRiderDeliveryOffers(coordinates.lat, coordinates.lng)
+                if (!disposed && version === request && locationRef.current) {
+                    setQueue({ offers: result.offers as RiderDeliveryOffer[], loading: false, error: result.error })
+                }
+            } catch {
+                if (!disposed && version === request && locationRef.current) {
+                    setQueue({ offers: [], loading: false, error: "Delivery requests couldn’t load. Try again." })
+                }
+            }
+        }
+        function schedule() {
+            window.clearTimeout(timeout)
+            timeout = window.setTimeout(() => { void load() }, 250)
+        }
+        void load()
+        const channel = supabase.channel(`rider-offers:${riderId}`).on("postgres_changes",
+            { event: "*", schema: "public", table: "orders", filter: "status=eq.ready_for_pickup" }, schedule)
+            .subscribe((status: string) => { if (status === "SUBSCRIBED") schedule() })
+        const interval = window.setInterval(() => { if (!document.hidden) void load() }, 30000)
+        window.addEventListener("focus", schedule)
+        return () => {
+            disposed = true
+            window.clearInterval(interval)
+            window.clearTimeout(timeout)
+            window.removeEventListener("focus", schedule)
+            void supabase.removeChannel(channel)
+        }
+    }, [canBrowse, queueRevision, riderId, supabase])
+
+    useEffect(() => {
+        if (!blockingDelivery) return
+        const refresh = () => { if (!document.hidden) router.refresh() }
+        window.addEventListener("focus", refresh)
+        const interval = window.setInterval(refresh, 30000)
+        return () => {
+            window.removeEventListener("focus", refresh)
+            window.clearInterval(interval)
+        }
+    }, [blockingDelivery, router])
+
+    function retry() {
+        setQueue((current) => ({ ...current, error: null, loading: true }))
+        if (locationRef.current) setQueueRevision((version) => version + 1)
+        else setLocationRevision((version) => version + 1)
+    }
+
+    async function accept(id: string) {
+        if (claimLock.current || !canBrowse || refreshing) return
+        claimLock.current = true
+        setAccepting(true)
         try {
-            if (!messaging) {
-                toast.error("Notifications not configured")
-                return
+            const result = await acceptOrder(id, riderId)
+            if (result.success) {
+                setSelection(id)
+                setCompletedId(null)
+                setQueue((current) => ({ ...current, offers: current.offers.filter((entry) => entry.id !== id) }))
+                toast.success("Delivery accepted.")
+            } else {
+                toast.error(result.message ?? "This delivery couldn’t be accepted.")
             }
-
-            if (typeof Notification === "undefined") {
-                toast.error("Notifications are not supported on this device")
-                return
-            }
-
-            const permission = await Notification.requestPermission()
-            if (permission !== "granted") {
-                toast.error("Permission denied")
-                return
-            }
-
-            const token = await getToken(messaging, {
-                vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
-            })
-
-            if (token) {
-                await saveFCMToken(token)
-                setNotificationsEnabled(true)
-                toast.success("Notifications enabled")
-            }
-        } catch (error) {
-            console.error("FCM Error:", error)
-            toast.error("Failed to enable notifications")
+            startTransition(() => router.refresh())
+            setQueueRevision((version) => version + 1)
+        } catch {
+            toast.error("This delivery couldn’t be accepted. Try again.")
+            startTransition(() => router.refresh())
+        } finally {
+            claimLock.current = false
+            setAccepting(false)
         }
     }
 
-    const hasActiveMission = activeOrders.length > 0
-
-    useEffect(() => {
-        if (!isOnline) {
+    async function enableNotifications() {
+        if (!messaging || typeof Notification === "undefined") {
+            toast.error("Delivery notifications are unavailable on this device.")
             return
         }
-
-        let watchId: number
-        let active = true
-
-        const handleLocationFailure = (message: string) => {
-            if (!active) {
+        setNotificationsBusy(true)
+        try {
+            if (await Notification.requestPermission() !== "granted") {
+                toast.error("Allow notifications in your browser to receive alerts.")
                 return
             }
-
-            setUserLocation(null)
-            setNearbyOrders([])
-
-            if (!hasShownLocationFallback.current) {
-                toast.warning(message)
-                hasShownLocationFallback.current = true
-            }
+            const token = await getToken(messaging, { vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY })
+            if (!token || !(await saveFCMToken(token)).success) throw new Error("Token unavailable")
+            setNotificationsEnabled(true)
+            toast.success("Delivery notifications enabled.")
+        } catch {
+            toast.error("Couldn’t enable notifications. Try again.")
+        } finally {
+            setNotificationsBusy(false)
         }
+    }
 
-        if ("geolocation" in navigator) {
-            watchId = navigator.geolocation.watchPosition(
-                async (position) => {
-                    if (!active) {
-                        return
-                    }
-
-                    const { latitude, longitude } = position.coords
-                    setUserLocation({ lat: latitude, lng: longitude })
-                    setGpsAccuracy(Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null)
-                    setGpsUpdatedAt(Date.now())
-                    hasShownLocationFallback.current = false
-                    await updateRiderLocation(latitude, longitude)
-                },
-                (error) => {
-                    const message = error.code === error.TIMEOUT
-                        ? "Live GPS timed out. Nearby orders are paused until location comes back."
-                        : "Location access failed. Nearby orders are paused until location comes back."
-
-                    handleLocationFailure(message)
-                },
-                { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
-            )
-        } else {
-            handleLocationFailure("Geolocation is not supported on this device.")
-        }
-
-        return () => {
-            active = false
-            if (watchId) {
-                navigator.geolocation.clearWatch(watchId)
-            }
-        }
-    }, [isOnline])
-
-    useEffect(() => {
-        if (!isOnline || !userLocation) {
-            return
-        }
-
-        const fetchNearby = async () => {
-            const orders = await getNearbyOrders(userLocation.lat, userLocation.lng) as NearbyOrderRpc[]
-
-            const mappedOrders: NearbyOrderCard[] = orders.map((rpcOrder) => ({
-                id: rpcOrder.id,
-                total_amount: rpcOrder.total_amount,
-                status: rpcOrder.status ? String(rpcOrder.status) : null,
-                created_at: rpcOrder.created_at,
-                delivery_location: rpcOrder.delivery_location,
-                merchant_name: rpcOrder.merchant_name,
-                merchant_address: rpcOrder.merchant_address,
-            }))
-
-            setNearbyOrders(mappedOrders)
-        }
-
-        void fetchNearby()
-
-        const channel = supabase
-            .channel("available-orders")
-            .on(
-                "postgres_changes",
-                {
-                    event: "*",
-                    schema: "public",
-                    table: "orders",
-                    filter: "status=eq.ready_for_pickup",
-                },
-                () => {
-                    void fetchNearby()
-                }
-            )
-            .subscribe()
-
-        const interval = setInterval(() => {
-            void fetchNearby()
-        }, 30000)
-
-        return () => {
-            clearInterval(interval)
-            supabase.removeChannel(channel)
-        }
-    }, [isOnline, supabase, userLocation])
-
-    const selectedOrder = useMemo(
-        () => activeOrders.find((order) => order.id === selectedOrderId) ?? activeOrders[0] ?? null,
-        [activeOrders, selectedOrderId]
-    )
-
-    const selectedMerchant = selectedOrder ? merchantByOrderId[selectedOrder.id] ?? null : null
-    const extraActiveAssignmentCount = Math.max(activeOrders.length - 1, 0)
-    const blockedNearbyOrders = nearbyOrders.filter(
-        (order) => !activeOrders.some((activeOrder) => activeOrder.id === order.id)
-    )
-
-    return (
-        <div className="mx-auto max-w-6xl space-y-6 px-4 py-6">
-            <Card className="border-orange-100 shadow-sm">
-                <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
-                    <div className="flex items-start gap-4 sm:items-center">
-                        <div className="h-14 w-14 rounded-full bg-gradient-to-tr from-[#F58220] to-red-500 p-[2px]">
-                            <img
-                                src={riderAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${riderName}`}
-                                alt="Avatar"
-                                className="h-full w-full rounded-full bg-background object-cover"
-                            />
-                        </div>
-                        <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <h1 className="text-xl font-bold text-foreground">{riderName}</h1>
-                                <Badge variant="secondary" className="bg-green-100 text-green-700 hover:bg-green-100">
-                                    Verified
-                                </Badge>
+    return <OrderChatPanel workspace="rider" initialOrderId={selectedDelivery?.id ?? ""}
+        orders={selectedDelivery ? [{ id: selectedDelivery.id, name: deliveryNumber(selectedDelivery.id) }] : []}>
+        <div className="min-w-0 space-y-4">
+            <header className="flex flex-wrap items-center justify-between gap-2">
+                <h1 className="text-3xl font-bold tracking-tight">Deliveries</h1>
+                <label className="flex min-h-11 items-center gap-2 rounded-xl border bg-card px-3 text-sm font-medium">
+                    {online ? "On duty" : "Off duty"}
+                    <Switch aria-label="Receive nearby delivery requests" checked={online} onCheckedChange={(value) => {
+                        setOnline(value)
+                        if (value) setQueue({ offers: [], error: null, loading: true })
+                    }} />
+                </label>
+            </header>
+            {assignmentsUnavailable && <p role="alert" className="rounded-xl border bg-card p-3 text-sm text-destructive">
+                Assignments couldn’t load. <button className="underline underline-offset-2" onClick={() => router.refresh()}>Refresh deliveries</button>
+            </p>}
+            {(deliveries.length > 1 || (deliveries.length > 0 && visibleOffers.length > 0) || visibleOffers.length > 1) &&
+                <nav className="flex flex-wrap gap-2" aria-label="Switch deliveries">
+                    {deliveries.map((order) => <Button key={order.id} variant="outline" onClick={() => setSelection(order.id)}
+                        aria-pressed={selectedDelivery?.id === order.id}
+                        className={cn("min-h-11", selectedDelivery?.id === order.id && "border-orange-400 bg-orange-50 dark:bg-orange-950")}>
+                        #{deliveryNumber(order.id)} · {formatOrderStatus(order.status)}
+                    </Button>)}
+                    {visibleOffers.map((entry) => <Button key={entry.id} variant="outline" onClick={() => setSelection(entry.id)}
+                        aria-pressed={!selectedDelivery && offer?.id === entry.id}
+                        className={cn("min-h-11", !selectedDelivery && offer?.id === entry.id && "border-orange-400 bg-orange-50 dark:bg-orange-950")}>
+                        #{deliveryNumber(entry.id)} · Request
+                    </Button>)}
+                </nav>}
+            {selectedDelivery ? <ActiveOrderView key={selectedDelivery.id} delivery={selectedDelivery}
+                onCompleted={() => { setSelection(null); setCompletedId(selectedDelivery.id) }} />
+                : offer ? <section className="space-y-4 rounded-2xl border bg-card p-4 sm:p-5" aria-label="Delivery request">
+                    <DeliveryHeading id={offer.id} title="New delivery request" payout={offer.rider_payout_kobo} />
+                    <DeliverySteps current={0} />
+                    <div className="grid gap-4 md:grid-cols-2 md:items-start">
+                        <DeliveryStops pickup={{ name: offer.merchant_name || "Merchant", address: offer.merchant_address }}
+                            dropoff={{ name: "Customer", address: "Delivery address shared after acceptance" }} />
+                        <div className="space-y-2 rounded-xl bg-orange-50 p-4 dark:bg-orange-950/45">
+                            <p className="text-xs font-semibold text-orange-900 dark:text-orange-200">Next step</p>
+                            <h3 className="font-semibold">Can you take this delivery?</h3>
+                            {offer.rider_payout_kobo === null && <p className="text-sm text-muted-foreground">Payout details are unavailable.</p>}
+                            <div className="flex flex-wrap gap-2">
+                                <Button className={cn(riderPrimaryButton, "flex-1 md:flex-none")} disabled={accepting || refreshing} onClick={() => void accept(offer.id)}>
+                                    {accepting ? "Accepting…" : "Accept delivery"}
+                                </Button>
+                                <Button variant="outline" className="min-h-11" disabled={accepting || refreshing}
+                                    onClick={() => setDismissed((ids) => [...ids, offer.id])}>Decline</Button>
                             </div>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                                {userLocation ? "Live GPS active" : (initialLocation || "Location not set")}
-                            </p>
                         </div>
                     </div>
-
-                    <div className="flex w-full flex-wrap items-center gap-3 md:w-auto md:justify-end">
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={enableNotifications}
-                            className={notificationsEnabled ? "text-[#F58220]" : "text-muted-foreground"}
-                        >
-                            {notificationsEnabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
-                        </Button>
-                        <div className="flex items-center gap-2 rounded-full border border-border px-3 py-2">
-                            <span className={`text-xs font-semibold ${isOnline ? "text-green-600" : "text-gray-500"}`}>
-                                {isOnline ? "Online" : "Offline"}
-                            </span>
-                            <Switch
-                                checked={isOnline}
-                                onCheckedChange={setIsOnline}
-                                className="data-[state=checked]:bg-[#F58220]"
-                            />
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                <Card className="border-orange-100">
-                    <CardContent className="flex items-center gap-3 p-5">
-                        <div className="rounded-2xl bg-orange-50 p-3 text-[#F58220]">
-                            <Wallet className="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p className="text-sm text-muted-foreground">Wallet balance</p>
-                            <p className="text-2xl font-bold text-foreground">{formatKobo(stats.balance)}</p>
-                        </div>
-                    </CardContent>
-                </Card>
-                <Card className="border-orange-100">
-                    <CardContent className="flex items-center gap-3 p-5">
-                        <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">
-                            <Package className="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p className="text-sm text-muted-foreground">Completed trips</p>
-                            <p className="text-2xl font-bold text-foreground">{stats.trips}</p>
-                        </div>
-                    </CardContent>
-                </Card>
-                <Card className="border-orange-100">
-                    <CardContent className="flex items-center gap-3 p-5">
-                        <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600">
-                            <Wallet className="h-5 w-5" />
-                        </div>
-                        <div>
-                            <p className="text-sm text-muted-foreground">Today&apos;s earnings</p>
-                            <p className="text-2xl font-bold text-foreground">{formatKobo(stats.earnings)}</p>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {hasActiveMission ? (
-                <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-                    <section className="space-y-4">
-                        <div>
-                            <h2 className="text-2xl font-bold text-foreground">Active assignments</h2>
-                            <p className="text-sm text-muted-foreground">
-                                Select the exact order you are handling. Merchant handoff depends on the correct pickup code.
-                            </p>
-                        </div>
-
-                        {extraActiveAssignmentCount > 0 && (
-                            <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/10">
-                                <CardContent className="flex gap-3 p-4 text-sm text-amber-800 dark:text-amber-200">
-                                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-                                    <div>
-                                        This rider account still has {extraActiveAssignmentCount} additional open assignment{extraActiveAssignmentCount > 1 ? "s" : ""}.
-                                        New rider requests will stay blocked until these pickup jobs are verified or an admin releases the stale assignments.
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
-
-                        {blockedNearbyOrders.length > 0 && (
-                            <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/10">
-                                <CardContent className="flex gap-3 p-4 text-sm text-blue-800 dark:text-blue-200">
-                                    <Package className="mt-0.5 h-5 w-5 shrink-0" />
-                                    <div className="space-y-2">
-                                        <p>
-                                            {blockedNearbyOrders.length} new delivery request{blockedNearbyOrders.length > 1 ? "s are" : " is"} waiting nearby,
-                                            but this rider cannot claim another order yet.
-                                        </p>
-                                        <div className="space-y-1">
-                                            {blockedNearbyOrders.slice(0, 3).map((order) => (
-                                                <p key={order.id} className="font-medium">
-                                                    Order #{String(order.id).slice(0, 8)} • {order.merchant_name ?? "Merchant pickup"}
-                                                </p>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
-
-                        <div className="space-y-3">
-                            {activeOrders.map((order) => {
-                                const merchant = merchantByOrderId[order.id]
-                                const isSelected = order.id === selectedOrder?.id
-
-                                return (
-                                    <button
-                                        key={order.id}
-                                        type="button"
-                                        onClick={() => setSelectedOrderId(order.id)}
-                                        className={`w-full rounded-2xl border p-4 text-left transition ${isSelected ? "border-[#F58220] bg-orange-50/70 shadow-sm" : "border-border bg-card hover:border-orange-200"}`}
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                                                    Order #{order.id.slice(0, 8)}
-                                                </p>
-                                                <p className="mt-2 font-semibold text-foreground">{merchant?.name ?? "Merchant pickup"}</p>
-                                            </div>
-                                            <Badge className={`border ${getOrderStatusTone(String(order.status))}`}>
-                                                {formatOrderStatus(String(order.status))}
-                                            </Badge>
-                                        </div>
-                                        <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                                            <p>{merchant?.address ?? "Location hidden"}</p>
-                                            <div className="flex items-center gap-2">
-                                                <Clock3 className="h-4 w-4 text-[#F58220]" />
-                                                <span>
-                                                    Assigned {formatDateLabel(order.rider_assigned_at ?? order.created_at)}
-                                                </span>
-                                            </div>
-                                            {String(order.status) === "ready_for_pickup" ? (
-                                                <p className="font-mono text-lg font-bold tracking-[0.3em] text-[#F58220]">
-                                                    {order.pickup_code}
-                                                </p>
-                                            ) : (
-                                                <p className="text-sm font-medium text-emerald-600">
-                                                    Ask customer for the delivery code at handoff.
-                                                </p>
-                                            )}
-                                        </div>
-                                    </button>
-                                )
-                            })}
-                        </div>
-                    </section>
-
-                    <section className="space-y-4">
-                        <div>
-                            <h2 className="text-2xl font-bold text-foreground">Selected job</h2>
-                            <p className="text-sm text-muted-foreground">
-                                Confirm you are working on the same order number shown on the merchant screen before using the code.
-                            </p>
-                        </div>
-
-                        {selectedOrder ? (
-                            <ActiveOrderView order={selectedOrder} merchant={selectedMerchant} currentLocation={userLocation} gpsAccuracy={gpsAccuracy} gpsUpdatedAt={gpsUpdatedAt} />
-                        ) : (
-                            <Card className="border-dashed">
-                                <CardContent className="p-10 text-center text-muted-foreground">
-                                    No active order selected.
-                                </CardContent>
-                            </Card>
-                        )}
-                    </section>
-                </div>
-            ) : (
-                <section className="space-y-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <h2 className="text-2xl font-bold text-foreground">Available deliveries</h2>
-                            <p className="text-sm text-muted-foreground">
-                                Accept one delivery at a time. New jobs appear here when they are near you.
-                            </p>
-                        </div>
-                        <Badge variant="outline" className="gap-1">
-                            <MapPin className="h-3 w-3" />
-                            {userLocation ? "Location ready" : "Location required"}
-                        </Badge>
-                    </div>
-
-                    {!isOnline ? (
-                        <Card className="border-dashed">
-                            <CardContent className="p-10 text-center text-muted-foreground">
-                                Go online to receive nearby delivery requests.
-                            </CardContent>
-                        </Card>
-                    ) : nearbyOrders.length > 0 ? (
-                        <div className="grid gap-4 sm:grid-cols-2">
-                            {nearbyOrders.map((order, index) => (
-                                <MissionCard
-                                    key={order.id}
-                                    order={order}
-                                    riderId={riderId}
-                                    queueIndex={index}
-                                    merchantName={order.merchant_name}
-                                    merchantAddress={order.merchant_address}
-                                />
-                            ))}
-                        </div>
-                    ) : (
-                        <Card className="border-dashed">
-                            <CardContent className="p-10 text-center text-muted-foreground">
-                                No delivery requests are near you right now.
-                            </CardContent>
-                        </Card>
-                    )}
                 </section>
-            )}
-
-            <section className="space-y-4">
-                <div>
-                    <h2 className="text-2xl font-bold text-foreground">Recent completed jobs</h2>
-                    <p className="text-sm text-muted-foreground">Your latest finished deliveries and payouts.</p>
-                </div>
-
-                {recentCompletedOrders.length > 0 ? (
-                    <div className="grid gap-4 sm:grid-cols-2">
-                        {recentCompletedOrders.map((order) => (
-                            <Card key={order.id} className="border-orange-100">
-                                <CardContent className="space-y-3 p-5">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                                                Order #{order.id.slice(0, 8)}
-                                            </p>
-                                            <p className="mt-2 font-semibold text-foreground">{order.merchant_name}</p>
-                                        </div>
-                                        <Badge className={`border ${getOrderStatusTone(String(order.status))}`}>
-                                            {formatOrderStatus(String(order.status))}
-                                        </Badge>
-                                    </div>
-                                    <p className="text-lg font-bold text-[#F58220]">{formatKobo(order.payout_kobo)}</p>
-                                    <p className="text-xs uppercase tracking-[0.16em] text-gray-400">Rider payout</p>
-                                    <p className="text-sm text-muted-foreground">
-                                        Completed {formatDateLabel(order.delivery_verified_at ?? order.created_at)}
-                                    </p>
-                                </CardContent>
-                            </Card>
-                        ))}
+                : completed
+                    ? <section className="space-y-3 rounded-2xl border bg-card p-4 sm:p-5" aria-label="Completed delivery">
+                        <DeliveryHeading id={completed.id} title="Delivery complete" payout={completed.payout} />
+                        <DeliverySteps current={3} />
+                        <p className="text-sm text-muted-foreground">You can find this order under Past deliveries.</p>
+                    </section>
+                : !assignmentsUnavailable && <section className="space-y-2 rounded-2xl border bg-card p-5" aria-label="Delivery requests">
+                    <div className="flex items-start gap-2">
+                        {queue.error && online ? <MapPin className="mt-0.5 size-5 shrink-0 text-orange-700 dark:text-orange-200" />
+                            : <Package className="mt-0.5 size-5 shrink-0 text-muted-foreground" />}
+                        <div>
+                            <h2 className="font-semibold">{!online ? "You’re off duty" : queue.loading ? "Finding nearby deliveries…" :
+                                queue.error ? "Can’t load delivery requests" : "No nearby requests right now"}</h2>
+                            {online && queue.error && <p role="alert" className="text-sm text-muted-foreground">{queue.error}</p>}
+                        </div>
                     </div>
-                ) : (
-                    <Card className="border-dashed">
-                        <CardContent className="p-10 text-center text-muted-foreground">
-                            No completed deliveries yet.
-                        </CardContent>
-                    </Card>
-                )}
-            </section>
-        </div>
-    )
-}
+                    {online && !queue.loading && <Button variant="outline" className="min-h-11" onClick={retry}>Refresh requests</Button>}
+                </section>}
 
+            <section id="rider-overview" className="scroll-mt-24 rounded-2xl border bg-card p-4 sm:p-5" aria-labelledby="rider-overview-title">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                    <h2 id="rider-overview-title" className="font-semibold">Overview</h2>
+                    <dl className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+                        <div><dt className="text-muted-foreground">Completed today</dt><dd className="font-semibold tabular-nums">{trips ?? "—"}</dd></div>
+                        <div><dt className="text-muted-foreground">Delivery earnings today</dt><dd className="font-semibold tabular-nums">{earnings === null ? "—" : formatKobo(earnings)}</dd></div>
+                        <div><dt className="text-muted-foreground">Wallet balance</dt><dd className="font-semibold tabular-nums">{balance === null ? "—" : formatKobo(balance)}</dd></div>
+                    </dl>
+                </div>
+                <Button variant="ghost" size="sm" className="mt-2 min-h-10" disabled={notificationsBusy || notificationsEnabled} onClick={() => void enableNotifications()}>
+                    <Bell className="size-4" /> {notificationsEnabled ? "Notifications enabled" : notificationsBusy ? "Enabling…" : "Enable delivery notifications"}
+                </Button>
+            </section>
+            <details className="rounded-2xl border bg-card px-4 sm:px-5">
+                <summary className="min-h-11 cursor-pointer py-3 font-semibold">Past deliveries</summary>
+                {historyUnavailable ? <p role="alert" className="pb-4 text-sm text-muted-foreground">Past deliveries couldn’t load.</p>
+                    : history.length ? <ul className="divide-y pb-2">
+                        {history.map((entry) => <li key={entry.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2.5 text-sm">
+                            <div><p className="font-medium">#{deliveryNumber(entry.id)} · {entry.merchantName}</p>
+                                {entry.date && <p className="text-xs text-muted-foreground">{historyDate.format(new Date(entry.date))}</p>}</div>
+                            {entry.payout !== null && <span className="font-medium tabular-nums">{formatKobo(entry.payout)}</span>}
+                        </li>)}
+                    </ul> : <p className="pb-4 text-sm text-muted-foreground">No completed deliveries yet.</p>}
+            </details>
+        </div>
+    </OrderChatPanel>
+}

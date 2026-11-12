@@ -170,7 +170,8 @@ export function normalizeNotificationPath(path: string | null | undefined) {
     }
 
     const route = trimmedPath.length > 1 ? trimmedPath.replace(/\/+$/, "") : trimmedPath
-    return route === "/account/gift-card" ? "/account/wallet" : route
+    if (route === "/account/gift-card") return "/account/wallet"
+    return route === "/rider/deliveries" ? "/rider" : route
 }
 
 export function matchesNotificationPath(pathname: string | null | undefined, href: string | null | undefined) {
