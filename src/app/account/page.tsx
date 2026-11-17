@@ -12,7 +12,7 @@ export default async function AccountPage() {
         supabase.from("notifications").select("*").eq("user_id", user.id)
             .or("read.is.null,read.eq.false").order("created_at", { ascending: false }).limit(12),
         supabase.from("orders").select("id,status").eq("customer_id", user.id)
-            .in("status", ["pending", "awaiting_agent_acceptance", "awaiting_merchant_confirmation", "processing", "ready_for_pickup", "out_for_delivery", "rescheduled"])
+            .in("status", ["awaiting_agent_acceptance", "awaiting_merchant_confirmation", "processing", "ready_for_pickup", "out_for_delivery", "rescheduled"])
             .order("created_at", { ascending: false }).limit(20),
     ])
 

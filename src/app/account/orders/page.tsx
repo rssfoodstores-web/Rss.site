@@ -7,7 +7,7 @@ import { CustomerOrderWorkspace, type CustomerDelivery } from "./CustomerOrderWo
 
 const pastStatuses = new Set(["completed", "delivered", "cancelled", "refunded", "returned_to_merchant"])
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
-type OrderRow = { id: string; status: string | null }
+type OrderRow = { id: string; status: string | null; payment_status: string | null }
 type Group = { id: string; order_ids: string[] }
 type Person = { full_name: string | null; phone: string | null; avatar_url: string | null }
 type Relation<T> = T | T[] | null
@@ -18,7 +18,7 @@ type DeliveryRow = OrderRow & {
 }
 const first = <T,>(value: Relation<T>) => Array.isArray(value) ? value[0] ?? null : value
 
-function statusLabel(rows: OrderRow[]) {
+function statusLabel(rows: Pick<OrderRow, "status">[]) {
     const status = rows[0]?.status
     if (rows.every((row) => row.status === status)) return formatOrderStatus(status)
     const delivered = rows.filter((row) => ["completed", "delivered"].includes(row.status ?? "")).length
@@ -35,7 +35,7 @@ export default async function CustomerOrdersPage({ searchParams }: {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) redirect("/login")
 
-    const { data, error } = await supabase.from("orders").select("id,status")
+    const { data, error } = await supabase.from("orders").select("id,status,payment_status")
         .eq("customer_id", user.id).order("created_at", { ascending: false }).order("id")
     const rows = (data ?? []) as OrderRow[]
     const selectedId = typeof requested === "string" && uuid.test(requested) ? requested.toLowerCase() : null
@@ -54,13 +54,18 @@ export default async function CustomerOrdersPage({ searchParams }: {
         else orders.set(id, { id, deliveryIds: group?.order_ids ?? [row.id], rows: [row] })
     }
     const entries = [...orders.values()]
-    const active = entries.filter((entry) => entry.rows.some((row) => !pastStatuses.has(row.status ?? "")))
-    const past = entries.filter((entry) => entry.rows.every((row) => pastStatuses.has(row.status ?? "")))
+    const attempts = entries.filter(({ rows }) => rows.every(({ status, payment_status }) =>
+        (status === "pending" && payment_status === "pending") || (status === "cancelled" && payment_status === "failed")))
+    const attemptIds = new Set(attempts.map(({ id }) => id))
+    const confirmed = entries.filter(({ id }) => !attemptIds.has(id))
+    const active = confirmed.filter((entry) => entry.rows.some((row) => !pastStatuses.has(row.status ?? "")))
+    const past = confirmed.filter((entry) => entry.rows.every((row) => pastStatuses.has(row.status ?? "")))
     const selected = selectedId ? entries.find((entry) => entry.id === selectedId || entry.deliveryIds.includes(selectedId)) : active[0] ?? past[0]
+    if (selected && attemptIds.has(selected.id)) redirect("/account/orders/" + selected.deliveryIds[0])
     const ids = selected?.deliveryIds ?? (selectedId ? [selectedId] : [])
     const [details, secrets] = ids.length ? await Promise.all([
         supabase.from("orders").select(`
-            id,status,total_amount,delivery_address_snapshot,
+            id,status,payment_status,total_amount,delivery_address_snapshot,
             agent:assigned_agent_id(full_name,phone,avatar_url),rider:rider_id(full_name,phone,avatar_url),
             order_items(quantity,products(name))
         `).eq("customer_id", user.id).in("id", ids),
@@ -101,10 +106,23 @@ export default async function CustomerOrdersPage({ searchParams }: {
                     <summary className="cursor-pointer py-2 text-sm font-semibold">Past orders</summary>
                     <div className="space-y-2">{queue(past)}</div>
                 </details>}
+                {attempts.length > 0 && <details>
+                    <summary className="cursor-pointer py-2 text-sm font-semibold">Unfinished payments</summary>
+                    <div className="space-y-2">
+                        {attempts.map(({ id, deliveryIds, rows }) => <Link key={id}
+                            href={"/account/orders/" + deliveryIds[0]}
+                            className="block rounded-xl border bg-card px-3 py-2 text-sm hover:border-orange-400">
+                            <strong>#{deliveryIds[0].slice(0, 8).toUpperCase()}</strong>
+                            <span className="block text-muted-foreground">
+                                {rows.some(({ payment_status }) => payment_status === "pending") ? "Payment pending" : "Payment closed"}
+                            </span>
+                        </Link>)}
+                    </div>
+                </details>}
             </nav>
             {deliveries.length ? <CustomerOrderWorkspace key={deliveries[0].id} deliveries={deliveries} hasEmail={Boolean(user.email)}
                 title={statusLabel(deliveries)} /> :
-                <p className="rounded-xl border bg-card p-4" role="status">{details?.error ? "Order details couldn’t load. Try again." : "Choose an available order."}</p>}
+                <p className="rounded-xl border bg-card p-4" role="status">{details?.error ? "Order details couldn’t load. Try again." : selectedId ? "Choose an available order." : "Your paid orders will appear here."}</p>}
         </div>}
     </div>
 }
