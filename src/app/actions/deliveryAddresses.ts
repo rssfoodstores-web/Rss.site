@@ -50,7 +50,7 @@ export async function deleteDeliveryAddress(id: string) {
 export interface MerchantDeliveryQuote {
     merchant_id: string
     store_name: string
-    items: { product_id: string; quantity: number; price: number }[]
+    items: { product_id: string; quantity: number; price: number; agent_price_adjustment?: number }[]
     fee: number
     subtotal: number
 }
