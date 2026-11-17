@@ -224,6 +224,22 @@ export function matchesNotificationDestination(currentUrl: string, actionUrl: st
     return !target.hash || current.hash === target.hash
 }
 
+export function getCustomerOrderUpdateId(actionUrl: string | null | undefined) {
+    const href = getSafeNotificationHref(actionUrl)
+    if (!href) return null
+    const target = new URL(href, "https://rss.invalid")
+    if (target.hash) return null
+
+    const detail = /^\/account\/orders\/([0-9a-f-]{36})\/?$/i.exec(target.pathname)
+    if (detail && !target.search) return detail[1].toLowerCase()
+    if (target.pathname !== "/account/orders") return null
+
+    const params = [...target.searchParams]
+    if (params.length !== 1) return null
+    const [[name, id]] = params
+    return (name === "orderId" || name === "order") && /^[0-9a-f-]{36}$/i.test(id) ? id.toLowerCase() : null
+}
+
 export function buildNotificationPathCounts(notifications: Array<{ action_url: string | null }>) {
     return notifications.reduce<Record<string, number>>((counts, notification) => {
         const normalizedPath = normalizeNotificationPath(notification.action_url)
