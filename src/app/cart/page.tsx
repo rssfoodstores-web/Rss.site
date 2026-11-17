@@ -79,6 +79,9 @@ export default function CartPage() {
     const subtotalKobo = activeQuote && !activeQuote.error ? activeQuote.subtotal : cartTotal
     const storeByMerchant = new Map(activeQuote?.groups.map((group) => [group.merchant_id, group.store_name]))
     const quotedPrices = new Map(activeQuote?.groups.flatMap((group) => group.items.map((item) => [item.product_id, item.price] as const)))
+    const agentPriceAdjustment = activeQuote?.groups.reduce((total, group) =>
+        total + group.items.reduce((sum, item) => sum + (item.agent_price_adjustment ?? 0) * item.quantity, 0), 0) ?? 0
+
     const displayedItems = cartItems.map((item) => ({ ...item, price: quotedPrices.get(item.id) ?? item.price }))
         .sort((a, b) => a.merchantId.localeCompare(b.merchantId))
     const deliveryFeeError = activeQuote?.error
@@ -358,6 +361,10 @@ export default function CartPage() {
     const costBreakdown = (
         <dl className="space-y-2 text-sm tabular-nums">
             <div className="flex justify-between gap-3"><dt>Items subtotal</dt><dd className="shrink-0">{formatKobo(subtotalKobo)}</dd></div>
+            {quoteReady && agentPriceAdjustment !== 0 && <div className="flex justify-between gap-3 pl-3 text-xs text-muted-foreground">
+                <dt>Agent commission adjustment included above</dt>
+                <dd className="shrink-0">{agentPriceAdjustment < 0 ? "−" : "+"}{formatKobo(Math.abs(agentPriceAdjustment))}</dd>
+            </div>}
             <div className="flex justify-between gap-3"><dt>Delivery{multiStore ? " across stores" : ""}</dt><dd className="text-right">{deliveryLabel}</dd></div>
             {multiStore && quoteReady && activeQuote?.groups.map((group, index) => (
                 <div key={group.merchant_id} className="flex justify-between gap-3 border-l pl-3 text-muted-foreground">
