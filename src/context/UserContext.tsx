@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { usePathname, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { type Session, type User } from "@supabase/supabase-js"
-import { buildNotificationPathCounts, matchesNotificationDestination } from "@/lib/notifications"
+import { buildNotificationPathCounts, getCustomerOrderUpdateId, matchesNotificationDestination } from "@/lib/notifications"
 import { createEmptyProfileRow } from "@/lib/profile"
 
 interface UserProfile {
@@ -39,6 +39,7 @@ interface UserContextType {
     refreshProfile: () => Promise<void>
     refreshUnreadCount: (targetUserId?: string) => Promise<void>
     markNotificationsRead: (ids: string[]) => Promise<boolean>
+    markVisibleOrderUpdatesRead: (orderIds: readonly string[]) => Promise<boolean>
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined)
@@ -138,6 +139,15 @@ export function UserProvider({ children }: { children: ReactNode }) {
         if (readIds.size !== ids.length) await refreshUnreadCount(user.id)
         return readIds.size > 0
     }, [refreshUnreadCount, supabase, user?.id])
+
+    const markVisibleOrderUpdatesRead = useCallback((orderIds: readonly string[]) => {
+        const visibleIds = new Set(orderIds)
+        const ids = (unreadNotifications ?? []).flatMap((row) => {
+            const orderId = getCustomerOrderUpdateId(row.action_url)
+            return row.type !== "order_message" && orderId && visibleIds.has(orderId) ? [row.id] : []
+        })
+        return markNotificationsRead(ids)
+    }, [markNotificationsRead, unreadNotifications])
 
     const visitNotificationDestination = useCallback(async (url: string) => {
         if (!user?.id) return
@@ -367,7 +377,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         : null, [unreadNotifications])
 
     return (
-        <UserContext.Provider value={{ user, profile, roleNames, workspaceStatuses, roles, unreadCount: unreadNotifications?.length ?? 0, unreadNotificationIds, notificationPathCounts: buildNotificationPathCounts(unreadNotifications ?? []), isLoading, refreshProfile, refreshUnreadCount, markNotificationsRead }}>
+        <UserContext.Provider value={{ user, profile, roleNames, workspaceStatuses, roles, unreadCount: unreadNotifications?.length ?? 0, unreadNotificationIds, notificationPathCounts: buildNotificationPathCounts(unreadNotifications ?? []), isLoading, refreshProfile, refreshUnreadCount, markNotificationsRead, markVisibleOrderUpdatesRead }}>
             <Suspense fallback={null}><NotificationRouteObserver onVisit={visitNotificationDestination} /></Suspense>
             {children}
         </UserContext.Provider>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { Check, Package, Truck, UserRound } from "lucide-react"
 import { OrderCall, OrderChatButton, OrderChatPanel } from "@/components/messages/OrderChatPanel"
@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { formatKobo } from "@/lib/money"
 import { formatOrderStatus } from "@/lib/orders"
 import { cn } from "@/lib/utils"
+import { useUser } from "@/context/UserContext"
 import { reportCustomerOrder } from "./reportActions"
 
 type Contact = { full_name: string | null; phone: string | null; avatar_url: string | null }
@@ -40,6 +41,11 @@ function Progress({ status }: { status: string | null }) {
 }
 
 export function CustomerOrderWorkspace({ deliveries, title, hasEmail }: { deliveries: CustomerDelivery[]; title: string; hasEmail: boolean }) {
+    const { markVisibleOrderUpdatesRead } = useUser()
+    useEffect(() => {
+        void markVisibleOrderUpdatesRead(deliveries.map(({ id }) => id))
+    }, [deliveries, markVisibleOrderUpdatesRead])
+
     const [riderId, setRiderId] = useState<string | null>(null)
     const [reportOpen, setReportOpen] = useState(false)
     const [pending, setPending] = useState(false)
