@@ -267,7 +267,7 @@ export function OrderDetailClient({ order, user }: OrderDetailClientProps) {
                                             <div>
                                                 <p className="font-semibold text-amber-900 dark:text-amber-100">Payment is still pending.</p>
                                                 <p className="mt-1 text-sm text-amber-800/80 dark:text-amber-200/80">
-                                                    Cancel this order if you want to release any reward points reserved for it and start over.
+                                                    This attempt closes when the payment provider confirms it expired or failed. You can also cancel it here to start over.
                                                 </p>
                                             </div>
                                             <Button
