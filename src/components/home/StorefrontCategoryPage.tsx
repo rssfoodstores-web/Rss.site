@@ -1,5 +1,6 @@
 import { AdPlacementSection } from "@/components/ads/AdPlacementSection"
 import { HeroSection } from "@/components/home/HeroSection"
+import { PromotionPlacement } from "@/components/promotions/PromotionPlacement"
 import { ProductGrid } from "@/components/home/ProductGrid"
 import {
     getStorefrontCategoryLabel,
@@ -22,6 +23,7 @@ export function StorefrontCategoryPage({
     return (
         <div className="flex flex-col gap-6">
             <HeroSection />
+            <PromotionPlacement placement={salesType === 'wholesale' ? 'wholesale_banner' : 'retail_banner'} />
             <ProductGrid
                 forcedCategory={category}
                 salesType={salesType}

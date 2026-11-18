@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import { PromotionPlacement } from "@/components/promotions/PromotionPlacement"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { getDeliverySettings, type DeliverySettings } from "@/app/actions/settingsActions"
 import { deliveryState } from "@/lib/deliveryAddresses"
@@ -636,13 +637,17 @@ export function ProductGrid({ forcedCategory = null, salesType, title }: Product
                 ) : products.length > 0 ? (
                     <>
                         <div className={cn("grid grid-cols-2 gap-3 transition-opacity duration-200 md:hidden", loading && "opacity-60")}>
-                            {products.map((product) => (
-                                <ProductCard key={product.id} product={product} deliverySettings={point ? deliverySettings : null} />
+                            {products.map((product, index) => (
+                                <Fragment key={product.id}><ProductCard product={product} deliverySettings={point ? deliverySettings : null} />
+                                    {index === Math.min(3, products.length - 1) && <div className="col-span-full"><PromotionPlacement placement="product_inline" /></div>}
+                                </Fragment>
                             ))}
                         </div>
                         <div className={cn("hidden text-left transition-opacity duration-200 md:grid md:grid-cols-3 md:gap-4 lg:grid-cols-4 md:gap-6", loading && "opacity-60")}>
-                            {products.map((product) => (
-                                <ProductCard key={product.id} product={product} deliverySettings={point ? deliverySettings : null} />
+                            {products.map((product, index) => (
+                                <Fragment key={product.id}><ProductCard product={product} deliverySettings={point ? deliverySettings : null} />
+                                    {index === Math.min(3, products.length - 1) && <div className="col-span-full"><PromotionPlacement placement="product_inline" /></div>}
+                                </Fragment>
                             ))}
                         </div>
                         {totalPages > 1 ? (

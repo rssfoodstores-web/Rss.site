@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { HeroSection } from "@/components/home/HeroSection"
+import { PromotionPlacement } from "@/components/promotions/PromotionPlacement"
 import { ProductGrid } from "@/components/home/ProductGrid"
 import { AdPlacementSection } from "@/components/ads/AdPlacementSection"
 import { StructuredData } from "@/components/seo/StructuredData"
@@ -54,7 +55,7 @@ export default async function Home({
   return (
     <div className="flex flex-col gap-6">
       <StructuredData data={[createOrganizationJsonLd(), createWebSiteJsonLd()]} />
-      <HeroSection />
+      <PromotionPlacement placement="home_hero" fallback={<HeroSection />} />
       <ProductGrid />
       <AdPlacementSection
         placement="home_inline"

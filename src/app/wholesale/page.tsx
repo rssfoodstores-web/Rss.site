@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { HeroSection } from "@/components/home/HeroSection"
+import { PromotionPlacement } from "@/components/promotions/PromotionPlacement"
 import { ProductGrid } from "@/components/home/ProductGrid"
 import { AdPlacementSection } from "@/components/ads/AdPlacementSection"
 import { isStorefrontCategorySlug } from "@/lib/categories"
@@ -51,6 +52,7 @@ export default async function WholesalePage({
     return (
         <div className="flex flex-col gap-6">
             <HeroSection />
+            <PromotionPlacement placement="wholesale_banner" />
             <ProductGrid salesType="wholesale" title="Wholesale Deals" />
             <AdPlacementSection
                 placement="wholesale_inline"
