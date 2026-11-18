@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { CustomerAccount } from "@/components/account/AccountUpdates"
 import { createClient } from "@/lib/supabase/server"
+import { PromotionPlacement } from "@/components/promotions/PromotionPlacement"
 
 export default async function AccountPage() {
     const supabase = await createClient()
@@ -16,5 +17,5 @@ export default async function AccountPage() {
             .order("created_at", { ascending: false }).limit(20),
     ])
 
-    return <CustomerAccount name={profile?.full_name?.trim().split(/\s+/)[0] || "there"} updates={updates ?? []} orders={orders ?? []} />
+    return <div className="space-y-5"><PromotionPlacement placement="customer_overview" /><CustomerAccount name={profile?.full_name?.trim().split(/\s+/)[0] || "there"} updates={updates ?? []} orders={orders ?? []} /></div>
 }

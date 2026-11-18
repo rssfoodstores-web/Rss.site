@@ -288,6 +288,7 @@ export function Header() {
                                 {isMerchant && (
                                     <Link href="/merchant" className={`${pathname === "/merchant" ? "text-[#F58220]" : "text-[#002603] dark:text-gray-200 hover:text-[#F58220]"} rounded-full px-3 py-2 transition-colors font-bold hover:bg-orange-50 dark:hover:bg-zinc-900`}>Dashboard</Link>
                                 )}
+                                <Link href="/promotions" className="rounded-full px-3 py-2 text-orange-600 transition-colors hover:bg-orange-50 dark:hover:bg-zinc-900">Promotions</Link>
                                 <Link href="/retail" className={`${pathname === "/retail" ? "text-[#F58220]" : "text-[#002603] dark:text-gray-200 hover:text-[#F58220]"} rounded-full px-3 py-2 transition-colors hover:bg-orange-50 dark:hover:bg-zinc-900`}>RSS Retail</Link>
                                 <Link href="/wholesale" className={`${pathname === "/wholesale" ? "text-[#F58220]" : "text-[#002603] dark:text-gray-200 hover:text-[#F58220]"} rounded-full px-3 py-2 transition-colors hover:bg-orange-50 dark:hover:bg-zinc-900`}>RSS Wholesale</Link>
                                 <Link href="/about" className={`${pathname === "/about" ? "text-[#F58220]" : "text-[#002603] dark:text-gray-200 hover:text-[#F58220]"} rounded-full px-3 py-2 transition-colors hover:bg-orange-50 dark:hover:bg-zinc-900`}>About RSS</Link>
@@ -323,6 +324,7 @@ export function Header() {
                                                     Merchant Dashboard
                                                 </Link>
                                             )}
+                                            <Link href="/promotions" onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-medium text-orange-600">Promotions</Link>
                                             <Link href="/retail" onClick={() => setIsMobileMenuOpen(false)} className={`text-lg font-medium transition-colors ${pathname === "/retail" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>RSS Retail</Link>
                                             <Link href="/wholesale" onClick={() => setIsMobileMenuOpen(false)} className={`text-lg font-medium transition-colors ${pathname === "/wholesale" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>RSS Wholesale</Link>
                                             <Link href="/about" onClick={() => setIsMobileMenuOpen(false)} className={`text-lg font-medium transition-colors ${pathname === "/about" ? "text-[#F58220]" : "text-foreground hover:text-[#F58220]"}`}>About RSS</Link>

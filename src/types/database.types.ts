@@ -1906,6 +1906,10 @@ export type Database = {
             }
         }
         Functions: {
+            live_promotion_campaigns: {
+                Args: Record<PropertyKey, never>
+                Returns: Json
+            }
             cast_cook_off_vote: {
                 Args: {
                     p_entry_id: string
