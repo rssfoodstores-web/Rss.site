@@ -20,7 +20,7 @@ export function PromotionPlacement({ placement, fallback = null }: { placement: 
         return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
     }, [])
     const entries = campaigns.flatMap(campaign => campaign.media.filter(asset => asset.placements.includes(placement))
-        .map(asset => ({ asset, campaign }))).slice(0, 3)
+        .map(asset => ({ asset, campaign })))
     if (!entries.length) return fallback
     return <section aria-label="Promotions" className="w-full min-w-0 space-y-3">
         {entries.map(({ asset, campaign }) => <PromotionAsset key={`${campaign.id}-${asset.id}`} asset={asset} href={`/promotions/${campaign.id}`} />)}
