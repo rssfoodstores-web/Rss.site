@@ -1,24 +1,12 @@
 "use client"
 
-import { useEffect, useState, type ReactNode } from 'react'
-import { createPublicStorefrontClient } from '@/lib/supabase/client'
-import type { PromotionCampaign, PromotionPlacement as Placement } from '@/lib/promotionMedia'
+import { type ReactNode } from 'react'
+import type { PromotionPlacement as Placement } from '@/lib/promotionMedia'
+import { useLivePromotions } from '@/hooks/useLivePromotions'
 import { PromotionAsset } from './PromotionAsset'
 
 export function PromotionPlacement({ placement, fallback = null }: { placement: Placement; fallback?: ReactNode }) {
-    const [campaigns, setCampaigns] = useState<PromotionCampaign[]>([])
-    useEffect(() => {
-        const supabase = createPublicStorefrontClient()
-        let active = true
-        const refresh = async () => {
-            const { data, error } = await supabase.rpc('live_promotion_campaigns')
-            if (active && !error) setCampaigns((data ?? []) as PromotionCampaign[])
-        }
-        void refresh()
-        const timer = window.setInterval(() => { if (!document.hidden) void refresh() }, 20000)
-        window.addEventListener('focus', refresh)
-        return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
-    }, [])
+    const campaigns = useLivePromotions()
     const entries = campaigns.flatMap(campaign => campaign.media.filter(asset => asset.placements.includes(placement))
         .map(asset => ({ asset, campaign })))
     if (!entries.length) return fallback
