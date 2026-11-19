@@ -14,7 +14,7 @@ export default async function PromotionPage({ params }: { params: Promise<{ id: 
     return <main className="mx-auto max-w-4xl space-y-5 px-4 py-8">
         <Link href="/promotions" className="inline-flex min-h-11 items-center text-orange-600">← All promotions</Link>
         <h1 className="text-3xl font-bold">{campaign.name}</h1>
-        {campaign.media[0] && <PromotionAsset asset={{ ...campaign.media[0], clickable: false }} />}
+        {campaign.media[0] && <PromotionAsset asset={campaign.media[0]} />}
         <p className="whitespace-pre-wrap text-muted-foreground">{campaign.description}</p>
         <Link href="/retail" className="inline-flex min-h-11 items-center rounded-lg bg-orange-500 px-5 font-semibold text-gray-950">Browse products</Link>
     </main>
