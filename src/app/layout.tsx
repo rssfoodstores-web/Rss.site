@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import Providers from "@/components/Providers";
 import { Header } from "@/components/layout/Header";
+import { PromotionPlacement } from "@/components/promotions/PromotionPlacement";
 import { Footer } from "@/components/layout/Footer";
 import { CategoryProvider } from "@/context/CategoryContext";
 import Script from "next/script";
@@ -51,6 +52,7 @@ export default function RootLayout({
               <Suspense fallback={null}>
                 <Header />
               </Suspense>
+              <PromotionPlacement placement="site_banner" />
               <main className="flex-1">
                 {children}
               </main>

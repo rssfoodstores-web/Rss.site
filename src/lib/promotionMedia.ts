@@ -1,4 +1,5 @@
 export const promotionPlacements = {
+    site_banner: 'All pages · site-wide banner',
     home_hero: 'Homepage hero',
     product_inline: 'Between products',
     customer_overview: 'Customer overview notice',

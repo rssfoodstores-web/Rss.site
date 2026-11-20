@@ -11,6 +11,6 @@ export function PromotionPlacement({ placement, fallback = null }: { placement: 
         .map(asset => ({ asset, campaign })))
     if (!entries.length) return fallback
     return <section aria-label="Promotions" className="w-full min-w-0 space-y-3">
-        {entries.map(({ asset, campaign }) => <PromotionAsset key={`${campaign.id}-${asset.id}`} asset={asset} href={`/promotions/${campaign.id}`} />)}
+        {entries.map(({ asset, campaign }) => <PromotionAsset key={`${campaign.id}-${asset.id}`} asset={asset} compact={placement === 'site_banner'} href={`/promotions/${campaign.id}`} />)}
     </section>
 }
