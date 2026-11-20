@@ -6,8 +6,14 @@ import { customerModuleAction } from '@/app/promotions/module-actions'
 import { moduleRuleDescriptions, type ModulePackage, type ModuleState } from '@/lib/promotionModule'
 import { ModuleFrame } from './ModuleFrame'
 import { Button } from '@/components/ui/button'
+import { EventTicket } from './EventTicket'
 
 export function CustomerModule({ campaignId, module }: { campaignId: string; module: Omit<ModulePackage,'admin'> }) {
+    if (module.settings.eventTickets === true) return <EventTicket campaignId={campaignId} />
+    return <StandardModule campaignId={campaignId} module={module} />
+}
+
+function StandardModule({ campaignId, module }: { campaignId: string; module: Omit<ModulePackage,'admin'> }) {
     const router = useRouter()
     const [state, setState] = useState<ModuleState | null>(null)
     const [error, setError] = useState('')
