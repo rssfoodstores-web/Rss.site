@@ -8,8 +8,8 @@ import { ModuleFrame } from './ModuleFrame'
 import { Button } from '@/components/ui/button'
 import { EventTicket } from './EventTicket'
 
-export function CustomerModule({ campaignId, module }: { campaignId: string; module: Omit<ModulePackage,'admin'> }) {
-    if (module.settings.eventTickets === true) return <EventTicket campaignId={campaignId} />
+export function CustomerModule({ campaignId, campaignName, module }: { campaignId: string; campaignName: string; module: Omit<ModulePackage,'admin'> }) {
+    if (module.settings.eventTickets === true) return <EventTicket campaignId={campaignId} campaignName={campaignName} />
     return <StandardModule campaignId={campaignId} module={module} />
 }
 
