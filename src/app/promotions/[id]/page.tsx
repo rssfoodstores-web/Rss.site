@@ -15,7 +15,7 @@ export default async function PromotionPage({ params }: { params: Promise<{ id: 
     if (moduleData) {
         const promotionModule = moduleData as { name: string; package: Omit<ModulePackage,'admin'> }
         return <main className="mx-auto max-w-5xl space-y-5 px-4 py-6"><Link href="/promotions" className="inline-flex min-h-11 items-center text-orange-600">← All promotions</Link>
-            <h1 className="text-2xl font-bold">{promotionModule.name}</h1><CustomerModule campaignId={id} module={promotionModule.package} /></main>
+            <h1 className="text-2xl font-bold">{promotionModule.name}</h1><CustomerModule campaignId={id} campaignName={promotionModule.name} module={promotionModule.package} /></main>
     }
     const { data, error } = await supabase.rpc('live_promotion_campaigns')
     if (error) return <main className="mx-auto max-w-4xl p-6"><p role="alert">This promotion could not load. Please try again.</p></main>
