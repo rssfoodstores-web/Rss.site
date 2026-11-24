@@ -11,11 +11,12 @@ import {
     Clock3,
     Gift,
     History,
+    Link2,
     LayoutDashboard,
-    LayoutGrid,
     Lock,
     LogOut,
     MapPin,
+    Menu,
     MessageSquare,
     RefreshCcw,
     ShoppingBag,
@@ -23,7 +24,6 @@ import {
     Trophy,
     Truck,
     User,
-    Users,
     Wallet,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -67,10 +67,9 @@ interface NavSection {
 
 const accountItems: NavItem[] = [
     { label: "My Account", href: "/account", icon: User },
-    { label: "Personal details", href: "/account/profile", icon: User },
-    { label: "Delivery Addresses", href: "/account/address", icon: MapPin },
+    { label: "Edit Profile", href: "/account/profile", icon: User },
     { label: "Order History", href: "/account/orders", icon: RefreshCcw },
-    { label: "My Referrals", href: "/account/referrals", icon: Users },
+    { label: "Affiliate link", href: "/account/referrals", icon: Link2 },
     { label: "My Cook-Off", href: "/account/cook-off", icon: Trophy },
     { label: "My Gift Card", href: "/account/gift-card", icon: Gift },
     { label: "My Rewards", href: "/account/rewards", icon: Trophy },
@@ -92,8 +91,8 @@ const workspaceItems: Record<WorkspaceRole, NavItem[]> = {
         { label: "History", href: "/agent/history", icon: History },
     ],
     rider: [
-        { label: "Deliveries", href: "/rider", icon: Truck },
-        { label: "Rider Overview", href: "/rider/overview", icon: LayoutDashboard },
+        { label: "Rider Overview", href: "/rider", icon: LayoutDashboard },
+        { label: "Deliveries", href: "/rider/deliveries", icon: Truck },
     ],
 }
 
@@ -200,12 +199,9 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
             (["merchant", "agent", "rider"] as const).filter((role) => workspaceStatuses[role] === "approved"),
         [workspaceStatuses]
     )
-    const shopperOnly = !["merchant", "agent", "rider", "admin", "sub_admin", "supa_admin"].some((role) => roleSet.has(role))
     const visibleAccountItems = useMemo(
-        () => accountItems.filter((item) => shopperOnly
-            ? ["/account", "/account/profile", "/account/address", "/account/orders"].includes(item.href)
-            : item.href !== "/account/password" || canUpdateAccountPassword(user)),
-        [shopperOnly, user]
+        () => accountItems.filter((item) => item.href !== "/account/password" || canUpdateAccountPassword(user)),
+        [user]
     )
 
     const withNotificationBadge = useCallback((item: NavItem): NavItem => {
@@ -242,9 +238,13 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                 matchHrefs: messageMatchHrefs.filter((href) => href !== messagesHref),
             },
             { label: "Wallet", href: "/account/wallet", icon: Wallet },
-            ...(!shopperOnly ? [{ label: "Notifications", href: "/account/notifications", icon: Bell }] : []),
+            {
+                label: "Notifications",
+                href: "/account/notifications",
+                icon: Bell,
+            },
         ]
-    }, [approvedRoles, pathname, shopperOnly])
+    }, [approvedRoles, pathname])
 
     const sections = useMemo<NavSection[]>(
         () => [
@@ -296,31 +296,23 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
     const mobileSwipeItems = useMemo(() => {
         const uniqueItems = new Map<string, NavItem>()
 
-        for (const item of activeSection?.items ?? []) {
-            uniqueItems.set(item.href, item)
+        for (const section of sections) {
+            for (const item of section.items) {
+                uniqueItems.set(item.href, item)
+            }
         }
 
         return Array.from(uniqueItems.values())
-    }, [activeSection])
+    }, [sections])
 
     useEffect(() => {
-        const nav = mobileNavRef.current
-        const activeChip = nav?.querySelector<HTMLElement>('[data-active-nav="true"]')
-
-        if (!nav || !activeChip) return
-
-        const navRect = nav.getBoundingClientRect()
-        const chipRect = activeChip.getBoundingClientRect()
-        const centeredScrollLeft = nav.scrollLeft + chipRect.left - navRect.left - (nav.clientWidth - chipRect.width) / 2
-        const maxScrollLeft = Math.max(nav.scrollWidth - nav.clientWidth, 0)
-
-        // Scroll only the quick-link strip. Element.scrollIntoView can move the
-        // entire document horizontally on narrow mobile screens.
-        nav.scrollTo({
-            left: Math.min(Math.max(centeredScrollLeft, 0), maxScrollLeft),
-            behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        const activeChip = mobileNavRef.current?.querySelector<HTMLElement>('[data-active-nav="true"]')
+        activeChip?.scrollIntoView({
+            behavior: "smooth",
+            block: "nearest",
+            inline: "center",
         })
-    }, [mobileSwipeItems, pathname])
+    }, [pathname])
 
     const handleLogout = async () => {
         if (isLoggingOut) {
@@ -432,14 +424,14 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
         <>
             <div
                 className={cn(
-                    "min-w-0 max-w-full overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 lg:hidden",
+                    "rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 lg:hidden",
                     className
                 )}
             >
                 <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                         <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-gray-400 dark:text-gray-500">
-                            Account & workspace
+                            Account menu
                         </p>
                         <div className="mt-2 flex min-w-0 items-center gap-3">
                             {activeItem ? (
@@ -452,7 +444,7 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                                     {showLoadingSkeleton ? "Loading navigation..." : activeItem?.label ?? "Browse your account"}
                                 </p>
                                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                                    Account tools and role workspaces
+                                    {activeSection?.title ?? "Wallet, orders, notifications, and workspaces"}
                                 </p>
                             </div>
                         </div>
@@ -463,18 +455,17 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                             <Button
                                 type="button"
                                 variant="outline"
-                                aria-label="Browse all account pages"
-                                className="h-11 shrink-0 rounded-xl border-gray-200 px-3 font-semibold dark:border-zinc-700 sm:px-4"
+                                className="h-11 shrink-0 rounded-xl border-gray-200 px-4 font-semibold dark:border-zinc-700"
                             >
-                                <LayoutGrid className="mr-2 h-4 w-4" />
-                                Browse
+                                <Menu className="mr-2 h-4 w-4" />
+                                Open
                             </Button>
                         </SheetTrigger>
                         <SheetContent side="left" className="w-[92vw] max-w-sm overflow-y-auto p-0">
                             <SheetHeader className="border-b border-gray-100 px-5 py-5 dark:border-zinc-800">
-                                <SheetTitle>All account pages</SheetTitle>
+                                <SheetTitle>Account navigation</SheetTitle>
                                 <SheetDescription>
-                                    Use the quick links for common pages, or choose a section below to browse everything available to you.
+                                    Jump between your account pages, shared tools, and any approved workspace pages.
                                 </SheetDescription>
                             </SheetHeader>
 
@@ -501,9 +492,8 @@ export function ProfileSidebar({ className }: ProfileSidebarProps) {
                 {!showLoadingSkeleton && mobileSwipeItems.length > 0 ? (
                     <div
                         ref={mobileNavRef}
-                        role="navigation"
-                        aria-label="Quick links for this section"
-                        className="mt-4 flex min-w-0 max-w-full snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain px-0.5 pb-1 scroll-smooth touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                        aria-label="Swipeable account navigation"
+                        className="mt-4 flex snap-x snap-mandatory gap-2 overflow-x-auto px-0.5 pb-1 scroll-smooth touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                     >
                         {mobileSwipeItems.map((item) => {
                             const isActive = isItemActive(pathname, item)
