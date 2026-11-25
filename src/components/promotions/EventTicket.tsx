@@ -35,6 +35,7 @@ export function EventTicket({ campaignId, campaignName }: { campaignId: string; 
         return [
             `RSS Foods · ${campaignName} Ticket`,
             state?.name ? `Ticket holder: ${state.name}` : '',
+            state?.email ? `Sign-in email: ${state.email}` : '',
             `Ticket reference: ${ticket.id}`,
             `Status at export: ${ticket.usedAt ? 'Used' : 'Not used'}`,
             'RSS staff verify the ticket status and signed-in account at the event.',
